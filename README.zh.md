@@ -34,8 +34,8 @@
 dsh plugin --profile web add @deepseek-ai/dsh-llm-billing @deepseek-ai/dsh-client-ui-billing
 ```
 
-> 在包发布到 npm 之前，先从本仓库安装：
-> `dsh plugin --profile web add github:<owner>/DeepSeek-Harness-billing-plugin`。
+> 这两个包位于本仓库的 `packages/` 工作区内；需要先把它们发布到 npm
+> （`@deepseek-ai` 或你自己的 scope），`dsh plugin add` 才能从 registry 解析。
 
 ### 2. 接进组合
 

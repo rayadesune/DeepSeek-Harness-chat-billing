@@ -34,8 +34,9 @@ Install the two packages into a profile, wire them into the composition, and set
 dsh plugin --profile web add @deepseek-ai/dsh-llm-billing @deepseek-ai/dsh-client-ui-billing
 ```
 
-> Before the packages are published to npm, install from this repo instead:
-> `dsh plugin --profile web add github:<owner>/DeepSeek-Harness-billing-plugin`.
+> The packages live in this repo's `packages/` workspace; publish them to npm
+> (under `@deepseek-ai` or your own scope) before `dsh plugin add` can resolve
+> them from the registry.
 
 ### 2. Wire them into the composition
 
