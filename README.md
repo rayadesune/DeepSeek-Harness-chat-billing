@@ -11,6 +11,7 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 - **Session-header badge** — remaining balance (`剩余额度：¥X`) plus "how many more tasks the current model can run".
 - **Detail panel** — per-model rows: remaining tasks, or "no usage recorded" / "less than 1 task left, time to top up".
 - **Refresh** — re-pull the balance and re-fold usage on demand.
+<img width="652" height="348" alt="image" src="https://github.com/user-attachments/assets/6a70df86-9228-41b3-935b-3dda74188bb5" />
 
 ## Packages
 
