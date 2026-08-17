@@ -39,7 +39,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/WilliamLIiii/DeepSeek-Harness-billing-plugin.git",
+    "url": "git+https://github.com/rayadesune/DeepSeek-Harness-chat-billing.git",
     "directory": "packages/ui-billing"
   },
   "publishConfig": {
