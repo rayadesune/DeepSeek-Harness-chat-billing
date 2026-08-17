@@ -16,7 +16,7 @@ Add the plugin to a composition (a `cordis.yml` row) and give it a credential. I
     # baseURL: https://api.deepseek.com
 ```
 
-The plugin registers the `billing` Remote with two methods: `getBalance()` (the parsed `/user/balance` snapshot) and `getEstimate()` (the balance plus one remaining-task projection per configured model). The estimate is a conversion, not a billing promise: it divides the CNY balance by each model's historical per-session average billed tokens priced at the current peak/off-peak rate.
+The plugin registers the `billing` Remote with three methods: `getBalance()` (the parsed `/user/balance` snapshot), `getEstimate()` (the balance plus one remaining-task projection per configured model), and `getSessionSpend(sessionId)` (one session's billed cost). The estimate is a conversion, not a billing promise: it divides the CNY balance by each model's historical per-session average billed tokens priced at the current peak/off-peak rate. The session spend prices each `assistant/message` event's billed tokens (cache-hit input, cache-miss input including cache writes, and output including reasoning) at the official rate of the event's own Beijing-time peak/off-peak hour, then sums per model.
 
 ## Configuration
 

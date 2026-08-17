@@ -1,15 +1,14 @@
 # DeepSeek Harness 计费插件
 
+一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，在 Web 会话头部直接显示你的 **DeepSeek 账户余额**，以及**当前会话（本轮对话）的花费**。
 
-一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，在 Web 会话头部直接显示你的 **DeepSeek 账户余额**，以及**大概还能跑多少个任务**。
-
-> 余额是 `GET /user/balance` 的真实数字；「还能跑多少任务」是估算值，不是计费承诺。
+> 余额是 `GET /user/balance` 的真实数字；会话花费是按官方峰/谷单价对每条消息的计费 token 逐条计价的结果，不是计费承诺。
 
 ## 显示什么
 
-- **会话头部徽标** —— 剩余余额（`剩余额度：¥X`）加上「按当前模型预计还能跑多少任务」。
-- **详情面板** —— 每个模型一行：还能跑多少任务，或「暂无消耗记录」/「按消耗能跑不足 1 个任务，该充钱了」。
-- **刷新** —— 按需重新拉取余额并重新折叠用量。
+- **会话头部徽标** —— 两行：剩余余额（`剩余额度：¥X`）＋ 本轮对话的计费花费（`本轮对话花费：¥X`）。
+- **详情面板** —— 剩余金额、本会话花费，以及每个模型一行的花费分项（`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`），外加手动刷新按钮与花费说明。
+- **失败与空态** —— 会话没有可计价消耗时显示「暂无消耗记录」而不是编造数字；未配置 key、凭据被拒或传输错误时显示弱化的「额度不可用」，其提示携带 Remote 自己的错误信息。
 
 ## 显示样式
 <img width="652" height="348" alt="image" src="https://github.com/user-attachments/assets/6a70df86-9228-41b3-935b-3dda74188bb5" />
@@ -19,8 +18,8 @@
 
 | 包 | 侧 | 作用 |
 | --- | --- | --- |
-| [`packages/llm-billing`](packages/llm-billing) —— `@deepseek-ai/dsh-llm-billing` | 主机端 | 负责 `/user/balance` 传输、跨会话的每模型 token 折叠、峰/谷计价表。对外暴露 `billing` Remote（`getBalance`、`getEstimate`）。 |
-| [`packages/ui-billing`](packages/ui-billing) —— `@deepseek-ai/dsh-client-ui-billing` | 浏览器端 | 自己挂载 `billing` Remote，并贡献会话头部徽标。 |
+| [`packages/llm-billing`](packages/llm-billing) —— `@deepseek-ai/dsh-llm-billing` | 主机端 | 负责 `/user/balance` 传输、跨会话的每模型 token 折叠、峰/谷计价表。对外暴露 `billing` Remote（`getBalance`、`getEstimate`、`getSessionSpend`）。 |
+| [`packages/ui-billing`](packages/ui-billing) —— `@deepseek-ai/dsh-client-ui-billing` | 浏览器端 | 自己挂载 `billing` Remote，并贡献会话头部徽标与详情面板。 |
 
 ## 前置条件
 
@@ -80,20 +79,20 @@ dsh web
 | `billing.peakHours` | 09:00–12:00、14:00–18:00（北京） | 高峰时段窗口；其余时段为低谷。 |
 | `billing.models` | 官方 V4 费率 | 每个模型的峰/谷单价行（`cacheHitInput`、`cacheMissInput`、`output`，单位：元/百万 token）。 |
 
-### 估算是怎么算的
+## 会话花费是怎么算的
 
-- **1 个任务 = 1 次会话。** 所有可达会话（在线 + 已持久化）按会话 id 去重后各折叠一次。
-- 每个模型累计三个计费 token 桶：**缓存命中输入**、**未命中输入**（未缓存输入 + 缓存写入）、**输出**（含推理）。
-- 每模型的「平均每次会话消耗」按**当前峰/谷时段单价**折算，得到平均每任务费用。
-- `还能跑多少 = floor(人民币余额 ÷ 平均每任务费用)`。没有历史、没有费率行、或非人民币余额的模型不给出估算。
+- 每条 `assistant/message` 事件报告三个计费 token 桶：**缓存命中输入**、**未命中输入**（未缓存输入 + 缓存写入）、**输出**（含推理）。
+- 每条消息按其**发生时刻（北京时间）**所在的峰/谷时段单价计价，三个桶分别计费（`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`），再按模型汇总。
+- 没有费率行的模型不计入（内置价目表目前只含两个 V4 行）。计费按 DeepSeek **8 月 17 日实行**的费率（北京时间峰/谷时段）。
 
-计费按 DeepSeek **8 月 17 日实行**的费率（北京时间峰/谷时段）。
+另外，主机端还提供「按当前模型预计还能跑多少个任务」的换算估算（`getEstimate`）：用人民币余额除以每个模型的历史「每会话平均计费 token × 当前峰/谷单价」，得到 `还能跑多少 = floor(余额 ÷ 平均每任务费用)`。没有历史、没有费率行、或非人民币余额的模型不给出估算。
 
 ## 已知限制
 
-- **仅人民币** —— 估算读取人民币余额行；非人民币余额不给出估算。
-- **按需折叠** —— 每次调用都重新折叠用量，成本随会话数量和日志体积增长。
-- **是估算，不是承诺** —— 它用历史平均消耗去换算余额；实际计费以服务商为准。
+- **仅人民币** —— 估算与花费说明读取人民币余额行；非人民币余额不给出估算。
+- **有费率行才计价** —— 会话花费只统计价目表（`billing.models`）里有的模型。
+- **仅手动刷新** —— 数字是挂载时刻与点击刷新时的点快照，不会在长会话中自动跟随余额变化。
+- **是估算，不是承诺** —— 会话花费按官方单价对 token 计价、剩余任务用历史平均消耗换算；实际计费以服务商为准。
 
 ## 许可证
 

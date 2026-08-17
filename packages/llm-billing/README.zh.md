@@ -16,7 +16,7 @@
     # baseURL: https://api.deepseek.com
 ```
 
-插件注册 `billing` Remote，含两个方法：`getBalance()`（解析后的 `/user/balance` 快照）与 `getEstimate()`（余额加每个已配置模型的一条剩余任务估算）。估算是换算，不是计费承诺：用人民币余额除以每个模型的历史「每会话平均计费 token × 当前峰/谷单价」。
+插件注册 `billing` Remote，含三个方法：`getBalance()`（解析后的 `/user/balance` 快照）、`getEstimate()`（余额加每个已配置模型的一条剩余任务估算）与 `getSessionSpend(sessionId)`（单个会话的计费花费）。估算是换算，不是计费承诺：用人民币余额除以每个模型的历史「每会话平均计费 token × 当前峰/谷单价」。会话花费把每条 `assistant/message` 事件的计费 token（缓存命中输入、含缓存写入的未命中输入、含推理的输出）按事件自身发生时刻（北京时间）所在的峰/谷单价计价，再按模型汇总。
 
 ## 配置
 

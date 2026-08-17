@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-billing",
-  "description": "Session-header DeepSeek account balance badge over the billing Remote",
+  "description": "Session-header DeepSeek account-balance and conversation-spend badge over the billing Remote",
   "version": "0.1.0-rc.5",
   "type": "module",
   "main": "lib/index.js",
@@ -27,7 +27,6 @@
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-model-selection",
         "@deepseek-ai/dsh-client-ui-primitives"
       ],
       "platform": "web"
@@ -54,7 +53,6 @@
     "@deepseek-ai/dsh-client-locale": "*",
     "@deepseek-ai/dsh-client-runtime": "*",
     "@deepseek-ai/dsh-client-ui-conversation": "*",
-    "@deepseek-ai/dsh-client-ui-model-selection": "*",
     "@deepseek-ai/dsh-client-ui-primitives": "*",
     "@deepseek-ai/dsh-client-ui-slots": "*",
     "@deepseek-ai/dsh-invariants": "*",
@@ -66,7 +64,6 @@
     "@deepseek-ai/dsh-client-runtime": "*",
     "@deepseek-ai/dsh-client-test-runtime": "*",
     "@deepseek-ai/dsh-client-ui-conversation": "*",
-    "@deepseek-ai/dsh-client-ui-model-selection": "*",
     "@deepseek-ai/dsh-client-ui-primitives": "*",
     "@deepseek-ai/dsh-client-ui-slots": "*",
     "@deepseek-ai/dsh-invariants": "*",

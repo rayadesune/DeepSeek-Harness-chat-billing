@@ -5,6 +5,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { LlmError } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from '../src/balance.ts'
@@ -31,6 +32,23 @@ const VALID_ESTIMATE: DeepSeekBillingEstimate = {
     sessionCount: 2,
     totalTokens: 2000,
     avgTokensPerTask: 1000,
+  }],
+}
+
+const VALID_SPEND = {
+  total: 0.31,
+  models: [{
+    model: 'deepseek-v4-flash',
+    displayName: 'DeepSeek-V4-Flash',
+    cost: 0.31,
+    peakCost: 0.31,
+    offPeakCost: 0,
+    cacheHitInputTokens: 1000,
+    cacheMissInputTokens: 100000,
+    outputTokens: 20000,
+    cacheHitInputCost: 0.01,
+    cacheMissInputCost: 0.20,
+    outputCost: 0.10,
   }],
 }
 
@@ -118,15 +136,17 @@ describe('DeepSeekBalanceGateway', () => {
   const options = {
     fetchBalance: async () => VALID_PUBLIC,
     fetchEstimate: async () => VALID_ESTIMATE,
+    fetchSessionSpend: async () => VALID_SPEND,
   }
 
-  it('registers under the billing namespace and exports getBalance and getEstimate', () => {
+  it('registers under the billing namespace and exports getBalance, getEstimate, and getSessionSpend', () => {
     const ctx = new Context()
     const gateway = new DeepSeekBalanceGateway(ctx, options)
     expect(gateway.typertRemote.namespace).toBe('billing')
     const methods = remoteMethods(gateway).map(marker => marker.exportName ?? marker.method)
     expect(methods).toContain('getBalance')
     expect(methods).toContain('getEstimate')
+    expect(methods).toContain('getSessionSpend')
     expect(ctx.get('billing')).toBeDefined()
   })
 
@@ -135,6 +155,7 @@ describe('DeepSeekBalanceGateway', () => {
     const gateway = new DeepSeekBalanceGateway(ctx, options)
     await expect(gateway.getBalance()).resolves.toEqual(VALID_PUBLIC)
     await expect(gateway.getEstimate()).resolves.toEqual(VALID_ESTIMATE)
+    await expect(gateway.getSessionSpend('session-1' as SessionId)).resolves.toEqual(VALID_SPEND)
   })
 
   it('is root-visible when constructed inside a plugin fiber', async () => {

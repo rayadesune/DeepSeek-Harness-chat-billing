@@ -3,8 +3,8 @@
  * plugin. It resolves the DeepSeek endpoint and API key from its own config and
  * the credential/environment seams, folds per-model billed-token usage across
  * reachable sessions, prices the historical average with the peak/off-peak
- * table, and exposes both through the `billing` Remote (`getBalance` and
- * `getEstimate`).
+ * table, and exposes the `billing` Remote (`getBalance`, `getEstimate`, and
+ * the per-session `getSessionSpend`).
  * @module @deepseek-ai/dsh-llm-billing
  */
 
@@ -13,11 +13,12 @@ import z from '@deepseek-ai/schemastery'
 import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
-import type {} from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance } from './balance.ts'
 import {
   computeModelEstimates,
+  computeSessionSpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
   foldSessionUsage,
@@ -25,11 +26,12 @@ import {
   resolveBilling,
 } from './billing.ts'
 import type { BillingConfig, BillingConfigModel, PerModelUsage } from './billing.ts'
-import type { DeepSeekBalance, DeepSeekBillingEstimate } from './types.ts'
+import type { DeepSeekBalance, DeepSeekBillingEstimate, DeepSeekSessionSpend } from './types.ts'
 
 export { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from './balance.ts'
 export {
   computeModelEstimates,
+  computeSessionSpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
   foldSessionUsage,
@@ -148,6 +150,29 @@ async function collectModelUsage(ctx: Context): Promise<PerModelUsage> {
 }
 
 /**
+ * Read one session's event log: the live SessionStore first, then the
+ * persistence backend for a flushed session.
+ * @param ctx - plugin context carrying the SessionStore and optional persistence.
+ * @param sessionId - the session to read.
+ * @returns the session's complete event log.
+ * @throws {@link LlmError} with code `NOT_FOUND` when the session is unknown.
+ */
+async function sessionEvents(ctx: Context, sessionId: SessionId): Promise<readonly SessionEvent[]> {
+  const sessions = ctx.get('sessions')
+  const live = sessions?.get(sessionId)
+  if (live !== undefined) return live.events
+  const persistence = ctx.get('sessionPersistence')
+  if (persistence !== undefined) {
+    for (const header of await persistence.list()) {
+      if (header.id !== sessionId) continue
+      const inspection = await persistence.inspect(sessionId)
+      return inspection.events
+    }
+  }
+  throw new LlmError(`llm-billing: session ${sessionId} not found`, 'NOT_FOUND')
+}
+
+/**
  * Register the `billing` Remote under the `billing` namespace.
  * @param ctx - owning plugin context.
  * @param config - validated plugin config.
@@ -188,5 +213,11 @@ export function apply(ctx: Context, config: Config): void {
     return { balance, models: computeModelEstimates(balance, usage, billing, new Date(), catalog) }
   }
 
-  new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchEstimate })
+  const fetchSessionSpend = async (sessionId: SessionId): Promise<DeepSeekSessionSpend> => {
+    const billing = resolveBilling(config.billing)
+    const catalog = (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id }))
+    return computeSessionSpend(await sessionEvents(ctx, sessionId), billing, catalog)
+  }
+
+  new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchEstimate, fetchSessionSpend })
 }

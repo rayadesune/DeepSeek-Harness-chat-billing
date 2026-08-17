@@ -6,7 +6,6 @@ import type {} from '@deepseek-ai/dsh-llm-billing/remote'
 import type { TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import { BalanceBadge, type BalanceBadgeInjected } from './BalanceBadge.tsx'
 import { en, NS, zh, type BillingKey } from './locales.ts'
 
@@ -21,7 +20,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Services required for locale registration, the Remote face, and the header slot. */
-export const inject = ['slots', 'locale', 'remote', 'modelDirectories']
+export const inject = ['slots', 'locale', 'remote']
 
 /** The mounted `billing` namespace surface, selected from the generated Remote map. */
 type BillingNamespace = TypertRemoteNamespaceMap['billing']
@@ -52,22 +51,12 @@ export async function apply(ctx: ClientContext): Promise<void> {
       }
       return result.value
     },
-    getCurrentModel: (sessionId) => {
-      try {
-        return ctx.modelDirectories.directoryFor(sessionId).store.getSnapshot().current?.model ?? null
-      } catch {
-        // A subagent or unknown session has no addressable model directory.
-        return null
+    getSessionSpend: async (sessionId) => {
+      const result = await billing.getSessionSpend(sessionId)
+      if (!result.ok) {
+        throw new Error(`billing.getSessionSpend failed: ${result.error.code}: ${result.error.message}`)
       }
-    },
-    subscribeCurrentModel: (sessionId, listener) => {
-      try {
-        const directory = ctx.modelDirectories.directoryFor(sessionId)
-        if (directory.store.getSnapshot().status === 'idle') void directory.load().catch(() => undefined)
-        return directory.store.subscribe(listener)
-      } catch {
-        return () => {}
-      }
+      return result.value
     },
   })
 

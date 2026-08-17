@@ -7,7 +7,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { DeepSeekBalance, DeepSeekModelEstimate } from './types.ts'
+import type { DeepSeekBalance, DeepSeekModelEstimate, DeepSeekSessionSpend } from './types.ts'
 
 /** One token price point, in CNY per 1M tokens. */
 export interface DeepSeekTokenPrice {
@@ -254,4 +254,91 @@ export function computeModelEstimates(
       avgTokensPerTask,
     }
   })
+}
+
+/** Running per-model spend accumulation for {@link computeSessionSpend}. */
+interface SessionSpendRow {
+  cacheHitInputTokens: number
+  cacheMissInputTokens: number
+  outputTokens: number
+  cost: number
+  peakCost: number
+  offPeakCost: number
+  cacheHitInputCost: number
+  cacheMissInputCost: number
+  outputCost: number
+}
+
+/**
+ * Price one session's billed usage at the official per-model rates, applying
+ * the peak/off-peak table per event by its Beijing-time hour. Each
+ * `assistant/message` event with usage contributes cache-hit input, cache-miss
+ * input (uncached input plus cache writes), and output (reasoning included)
+ * tokens at the rate of its own timestamp, with the three component costs
+ * carried separately; a model with usage but no pricing row is omitted (the
+ * published table prices only the two V4 rows).
+ * @param events - one session's complete event log.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param catalog - model display rows, in presentation order.
+ * @returns the session's total cost plus one row per priced model.
+ */
+export function computeSessionSpend(
+  events: readonly SessionEvent[],
+  billing: ResolvedBilling,
+  catalog: readonly { id: string; name: string }[],
+): DeepSeekSessionSpend {
+  const names = new Map(catalog.map(model => [model.id, model.name]))
+  const rows = new Map<string, SessionSpendRow>()
+  for (const event of events) {
+    if (event.type !== 'assistant/message') continue
+    const reported = event.data.usage
+    if (reported === undefined) continue
+    const model = event.data.message.source.model
+    const pricing = billing.models.get(model)
+    if (pricing === undefined) continue
+    const peak = isPeak(billing, new Date(event.time))
+    const price = peak ? pricing.peak : pricing.offPeak
+    const hit = reported.cacheReadTokens ?? 0
+    const miss = reported.inputTokens + (reported.cacheWriteTokens ?? 0)
+    const output = reported.outputTokens
+    const hitCost = (hit * price.cacheHitInput) / 1_000_000
+    const missCost = (miss * price.cacheMissInput) / 1_000_000
+    const outputCost = (output * price.output) / 1_000_000
+    const cost = hitCost + missCost + outputCost
+    let row = rows.get(model)
+    if (row === undefined) {
+      row = {
+        cacheHitInputTokens: 0, cacheMissInputTokens: 0, outputTokens: 0,
+        cost: 0, peakCost: 0, offPeakCost: 0,
+        cacheHitInputCost: 0, cacheMissInputCost: 0, outputCost: 0,
+      }
+      rows.set(model, row)
+    }
+    row.cacheHitInputTokens += hit
+    row.cacheMissInputTokens += miss
+    row.outputTokens += output
+    row.cost += cost
+    row.cacheHitInputCost += hitCost
+    row.cacheMissInputCost += missCost
+    row.outputCost += outputCost
+    if (peak) row.peakCost += cost
+    else row.offPeakCost += cost
+  }
+  const models = [...rows.entries()].map(([model, row]) => ({
+    model,
+    displayName: names.get(model) ?? model,
+    cost: row.cost,
+    peakCost: row.peakCost,
+    offPeakCost: row.offPeakCost,
+    cacheHitInputTokens: row.cacheHitInputTokens,
+    cacheMissInputTokens: row.cacheMissInputTokens,
+    outputTokens: row.outputTokens,
+    cacheHitInputCost: row.cacheHitInputCost,
+    cacheMissInputCost: row.cacheMissInputCost,
+    outputCost: row.outputCost,
+  }))
+  return {
+    total: models.reduce((sum, model) => sum + model.cost, 0),
+    models,
+  }
 }

@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { DeepSeekBillingEstimate } from '@deepseek-ai/dsh-llm-billing/types'
+import type { DeepSeekBillingEstimate, DeepSeekSessionSpend } from '@deepseek-ai/dsh-llm-billing/types'
 import { BalanceBadge, type BalanceBadgeProps } from '../src/client/BalanceBadge.tsx'
 import { zh } from '../src/client/locales.ts'
 
@@ -11,6 +11,23 @@ afterEach(() => {
 })
 
 const t: BalanceBadgeProps['t'] = makeTranslate(zh)
+
+const SPEND: DeepSeekSessionSpend = {
+  total: 0.04,
+  models: [{
+    model: 'deepseek-v4-flash',
+    displayName: 'DeepSeek-V4-Flash',
+    cost: 0.04,
+    peakCost: 0.04,
+    offPeakCost: 0,
+    cacheHitInputTokens: 1000,
+    cacheMissInputTokens: 100000,
+    outputTokens: 20000,
+    cacheHitInputCost: 0.01,
+    cacheMissInputCost: 0.02,
+    outputCost: 0.01,
+  }],
+}
 
 function estimate(over: Partial<DeepSeekBillingEstimate> = {}): DeepSeekBillingEstimate {
   return {
@@ -25,12 +42,11 @@ function estimate(over: Partial<DeepSeekBillingEstimate> = {}): DeepSeekBillingE
 
 function props(
   getEstimate: () => Promise<DeepSeekBillingEstimate>,
-  getCurrentModel: () => string | null = () => 'deepseek-v4-flash',
+  getSessionSpend: () => Promise<DeepSeekSessionSpend> = async () => SPEND,
 ): BalanceBadgeProps {
   return {
     getEstimate,
-    getCurrentModel,
-    subscribeCurrentModel: () => () => {},
+    getSessionSpend,
     sessionId: 'session-1',
     t,
   } as BalanceBadgeProps
@@ -42,47 +58,29 @@ describe('BalanceBadge', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('shows the balance and current-model estimate on the trigger', async () => {
+  it('shows the balance and this conversation spend on the trigger', async () => {
     render(<BalanceBadge {...props(async () => estimate())} />)
     expect(await screen.findByText('剩余额度：¥110.00')).toBeDefined()
-    expect(screen.getByText('按当前模型预计还能跑：73 个任务')).toBeDefined()
+    expect(screen.getByText('本轮对话花费：¥0.04')).toBeDefined()
   })
 
-  it('opens the label box with the amount and one remaining-task line per model', async () => {
+  it('keeps the spend line hidden while the conversation has no priced usage', async () => {
+    render(<BalanceBadge {...props(async () => estimate(), async () => ({ total: 0, models: [] }))} />)
+    expect(await screen.findByText('剩余额度：¥110.00')).toBeDefined()
+    expect(screen.queryByText(/本轮对话花费/)).toBeNull()
+  })
+
+  it('opens the label box with the amount, the spend, and the cache-hit/input/output breakdown', async () => {
     render(<BalanceBadge {...props(async () => estimate())} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     expect(await screen.findByText('API 剩余金额：¥110.00')).toBeDefined()
-    expect(screen.getByText('还能跑 73 个任务')).toBeDefined()
-    expect(screen.getByText('还能跑 12 个任务')).toBeDefined()
+    expect(screen.getByText('本会话花费：¥0.04')).toBeDefined()
+    expect(screen.getByText('DeepSeek-V4-Flash')).toBeDefined()
+    expect(screen.getByText('¥0.04')).toBeDefined()
+    expect(screen.getByText('缓存命中 ¥0.01 · 未命中输入 ¥0.02 · 输出 ¥0.01')).toBeDefined()
   })
 
-  it('shows the no-usage word for a model with no recorded sessions', async () => {
-    const empty = estimate({
-      models: [{ model: 'deepseek-v4-flash', displayName: 'DeepSeek-V4-Flash', tasksRemaining: null, sessionCount: 0, totalTokens: 0, avgTokensPerTask: null }],
-    })
-    render(<BalanceBadge {...props(async () => empty)} />)
-    fireEvent.click(await screen.findByRole('button'))
-    expect(await screen.findByText(zh['stat.none'])).toBeDefined()
-  })
-
-  it('shows the short form on the trigger when the current model has no remaining tasks', async () => {
-    const zero = estimate({
-      models: [{ model: 'deepseek-v4-flash', displayName: 'DeepSeek-V4-Flash', tasksRemaining: 0, sessionCount: 1, totalTokens: 1000, avgTokensPerTask: 1000 }],
-    })
-    render(<BalanceBadge {...props(async () => zero)} />)
-    expect(await screen.findByText(zh['trigger.tasks.short'])).toBeDefined()
-  })
-
-  it('shows the top-up hint in the panel when a model has no remaining tasks', async () => {
-    const zero = estimate({
-      models: [{ model: 'deepseek-v4-pro', displayName: 'DeepSeek-V4-Pro', tasksRemaining: 0, sessionCount: 1, totalTokens: 1000, avgTokensPerTask: 1000 }],
-    })
-    render(<BalanceBadge {...props(async () => zero)} />)
-    fireEvent.click(await screen.findByRole('button'))
-    expect(await screen.findByText(zh['label.tasks.insufficient'])).toBeDefined()
-  })
-
-  it('renders an info button with the estimate disclaimer', async () => {
+  it('renders an info button with the spend disclaimer', async () => {
     render(<BalanceBadge {...props(async () => estimate())} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     expect(await screen.findByRole('button', { name: zh['info.aria'] })).toBeDefined()
@@ -112,5 +110,33 @@ describe('BalanceBadge', () => {
     const usd = estimate({ balance: { isAvailable: true, lines: [{ currency: 'USD', total: '5.00', granted: '0.00', toppedUp: '5.00' }] } })
     render(<BalanceBadge {...props(async () => usd)} />)
     await waitFor(() => { expect(screen.getByText('剩余额度：$5.00')).toBeDefined() })
+  })
+
+  it('shows the no-usage word for a session without priced usage', async () => {
+    render(<BalanceBadge {...props(async () => estimate(), async () => ({ total: 0, models: [] }))} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await screen.findByText(`本会话花费：${zh['stat.none']}`)).toBeDefined()
+  })
+
+  it('trims trailing zeros in the spend amount', async () => {
+    const trimmed: DeepSeekSessionSpend = {
+      total: 0.3,
+      models: [{
+        model: 'deepseek-v4-flash',
+        displayName: 'DeepSeek-V4-Flash',
+        cost: 0.3,
+        peakCost: 0,
+        offPeakCost: 0.3,
+        cacheHitInputTokens: 0,
+        cacheMissInputTokens: 100000,
+        outputTokens: 20000,
+        cacheHitInputCost: 0,
+        cacheMissInputCost: 0.2,
+        outputCost: 0.1,
+      }],
+    }
+    render(<BalanceBadge {...props(async () => estimate(), async () => trimmed)} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await screen.findByText('本会话花费：¥0.3')).toBeDefined()
   })
 })

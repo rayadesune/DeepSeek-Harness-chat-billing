@@ -104,6 +104,27 @@
   font-variant-numeric: tabular-nums;
 }
 
+.spendRow {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 0;
+}
+
+.costRow {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px 6px;
+}
+
+.costBreakdown {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
 .amountActions {
   display: inline-flex;
   align-items: center;

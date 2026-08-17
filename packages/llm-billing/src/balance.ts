@@ -9,10 +9,11 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { LlmError } from '@deepseek-ai/dsh-llm'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
-import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekBillingEstimate } from './types.ts'
+import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekBillingEstimate, DeepSeekSessionSpend } from './types.ts'
 
 /** Map a balance HTTP status to a stable LlmError code. */
 function httpErrorCode(status: number): string {
@@ -107,6 +108,8 @@ export interface DeepSeekBalanceGatewayOptions {
   fetchBalance: () => Promise<DeepSeekBalance>
   /** Compute the full billing estimate (balance plus per-model task projections). */
   fetchEstimate: () => Promise<DeepSeekBillingEstimate>
+  /** Compute one session's billed spend through the plugin's resolved facts. */
+  fetchSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
 }
 
 /**
@@ -144,6 +147,16 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   @Remote('getEstimate')
   getEstimate(): Promise<DeepSeekBillingEstimate> {
     return this.options.fetchEstimate()
+  }
+
+  /**
+   * Read one session's billed spend, priced per event by its peak/off-peak hour.
+   * @param sessionId - the session whose spend to compute.
+   * @returns the session's total cost plus one row per priced model.
+   */
+  @Remote('getSessionSpend')
+  getSessionSpend(sessionId: SessionId): Promise<DeepSeekSessionSpend> {
+    return this.options.fetchSessionSpend(sessionId)
   }
 }
 

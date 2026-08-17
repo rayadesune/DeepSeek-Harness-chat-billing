@@ -1,7 +1,7 @@
-/** Session-header billing badge: balance plus per-model remaining-task estimates. */
+/** Session-header billing badge: balance plus the current conversation's billed spend. */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { DeepSeekBillingEstimate } from '@deepseek-ai/dsh-llm-billing/types'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import type { DeepSeekBillingEstimate, DeepSeekSessionSpend } from '@deepseek-ai/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconChevronDownOutline14, IconQuestionOutline14, IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -11,12 +11,10 @@ import css from './BalanceBadge.module.css'
 
 /** Registration-side Remote face used by the header badge. */
 export interface BalanceBadgeInjected {
-  /** Read the balance plus per-model task projections; rejects with the Remote error message. */
+  /** Read the account balance; rejects with the Remote error message. */
   getEstimate: () => Promise<DeepSeekBillingEstimate>
-  /** Read the session's current model id; null while unknown. */
-  getCurrentModel: (sessionId: SessionId) => string | null
-  /** Subscribe to the session's model directory; loads it lazily and returns an unsubscribe. */
-  subscribeCurrentModel: (sessionId: SessionId, listener: () => void) => () => void
+  /** Read one session's billed spend; rejects with the Remote error message. */
+  getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
 }
 
 /** Full props assembled by the header utilities slot renderer. */
@@ -39,48 +37,54 @@ function primaryLine(estimate: DeepSeekBillingEstimate): { symbol: string; total
   return { symbol: currencySymbol(line.currency), total: line.total }
 }
 
+/** CNY amount, up to four decimals with trailing zeros trimmed. */
+function formatSpend(amount: number): string {
+  return `¥${amount.toFixed(4).replace(/\.?0+$/, '')}`
+}
+
 /**
  * Render the billing badge in the session-header utilities row. The trigger
- * shows the remaining balance and the current model's remaining-task estimate
- * and opens a label box with the amount, a refresh action, an estimate
- * disclaimer, and one remaining-task line per model. Refreshing keeps the last
- * value visible rather than blanking it.
- * @param props - Remote face, current-model access, locale, and the standard session-header runtime share.
+ * shows the remaining balance and this conversation's billed spend and opens
+ * a label box with the amount, this session's spend with its cache-hit /
+ * cache-miss-input / output cost breakdown per model, a refresh action, and a
+ * spend disclaimer. Refreshing keeps the last values visible rather than
+ * blanking them.
+ * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null while the first fetch is in flight.
  */
-export function BalanceBadge({ getEstimate, getCurrentModel, subscribeCurrentModel, sessionId, t }: BalanceBadgeProps) {
+export function BalanceBadge({ getEstimate, getSessionSpend, sessionId, t }: BalanceBadgeProps) {
   const [estimate, setEstimate] = useState<DeepSeekBillingEstimate | null>(null)
+  const [spend, setSpend] = useState<DeepSeekSessionSpend | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [open, setOpen] = useState(false)
   const [request, setRequest] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
-  const currentModel = useSyncExternalStore(
-    listener => subscribeCurrentModel(sessionId, listener),
-    () => getCurrentModel(sessionId),
-  )
 
   useEffect(() => {
     let current = true
-    // A refresh (estimate already present) keeps the previous value on screen;
+    // A refresh (values already present) keeps the previous values on screen;
     // the first load has nothing to keep, so it stays on the loading render.
     setRefreshing(estimate !== null)
-    void Promise.resolve().then(() => getEstimate()).then(
-      (value) => {
-        if (!current) return
-        setEstimate(value)
+    void Promise.resolve().then(async () => {
+      const [estimateResult, spendResult] = await Promise.allSettled([
+        getEstimate(),
+        getSessionSpend(sessionId),
+      ])
+      if (!current) return
+      if (estimateResult.status === 'fulfilled') {
+        setEstimate(estimateResult.value)
         setError(null)
-        setRefreshing(false)
-      },
-      (cause: unknown) => {
-        if (!current) return
+      } else {
         // A refresh failure keeps the last good value instead of blanking it.
+        const cause = estimateResult.reason
         if (estimate === null) setError(cause instanceof Error ? cause.message : String(cause))
-        setRefreshing(false)
-      },
-    )
+      }
+      if (spendResult.status === 'fulfilled') setSpend(spendResult.value)
+      setRefreshing(false)
+    })
     return () => { current = false }
-  }, [getEstimate, request])
+  }, [getEstimate, getSessionSpend, sessionId, request])
 
   // A pointer press outside the label box closes it.
   useEffect(() => {
@@ -108,14 +112,9 @@ export function BalanceBadge({ getEstimate, getCurrentModel, subscribeCurrentMod
 
   const line = primaryLine(estimate)
   const amount = line === undefined ? '—' : `${line.symbol}${line.total}`
-  const currentEstimate = currentModel === null
-    ? undefined
-    : estimate.models.find(model => model.model === currentModel)
-  const tasksLine = currentEstimate === undefined || currentEstimate.tasksRemaining === null
-    ? undefined
-    : currentEstimate.tasksRemaining === 0
-      ? t('trigger.tasks.short')
-      : t('trigger.tasks', { count: currentEstimate.tasksRemaining })
+  const spendLine = spend !== null && spend.models.length > 0
+    ? t('trigger.conversationSpend', { amount: formatSpend(spend.total) })
+    : undefined
 
   return (
     <div ref={rootRef} className={css.root}>
@@ -128,7 +127,7 @@ export function BalanceBadge({ getEstimate, getCurrentModel, subscribeCurrentMod
       >
         <span className={css.triggerLines}>
           <span className={css.linePrimary}>{t('trigger.balance', { amount })}</span>
-          {tasksLine !== undefined && <span className={css.lineSecondary}>{tasksLine}</span>}
+          {spendLine !== undefined && <span className={css.lineSecondary}>{spendLine}</span>}
         </span>
         <IconChevronDownOutline14 className={open ? css.chevronOpen : undefined} />
       </button>
@@ -154,17 +153,31 @@ export function BalanceBadge({ getEstimate, getCurrentModel, subscribeCurrentMod
                 </button>
               </span>
             </div>
-            {estimate.models.map(model => (
-              <div className={css.modelRow} key={model.model}>
-                <span className={css.modelName}>{model.displayName}</span>
-                <span className={css.tasks}>
-                  {model.tasksRemaining === null
+            <div className={css.spendRow}>
+              <span className={css.amountLabel}>{t('label.sessionSpend', {
+                amount: spend === null
+                  ? '—'
+                  : spend.models.length === 0
                     ? t('stat.none')
-                    : model.tasksRemaining === 0
-                      ? t('label.tasks.insufficient')
-                      : t('label.tasks', { count: model.tasksRemaining })}
-                </span>
-              </div>
+                    : formatSpend(spend.total),
+              })}</span>
+            </div>
+            {spend?.models.map(model => (
+              <Fragment key={model.model}>
+                <div className={css.modelRow}>
+                  <span className={css.modelName}>{model.displayName}</span>
+                  <span className={css.tasks}>{formatSpend(model.cost)}</span>
+                </div>
+                <div className={css.costRow}>
+                  <span className={css.costBreakdown}>
+                    {t('label.cost.hit', { amount: formatSpend(model.cacheHitInputCost) })}
+                    {' · '}
+                    {t('label.cost.input', { amount: formatSpend(model.cacheMissInputCost) })}
+                    {' · '}
+                    {t('label.cost.output', { amount: formatSpend(model.outputCost) })}
+                  </span>
+                </div>
+              </Fragment>
             ))}
           </div>
         )
