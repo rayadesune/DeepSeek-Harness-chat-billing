@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Standalone host plugin that turns the DeepSeek account balance and per-model remaining-task estimate into a `billing` Remote. It owns the `/user/balance` transport, the cross-session per-model token fold, and the peak/off-peak pricing table, so a deployment can surface "how much is left, and roughly how many more tasks it buys" without coupling that estimate to the chat-completions adapter. The browser half is [`dsh-client-ui-billing`](../../client/ui-billing/README.md).
+Standalone host plugin that turns the DeepSeek account balance and per-session spend into a `billing` Remote. It owns the `/user/balance` transport, the peak/off-peak pricing table, and the per-session spend pricing, so a deployment can surface "how much is left, and what this session cost" without coupling that to the chat-completions adapter. The browser half is [`dsh-client-ui-billing`](../../client/ui-billing/README.md).
 
 ## Install
 
@@ -16,7 +16,7 @@ Add the plugin to a composition (a `cordis.yml` row) and give it a credential. I
     # baseURL: https://api.deepseek.com
 ```
 
-The plugin registers the `billing` Remote with three methods: `getBalance()` (the parsed `/user/balance` snapshot), `getEstimate()` (the balance plus one remaining-task projection per configured model), and `getSessionSpend(sessionId)` (one session's billed cost). The estimate is a conversion, not a billing promise: it divides the CNY balance by each model's historical per-session average billed tokens priced at the current peak/off-peak rate. The session spend prices each `assistant/message` event's billed tokens (cache-hit input, cache-miss input including cache writes, and output including reasoning) at the official rate of the event's own Beijing-time peak/off-peak hour, then sums per model.
+The plugin registers the `billing` Remote with two methods: `getBalance()` (the parsed `/user/balance` snapshot) and `getSessionSpend(sessionId)` (one session's billed cost). The session spend prices each `assistant/message` event's billed tokens (cache-hit input, cache-miss input including cache writes, and output including reasoning) at the official rate of the event's own Beijing-time peak/off-peak hour, then sums per model.
 
 ## Configuration
 
@@ -40,6 +40,5 @@ None; its only provider call is a credential-authenticated `/user/balance` read,
 
 ## Known Limitations and Deferred Work
 
-- **CNY only** — the estimate reads the CNY balance line and reports null for a non-CNY balance. Multi-currency conversion is deferred.
-- **Session-scoped average** — one "task" is one session; a session that switches models counts toward each model it actually called. The average is a per-session figure, not a declared task cost.
-- **On-demand fold** — the estimate folds every reachable session on each call rather than maintaining an incremental aggregate, so cost grows with the session count and log size.
+- **Priced rows only** — the session spend only prices models that have a `billing.models` row; a model without a rate row is omitted.
+- **On-demand read** — the session spend reads the session's full event log on each call rather than maintaining an incremental aggregate, so cost grows with the per-session log size.

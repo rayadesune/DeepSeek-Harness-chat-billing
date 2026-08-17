@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Web billing feature owner: contributes one entry to `conversation.session.header.utilities` that mounts its own `billing` Remote, reads the DeepSeek account balance and this session's billed spend through `billing/getEstimate` and `billing/getSessionSpend`, and renders them as a top-right label box. The host half of the capability lives in [`dsh-llm-billing`](../llm/llm-billing/README.md), which owns the `/user/balance` transport, the cross-session usage fold, the peak/off-peak pricing table, and the `billing` Remote namespace; this package mounts that Remote and renders what it returns.
+Web billing feature owner: contributes one entry to `conversation.session.header.utilities` that mounts its own `billing` Remote, reads the DeepSeek account balance and this session's billed spend through `billing/getBalance` and `billing/getSessionSpend`, and renders them as a top-right label box. The host half of the capability lives in [`dsh-llm-billing`](../llm/llm-billing/README.md), which owns the `/user/balance` transport, the peak/off-peak pricing table, and the `billing` Remote namespace; this package mounts that Remote and renders what it returns.
 
 The trigger shows two lines — the remaining balance and this conversation's billed spend ("本轮对话花费 ¥X") — and renders nothing while the first fetch is in flight. Clicking it opens a label box with the remaining amount, this session's billed spend (本会话花费, priced per message at the official peak/off-peak rate), one priced row per model with the cache-hit / cache-miss-input / output cost breakdown ("缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z"), a manual refresh action, and a spend disclaimer. Refreshing keeps the last values visible rather than blanking them, and a refresh failure retains the last good value. A session without priced usage shows a "no usage recorded" word rather than a fabricated figure. A failure — no API key configured, a rejected credential, a transport error — renders a muted "Balance unavailable" word whose tooltip carries the Remote's own error message.
 
@@ -18,6 +18,5 @@ None; the package never assembles or sends provider requests, and its one RPC is
 
 ## Known Limitations and Deferred Work
 
-- **One estimate, first balance line only** — the estimate uses the primary (`balance_infos[0]`) currency and reports null for a non-CNY balance, so a USD-only account shows the balance but no task conversion. Multi-currency conversion is deferred.
-- **Average is session-scoped, not per-model intent** — a session that switches models counts toward each model it actually called, so the per-model averages are per-call-session rather than per-declared task. The conversion is an estimate, not a billing promise.
+- **First balance line only** — the balance reads the primary (`balance_infos[0]`) currency line; other currency lines are not shown.
 - **Manual refresh only** — the figure is a point-in-time snapshot taken at mount and on the refresh action. It does not follow balance changes automatically during a long-lived session.

@@ -1,10 +1,9 @@
 /**
- * DeepSeek account-balance and remaining-task estimator, as a standalone host
+ * DeepSeek account balance and session-spend provider, as a standalone host
  * plugin. It resolves the DeepSeek endpoint and API key from its own config and
- * the credential/environment seams, folds per-model billed-token usage across
- * reachable sessions, prices the historical average with the peak/off-peak
- * table, and exposes the `billing` Remote (`getBalance`, `getEstimate`, and
- * the per-session `getSessionSpend`).
+ * the credential/environment seams, prices each session's billed usage with the
+ * peak/off-peak table, and exposes the `billing` Remote (`getBalance` and the
+ * per-session `getSessionSpend`).
  * @module @deepseek-ai/dsh-llm-billing
  */
 
@@ -17,26 +16,20 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance } from './balance.ts'
 import {
-  computeModelEstimates,
   computeSessionSpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
-  foldSessionUsage,
-  mergeSessionUsage,
   resolveBilling,
 } from './billing.ts'
-import type { BillingConfig, BillingConfigModel, PerModelUsage } from './billing.ts'
-import type { DeepSeekBalance, DeepSeekBillingEstimate, DeepSeekSessionSpend } from './types.ts'
+import type { BillingConfig, BillingConfigModel } from './billing.ts'
+import type { DeepSeekBalance, DeepSeekSessionSpend } from './types.ts'
 
 export { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from './balance.ts'
 export {
-  computeModelEstimates,
   computeSessionSpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
-  foldSessionUsage,
   isPeak,
-  mergeSessionUsage,
   resolveBilling,
 } from './billing.ts'
 export type {
@@ -44,9 +37,7 @@ export type {
   BillingConfigModel,
   DeepSeekModelPricing,
   DeepSeekTokenPrice,
-  ModelUsage,
   PeakHourWindow,
-  PerModelUsage,
   ResolvedBilling,
 } from './billing.ts'
 export type * from './types.ts'
@@ -119,37 +110,6 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * Fold per-model billed-token usage across every reachable session: live
- * sessions first, then persisted sessions not already seen (a flushed live
- * session must not double-count). Sessions without a persistence backend still
- * contribute their live usage.
- * @param ctx - plugin context carrying the SessionStore and optional persistence.
- * @returns per-model usage aggregated across sessions.
- */
-async function collectModelUsage(ctx: Context): Promise<PerModelUsage> {
-  const merged: PerModelUsage = new Map()
-  const seen = new Set<string>()
-  const sessions = ctx.get('sessions')
-  if (sessions !== undefined) {
-    for (const session of sessions.list()) {
-      if (seen.has(session.id)) continue
-      seen.add(session.id)
-      mergeSessionUsage(merged, foldSessionUsage(session.events))
-    }
-  }
-  const persistence = ctx.get('sessionPersistence')
-  if (persistence !== undefined) {
-    for (const header of await persistence.list()) {
-      if (seen.has(header.id)) continue
-      seen.add(header.id)
-      const inspection = await persistence.inspect(header.id)
-      mergeSessionUsage(merged, foldSessionUsage(inspection.events))
-    }
-  }
-  return merged
-}
-
-/**
  * Read one session's event log: the live SessionStore first, then the
  * persistence backend for a flushed session.
  * @param ctx - plugin context carrying the SessionStore and optional persistence.
@@ -205,19 +165,11 @@ export function apply(ctx: Context, config: Config): void {
     return fetchDeepSeekBalance(baseURL(), apiKey)
   }
 
-  const fetchEstimate = async (): Promise<DeepSeekBillingEstimate> => {
-    const balance = await fetchBalance()
-    const usage = await collectModelUsage(ctx)
-    const billing = resolveBilling(config.billing)
-    const catalog = (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id }))
-    return { balance, models: computeModelEstimates(balance, usage, billing, new Date(), catalog) }
-  }
-
   const fetchSessionSpend = async (sessionId: SessionId): Promise<DeepSeekSessionSpend> => {
     const billing = resolveBilling(config.billing)
     const catalog = (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id }))
     return computeSessionSpend(await sessionEvents(ctx, sessionId), billing, catalog)
   }
 
-  new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchEstimate, fetchSessionSpend })
+  new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchSessionSpend })
 }

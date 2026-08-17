@@ -18,7 +18,7 @@
 
 | 包 | 侧 | 作用 |
 | --- | --- | --- |
-| [`packages/llm-billing`](packages/llm-billing) —— `@deepseek-ai/dsh-llm-billing` | 主机端 | 负责 `/user/balance` 传输、跨会话的每模型 token 折叠、峰/谷计价表。对外暴露 `billing` Remote（`getBalance`、`getEstimate`、`getSessionSpend`）。 |
+| [`packages/llm-billing`](packages/llm-billing) —— `@deepseek-ai/dsh-llm-billing` | 主机端 | 负责 `/user/balance` 传输与峰/谷计价表。对外暴露 `billing` Remote（`getBalance`、`getSessionSpend`）。 |
 | [`packages/ui-billing`](packages/ui-billing) —— `@deepseek-ai/dsh-client-ui-billing` | 浏览器端 | 自己挂载 `billing` Remote，并贡献会话头部徽标与详情面板。 |
 
 ## 前置条件
@@ -85,14 +85,11 @@ dsh web
 - 每条消息按其**发生时刻（北京时间）**所在的峰/谷时段单价计价，三个桶分别计费（`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`），再按模型汇总。
 - 没有费率行的模型不计入（内置价目表目前只含两个 V4 行）。计费按 DeepSeek **8 月 17 日实行**的费率（北京时间峰/谷时段）。
 
-另外，主机端还提供「按当前模型预计还能跑多少个任务」的换算估算（`getEstimate`）：用人民币余额除以每个模型的历史「每会话平均计费 token × 当前峰/谷单价」，得到 `还能跑多少 = floor(余额 ÷ 平均每任务费用)`。没有历史、没有费率行、或非人民币余额的模型不给出估算。
-
 ## 已知限制
 
-- **仅人民币** —— 估算与花费说明读取人民币余额行；非人民币余额不给出估算。
 - **有费率行才计价** —— 会话花费只统计价目表（`billing.models`）里有的模型。
 - **仅手动刷新** —— 数字是挂载时刻与点击刷新时的点快照，不会在长会话中自动跟随余额变化。
-- **是估算，不是承诺** —— 会话花费按官方单价对 token 计价、剩余任务用历史平均消耗换算；实际计费以服务商为准。
+- **是估算，不是承诺** —— 会话花费按官方单价对 token 计价；实际计费以服务商为准。
 
 ## 许可证
 

@@ -13,7 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
-import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekBillingEstimate, DeepSeekSessionSpend } from './types.ts'
+import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekSessionSpend } from './types.ts'
 
 /** Map a balance HTTP status to a stable LlmError code. */
 function httpErrorCode(status: number): string {
@@ -106,17 +106,15 @@ export async function fetchDeepSeekBalance(
 export interface DeepSeekBalanceGatewayOptions {
   /** Fetch one balance snapshot through the plugin's resolved facts. */
   fetchBalance: () => Promise<DeepSeekBalance>
-  /** Compute the full billing estimate (balance plus per-model task projections). */
-  fetchEstimate: () => Promise<DeepSeekBillingEstimate>
   /** Compute one session's billed spend through the plugin's resolved facts. */
   fetchSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
 }
 
 /**
- * Remote-only service exposing the DeepSeek account balance and billing
- * estimate. The plugin that owns connection, credential, and session-history
- * resolution constructs it with the matching thunks, so the Remote boundary
- * never sees an endpoint, key, or the session store.
+ * Remote-only service exposing the DeepSeek account balance and session spend.
+ * The plugin that owns connection, credential, and session-history resolution
+ * constructs it with the matching thunks, so the Remote boundary never sees an
+ * endpoint, key, or the session store.
  */
 export class DeepSeekBalanceGateway extends TypertRemoteService {
   private readonly options: DeepSeekBalanceGatewayOptions
@@ -124,7 +122,7 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   /**
    * Register the balance Remote under the `billing` namespace.
    * @param ctx - owning plugin context.
-   * @param options - balance and estimate thunks bound to the plugin's facts.
+   * @param options - balance and spend thunks bound to the plugin's facts.
    */
   constructor(ctx: Context, options: DeepSeekBalanceGatewayOptions) {
     super(ctx, 'billing')
@@ -138,15 +136,6 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   @Remote('getBalance')
   getBalance(): Promise<DeepSeekBalance> {
     return this.options.fetchBalance()
-  }
-
-  /**
-   * Read the balance plus per-model remaining-task estimates.
-   * @returns the full billing estimate.
-   */
-  @Remote('getEstimate')
-  getEstimate(): Promise<DeepSeekBillingEstimate> {
-    return this.options.fetchEstimate()
   }
 
   /**

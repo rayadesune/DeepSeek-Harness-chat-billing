@@ -1,7 +1,7 @@
 /** Session-header billing badge: balance plus the current conversation's billed spend. */
 
 import { Fragment, useEffect, useRef, useState } from 'react'
-import type { DeepSeekBillingEstimate, DeepSeekSessionSpend } from '@deepseek-ai/dsh-llm-billing/types'
+import type { DeepSeekBalance, DeepSeekSessionSpend } from '@deepseek-ai/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconChevronDownOutline14, IconQuestionOutline14, IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -12,7 +12,7 @@ import css from './BalanceBadge.module.css'
 /** Registration-side Remote face used by the header badge. */
 export interface BalanceBadgeInjected {
   /** Read the account balance; rejects with the Remote error message. */
-  getEstimate: () => Promise<DeepSeekBillingEstimate>
+  getBalance: () => Promise<DeepSeekBalance>
   /** Read one session's billed spend; rejects with the Remote error message. */
   getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
 }
@@ -31,8 +31,8 @@ function currencySymbol(currency: string): string {
 }
 
 /** The primary balance line, or undefined when the provider reports none. */
-function primaryLine(estimate: DeepSeekBillingEstimate): { symbol: string; total: string } | undefined {
-  const line = estimate.balance.lines[0]
+function primaryLine(balance: DeepSeekBalance): { symbol: string; total: string } | undefined {
+  const line = balance.lines[0]
   if (line === undefined) return undefined
   return { symbol: currencySymbol(line.currency), total: line.total }
 }
@@ -52,8 +52,8 @@ function formatSpend(amount: number): string {
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null while the first fetch is in flight.
  */
-export function BalanceBadge({ getEstimate, getSessionSpend, sessionId, t }: BalanceBadgeProps) {
-  const [estimate, setEstimate] = useState<DeepSeekBillingEstimate | null>(null)
+export function BalanceBadge({ getBalance, getSessionSpend, sessionId, t }: BalanceBadgeProps) {
+  const [balance, setBalance] = useState<DeepSeekBalance | null>(null)
   const [spend, setSpend] = useState<DeepSeekSessionSpend | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -65,26 +65,26 @@ export function BalanceBadge({ getEstimate, getSessionSpend, sessionId, t }: Bal
     let current = true
     // A refresh (values already present) keeps the previous values on screen;
     // the first load has nothing to keep, so it stays on the loading render.
-    setRefreshing(estimate !== null)
+    setRefreshing(balance !== null)
     void Promise.resolve().then(async () => {
-      const [estimateResult, spendResult] = await Promise.allSettled([
-        getEstimate(),
+      const [balanceResult, spendResult] = await Promise.allSettled([
+        getBalance(),
         getSessionSpend(sessionId),
       ])
       if (!current) return
-      if (estimateResult.status === 'fulfilled') {
-        setEstimate(estimateResult.value)
+      if (balanceResult.status === 'fulfilled') {
+        setBalance(balanceResult.value)
         setError(null)
       } else {
         // A refresh failure keeps the last good value instead of blanking it.
-        const cause = estimateResult.reason
-        if (estimate === null) setError(cause instanceof Error ? cause.message : String(cause))
+        const cause = balanceResult.reason
+        if (balance === null) setError(cause instanceof Error ? cause.message : String(cause))
       }
       if (spendResult.status === 'fulfilled') setSpend(spendResult.value)
       setRefreshing(false)
     })
     return () => { current = false }
-  }, [getEstimate, getSessionSpend, sessionId, request])
+  }, [getBalance, getSessionSpend, sessionId, request])
 
   // A pointer press outside the label box closes it.
   useEffect(() => {
@@ -96,7 +96,7 @@ export function BalanceBadge({ getEstimate, getSessionSpend, sessionId, t }: Bal
     return () => { document.removeEventListener('pointerdown', closeOutside) }
   }, [open])
 
-  if (estimate === null) {
+  if (balance === null) {
     if (error === null) return null
     return (
       <Tooltip label={error} delayMs={500}>
@@ -110,7 +110,7 @@ export function BalanceBadge({ getEstimate, getSessionSpend, sessionId, t }: Bal
 
   const refresh = (): void => { setRequest(value => value + 1) }
 
-  const line = primaryLine(estimate)
+  const line = primaryLine(balance)
   const amount = line === undefined ? '—' : `${line.symbol}${line.total}`
   const spendLine = spend !== null && spend.models.length > 0
     ? t('trigger.conversationSpend', { amount: formatSpend(spend.total) })

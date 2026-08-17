@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Web 额度特性的归属方：向 `conversation.session.header.utilities` 贡献一个条目，自己挂载 `billing` Remote，通过 `billing/getEstimate` 与 `billing/getSessionSpend` 读取 DeepSeek 账户余额与本会话的计费花费，并在右上角渲染成一个标签框。该能力的宿主侧在 [`dsh-llm-billing`](../llm/llm-billing/README.md)，它拥有 `/user/balance` 传输、跨会话用量折叠、峰谷计价表与 `billing` Remote 命名空间；本包挂载那个 Remote 并渲染它返回的内容。
+Web 额度特性的归属方：向 `conversation.session.header.utilities` 贡献一个条目，自己挂载 `billing` Remote，通过 `billing/getBalance` 与 `billing/getSessionSpend` 读取 DeepSeek 账户余额与本会话的计费花费，并在右上角渲染成一个标签框。该能力的宿主侧在 [`dsh-llm-billing`](../llm/llm-billing/README.md)，它拥有 `/user/balance` 传输、峰谷计价表与 `billing` Remote 命名空间；本包挂载那个 Remote 并渲染它返回的内容。
 
 触发器显示两行——剩余额度与本轮对话的计费花费（「本轮对话花费 ¥X」）——首个请求在途时不渲染任何东西。点击后展开一个标签框：剩余金额、本会话的计费花费（本会话花费，按官方峰/谷单价逐条消息计价）、每个模型一行的花费及其缓存命中/未命中输入/输出分项（「缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z」）、手动刷新按钮与花费说明。刷新时旧值不消失，刷新失败保留上一次有效值。没有可计价消耗的会话显示「暂无消耗记录」而不是编造数字。失败——未配置 API key、凭据被拒绝、传输错误——渲染弱化的「额度不可用」，其提示携带 Remote 自己的错误信息。
 
@@ -18,6 +18,5 @@ Web 额度特性的归属方：向 `conversation.session.header.utilities` 贡�
 
 ## 已知限制与暂缓事项
 
-- **一次估算、只取首条余额线** —— 估算使用主要（`balance_infos[0]`）币种，非人民币余额返回 null，所以纯美元账户只显示余额、不换算任务数。多币种换算暂缓。
-- **平均是会话粒度，不是按模型意图** —— 一个会话里切换模型时，会分别计入它实际调用过的每个模型，因此每个模型的平均是「每次调用会话」，不是「每次声明任务」。换算只是估算，不是计费承诺。
+- **只取首条余额线** —— 余额读取主要（`balance_infos[0]`）币种行；其它币种行不显示。
 - **仅手动刷新** —— 数字是挂载时刻与点击刷新时的点快照。它不会在长会话中自动跟随余额变化。

@@ -2,7 +2,7 @@
   "name": "deepseek-harness-billing-plugin",
   "version": "0.1.0-rc.5",
   "private": true,
-  "description": "DeepSeek Harness billing plugin: account balance and this session's billed spend (plus per-model remaining-task estimates) with a session-header badge.",
+  "description": "DeepSeek Harness billing plugin: account balance and this session's billed spend with a session-header badge.",
   "license": "MIT",
   "packageManager": "pnpm@11.7.0",
   "scripts": {

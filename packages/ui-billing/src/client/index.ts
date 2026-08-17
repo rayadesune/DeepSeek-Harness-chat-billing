@@ -44,10 +44,10 @@ export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-billing: dictionaries')
 
   const injected = (): BalanceBadgeInjected => ({
-    getEstimate: async () => {
-      const result = await billing.getEstimate()
+    getBalance: async () => {
+      const result = await billing.getBalance()
       if (!result.ok) {
-        throw new Error(`billing.getEstimate failed: ${result.error.code}: ${result.error.message}`)
+        throw new Error(`billing.getBalance failed: ${result.error.code}: ${result.error.message}`)
       }
       return result.value
     },

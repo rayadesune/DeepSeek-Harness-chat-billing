@@ -18,16 +18,9 @@ import { apply as applyNode } from '../src/index.ts'
 import * as BillingInvariant from '../src/invariant.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
-const ESTIMATE = {
-  balance: { isAvailable: true, lines: [{ currency: 'CNY', total: '110.00', granted: '10.00', toppedUp: '100.00' }] },
-  models: [{
-    model: 'deepseek-v4-flash',
-    displayName: 'DeepSeek-V4-Flash',
-    tasksRemaining: 12,
-    sessionCount: 2,
-    totalTokens: 2000,
-    avgTokensPerTask: 1000,
-  }],
+const BALANCE = {
+  isAvailable: true,
+  lines: [{ currency: 'CNY', total: '110.00', granted: '10.00', toppedUp: '100.00' }],
 }
 
 const SPEND = {
@@ -47,8 +40,8 @@ const SPEND = {
   }],
 }
 
-type EstimateResult =
-  | { readonly ok: true; readonly value: typeof ESTIMATE }
+type BalanceResult =
+  | { readonly ok: true; readonly value: typeof BALANCE }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
 type SpendResult =
@@ -66,7 +59,7 @@ function headerEntryIds(ctx: Context): (string | undefined)[] {
 async function bench(): Promise<{
   ctx: Context
   fiber: ReturnType<Context['plugin']>
-  getEstimate: ReturnType<typeof vi.fn>
+  getBalance: ReturnType<typeof vi.fn>
   getSessionSpend: ReturnType<typeof vi.fn>
 }> {
   const ctx = new Context()
@@ -91,15 +84,15 @@ async function bench(): Promise<{
     $mount = vi.fn().mockResolvedValue(async () => {})
   }
   new RemoteService(ctx)
-  const getEstimate = vi.fn<() => Promise<EstimateResult>>()
-    .mockResolvedValue({ ok: true, value: ESTIMATE })
+  const getBalance = vi.fn<() => Promise<BalanceResult>>()
+    .mockResolvedValue({ ok: true, value: BALANCE })
   const getSessionSpend = vi.fn<(sessionId: SessionId) => Promise<SpendResult>>()
     .mockResolvedValue({ ok: true, value: SPEND })
-  ctx.provide('remote.billing', { getEstimate, getSessionSpend })
+  ctx.provide('remote.billing', { getBalance, getSessionSpend })
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, getEstimate, getSessionSpend }
+  return { ctx, fiber, getBalance, getSessionSpend }
 }
 
 describe('ui-billing browser half', () => {
@@ -117,14 +110,14 @@ describe('ui-billing browser half', () => {
     expect(headerEntryIds(ctx)).not.toContain('billing-balance')
   })
 
-  it('injects a getEstimate face that unwraps the Remote result and reports failures', async () => {
-    const { ctx, getEstimate } = await bench()
+  it('injects a getBalance face that unwraps the Remote result and reports failures', async () => {
+    const { ctx, getBalance } = await bench()
     const entry = ctx.slots.entries('conversation.session.header.utilities')[0]!
     const injected = (entry.inject as unknown as () => BalanceBadgeInjected)()
-    await expect(injected.getEstimate()).resolves.toEqual(ESTIMATE)
-    expect(getEstimate).toHaveBeenCalledOnce()
-    getEstimate.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
-    await expect(injected.getEstimate()).rejects.toThrow('billing.getEstimate failed: internal: no key')
+    await expect(injected.getBalance()).resolves.toEqual(BALANCE)
+    expect(getBalance).toHaveBeenCalledOnce()
+    getBalance.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
+    await expect(injected.getBalance()).rejects.toThrow('billing.getBalance failed: internal: no key')
     await ctx.fiber.dispose()
   })
 

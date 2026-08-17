@@ -1,13 +1,13 @@
 /**
- * DeepSeek billing estimation: the peak/off-peak pricing table, the per-model
- * session-usage fold, and the balance → remaining-tasks conversion. Pure
- * functions over session events and the fetched balance, so the Remote gateway
- * stays transport-free and the whole estimate is testable without a key.
+ * DeepSeek billing: the peak/off-peak pricing table and the per-session spend
+ * pricing. Pure functions over session events and the pricing table, so the
+ * Remote gateway stays transport-free and the whole spend is testable without
+ * a key.
  * @module @deepseek-ai/dsh-llm-billing/billing
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { DeepSeekBalance, DeepSeekModelEstimate, DeepSeekSessionSpend } from './types.ts'
+import type { DeepSeekSessionSpend } from './types.ts'
 
 /** One token price point, in CNY per 1M tokens. */
 export interface DeepSeekTokenPrice {
@@ -45,7 +45,7 @@ export interface PeakHourWindow {
   end: number
 }
 
-/** Optional billing estimate configuration; omission uses the published defaults. */
+/** Optional billing configuration; omission uses the published defaults. */
 export interface BillingConfig {
   /** Peak-hour windows in Beijing time. */
   peakHours?: PeakHourWindow[]
@@ -100,69 +100,6 @@ export function resolveBilling(config: BillingConfig | undefined): ResolvedBilli
   return { peakHours, models }
 }
 
-/** Cumulative billed-token buckets for one model across one or more sessions. */
-export interface ModelUsage {
-  cacheHitInputTokens: number
-  cacheMissInputTokens: number
-  outputTokens: number
-  /** Distinct sessions that reported usage for this model. */
-  sessions: number
-}
-
-/** Per-model usage aggregated across sessions, keyed by wire model id. */
-export type PerModelUsage = Map<string, ModelUsage>
-
-/**
- * Fold one session's `assistant/message` events into per-model billed-token
- * buckets. Cache misses are uncached input plus cache writes (DeepSeek bills a
- * write at the miss rate); cache hits are `cacheReadTokens`; output is
- * `outputTokens` (reasoning already included). Each model that reports usage
- * counts one session.
- * @param events - one session's complete event log.
- * @returns per-model usage for this session.
- */
-export function foldSessionUsage(events: readonly SessionEvent[]): PerModelUsage {
-  const usage: PerModelUsage = new Map()
-  const entry = (model: string): ModelUsage => {
-    let found = usage.get(model)
-    if (found === undefined) {
-      found = { cacheHitInputTokens: 0, cacheMissInputTokens: 0, outputTokens: 0, sessions: 1 }
-      usage.set(model, found)
-    }
-    return found
-  }
-  for (const event of events) {
-    if (event.type !== 'assistant/message') continue
-    const reported = event.data.usage
-    if (reported === undefined) continue
-    const model = entry(event.data.message.source.model)
-    model.cacheHitInputTokens += reported.cacheReadTokens ?? 0
-    model.cacheMissInputTokens += reported.inputTokens + (reported.cacheWriteTokens ?? 0)
-    model.outputTokens += reported.outputTokens
-  }
-  return usage
-}
-
-/**
- * Merge one session's usage into the running aggregate, summing token buckets
- * and session counts per model.
- * @param target - running aggregate, mutated in place.
- * @param source - one session's fold.
- */
-export function mergeSessionUsage(target: PerModelUsage, source: PerModelUsage): void {
-  for (const [model, usage] of source) {
-    const current = target.get(model)
-    if (current === undefined) {
-      target.set(model, { ...usage })
-      continue
-    }
-    current.cacheHitInputTokens += usage.cacheHitInputTokens
-    current.cacheMissInputTokens += usage.cacheMissInputTokens
-    current.outputTokens += usage.outputTokens
-    current.sessions += usage.sessions
-  }
-}
-
 /** The Beijing (Asia/Shanghai, UTC+8, no DST) hour of a timestamp. */
 function beijingHour(now: Date): number {
   return new Date(now.getTime() + 8 * 3_600_000).getUTCHours()
@@ -177,83 +114,6 @@ function beijingHour(now: Date): number {
 export function isPeak(billing: ResolvedBilling, now: Date): boolean {
   const hour = beijingHour(now)
   return billing.peakHours.some(({ start, end }) => hour >= start && hour < end)
-}
-
-/** One model's billed-token average across the sessions that used it. */
-interface ModelAverage {
-  cacheHitInput: number
-  cacheMissInput: number
-  output: number
-}
-
-/**
- * Convert the remaining CNY balance into whole remaining tasks per model,
- * using each model's historical average billed tokens and the current
- * peak/off-peak price. A model with no history, no price row, or an empty
- * average reports null rather than a fabricated figure.
- * @param balance - fetched account balance.
- * @param usage - per-model usage across sessions.
- * @param billing - resolved pricing.
- * @param now - the moment deciding peak vs off-peak.
- * @param catalog - model display rows, in presentation order.
- * @returns one estimate per catalog entry.
- */
-export function computeModelEstimates(
-  balance: DeepSeekBalance,
-  usage: PerModelUsage,
-  billing: ResolvedBilling,
-  now: Date,
-  catalog: readonly { id: string; name: string }[],
-): DeepSeekModelEstimate[] {
-  const cny = balance.lines.find(line => line.currency === 'CNY')
-  const peak = isPeak(billing, now)
-  const remaining = cny === undefined ? Number.NaN : Number(cny.total)
-  return catalog.map(({ id, name }) => {
-    const modelUsage = usage.get(id)
-    const pricing = billing.models.get(id)
-    const sessionCount = modelUsage?.sessions ?? 0
-    const totalTokens = modelUsage === undefined
-      ? 0
-      : modelUsage.cacheHitInputTokens + modelUsage.cacheMissInputTokens + modelUsage.outputTokens
-    const usable = cny !== undefined
-      && Number.isFinite(remaining)
-      && modelUsage !== undefined
-      && modelUsage.sessions > 0
-      && pricing !== undefined
-    if (!usable) {
-      return {
-        model: id,
-        displayName: name,
-        tasksRemaining: null,
-        sessionCount,
-        totalTokens,
-        avgTokensPerTask: null,
-      }
-    }
-    const average: ModelAverage = {
-      cacheHitInput: modelUsage.cacheHitInputTokens / modelUsage.sessions,
-      cacheMissInput: modelUsage.cacheMissInputTokens / modelUsage.sessions,
-      output: modelUsage.outputTokens / modelUsage.sessions,
-    }
-    const price = peak ? pricing.peak : pricing.offPeak
-    const avgCostPerTask = (
-      average.cacheHitInput * price.cacheHitInput
-      + average.cacheMissInput * price.cacheMissInput
-      + average.output * price.output
-    ) / 1_000_000
-    const avgTokensPerTask = Math.round(average.cacheHitInput + average.cacheMissInput + average.output)
-    if (!Number.isFinite(avgCostPerTask) || avgCostPerTask <= 0) {
-      return { model: id, displayName: name, tasksRemaining: null, sessionCount, totalTokens, avgTokensPerTask }
-    }
-    return {
-      model: id,
-      displayName: name,
-      tasksRemaining: Math.floor(remaining / avgCostPerTask),
-      sessionCount,
-      totalTokens,
-      avgTokensPerTask,
-    }
-  })
 }
 
 /** Running per-model spend accumulation for {@link computeSessionSpend}. */

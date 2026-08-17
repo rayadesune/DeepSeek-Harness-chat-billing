@@ -9,7 +9,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from '../src/balance.ts'
-import type { DeepSeekBalance, DeepSeekBillingEstimate } from '../src/types.ts'
+import type { DeepSeekBalance } from '../src/types.ts'
 
 const VALID_WIRE = {
   is_available: true,
@@ -21,18 +21,6 @@ const VALID_WIRE = {
 const VALID_PUBLIC: DeepSeekBalance = {
   isAvailable: true,
   lines: [{ currency: 'CNY', total: '110.00', granted: '10.00', toppedUp: '100.00' }],
-}
-
-const VALID_ESTIMATE: DeepSeekBillingEstimate = {
-  balance: VALID_PUBLIC,
-  models: [{
-    model: 'deepseek-v4-flash',
-    displayName: 'DeepSeek-V4-Flash',
-    tasksRemaining: 12,
-    sessionCount: 2,
-    totalTokens: 2000,
-    avgTokensPerTask: 1000,
-  }],
 }
 
 const VALID_SPEND = {
@@ -135,17 +123,15 @@ describe('fetchDeepSeekBalance', () => {
 describe('DeepSeekBalanceGateway', () => {
   const options = {
     fetchBalance: async () => VALID_PUBLIC,
-    fetchEstimate: async () => VALID_ESTIMATE,
     fetchSessionSpend: async () => VALID_SPEND,
   }
 
-  it('registers under the billing namespace and exports getBalance, getEstimate, and getSessionSpend', () => {
+  it('registers under the billing namespace and exports getBalance and getSessionSpend', () => {
     const ctx = new Context()
     const gateway = new DeepSeekBalanceGateway(ctx, options)
     expect(gateway.typertRemote.namespace).toBe('billing')
     const methods = remoteMethods(gateway).map(marker => marker.exportName ?? marker.method)
     expect(methods).toContain('getBalance')
-    expect(methods).toContain('getEstimate')
     expect(methods).toContain('getSessionSpend')
     expect(ctx.get('billing')).toBeDefined()
   })
@@ -154,7 +140,6 @@ describe('DeepSeekBalanceGateway', () => {
     const ctx = new Context()
     const gateway = new DeepSeekBalanceGateway(ctx, options)
     await expect(gateway.getBalance()).resolves.toEqual(VALID_PUBLIC)
-    await expect(gateway.getEstimate()).resolves.toEqual(VALID_ESTIMATE)
     await expect(gateway.getSessionSpend('session-1' as SessionId)).resolves.toEqual(VALID_SPEND)
   })
 
