@@ -40,10 +40,12 @@ function balance(over: Partial<DeepSeekBalance> = {}): DeepSeekBalance {
 function props(
   getBalance: () => Promise<DeepSeekBalance>,
   getSessionSpend: () => Promise<DeepSeekSessionSpend> = async () => SPEND,
+  useSession: (selector: (snapshot: { chat: { order: readonly string[] } }) => number) => number = () => 0,
 ): BalanceBadgeProps {
   return {
     getBalance,
     getSessionSpend,
+    useSession,
     sessionId: 'session-1',
     t,
   } as BalanceBadgeProps
@@ -101,6 +103,27 @@ describe('BalanceBadge', () => {
     expect(screen.getByText('剩余额度：¥110.00')).toBeDefined()
     await waitFor(() => { expect(getBalance).toHaveBeenCalledTimes(2) })
     await waitFor(() => { expect(screen.getByText('剩余额度：¥9.00')).toBeDefined() })
+  })
+
+  it('recomputes only the spend when a new message lands, without refetching the balance', async () => {
+    let messageCount = 0
+    const getBalance = vi.fn(async () => balance())
+    const getSessionSpend = vi.fn(async () => SPEND)
+    const { rerender } = render(
+      <BalanceBadge {...props(getBalance, getSessionSpend, () => messageCount)} />,
+    )
+    expect(await screen.findByText('剩余额度：¥110.00')).toBeDefined()
+    expect(getBalance).toHaveBeenCalledTimes(1)
+    const spendCallsBeforeMessage = getSessionSpend.mock.calls.length
+
+    // A new message lands: the in-window message count changes and the badge
+    // recomputes this session's spend only — the balance stays untouched.
+    messageCount = 1
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, () => messageCount)} />)
+    await waitFor(() => {
+      expect(getSessionSpend.mock.calls.length).toBeGreaterThan(spendCallsBeforeMessage)
+    })
+    expect(getBalance).toHaveBeenCalledTimes(1)
   })
 
   it('prefixes USD with the dollar sign', async () => {

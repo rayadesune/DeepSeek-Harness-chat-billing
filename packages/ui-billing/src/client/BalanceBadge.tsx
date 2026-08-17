@@ -49,10 +49,15 @@ function formatSpend(amount: number): string {
  * cache-miss-input / output cost breakdown per model, a refresh action, and a
  * spend disclaimer. Refreshing keeps the last values visible rather than
  * blanking them.
+ *
+ * The spend follows the conversation: a new message in the current session
+ * recomputes only the (local, network-free) session spend through
+ * `getSessionSpend`; the balance stays a manual-refresh snapshot and is never
+ * refetched on its own.
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null while the first fetch is in flight.
  */
-export function BalanceBadge({ getBalance, getSessionSpend, sessionId, t }: BalanceBadgeProps) {
+export function BalanceBadge({ getBalance, getSessionSpend, sessionId, useSession, t }: BalanceBadgeProps) {
   const [balance, setBalance] = useState<DeepSeekBalance | null>(null)
   const [spend, setSpend] = useState<DeepSeekSessionSpend | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -60,6 +65,15 @@ export function BalanceBadge({ getBalance, getSessionSpend, sessionId, t }: Bala
   const [open, setOpen] = useState(false)
   const [request, setRequest] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
+
+  // The in-window message count is the "new message" signal: it changes when a
+  // message lands in the current session, letting the spend-only effect below
+  // react without touching the account balance.
+  const messageCount = useSession(snapshot => snapshot.chat.order.length)
+
+  // The last message count this component already priced, so the spend-only
+  // effect skips the initial mount (the mount effect already fetched).
+  const pricedMessageCountRef = useRef(messageCount)
 
   useEffect(() => {
     let current = true
@@ -85,6 +99,19 @@ export function BalanceBadge({ getBalance, getSessionSpend, sessionId, t }: Bala
     })
     return () => { current = false }
   }, [getBalance, getSessionSpend, sessionId, request])
+
+  // A new message lands: recompute only this session's spend. The balance is
+  // account-level and stays a manual snapshot — never refetched here.
+  useEffect(() => {
+    if (messageCount === pricedMessageCountRef.current) return
+    pricedMessageCountRef.current = messageCount
+    let current = true
+    void Promise.resolve().then(async () => {
+      const result = await getSessionSpend(sessionId)
+      if (current) setSpend(result)
+    })
+    return () => { current = false }
+  }, [getSessionSpend, sessionId, messageCount])
 
   // A pointer press outside the label box closes it.
   useEffect(() => {
