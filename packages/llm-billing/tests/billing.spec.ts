@@ -48,7 +48,11 @@ describe('resolveBilling', () => {
 
   it('overrides a model when an explicit row is supplied', () => {
     const billing = resolveBilling({
-      models: [{ model: FLASH, peak: { cacheHitInput: 1, cacheMissInput: 2, output: 3 }, offPeak: { cacheHitInput: 0.5, cacheMissInput: 1, output: 1.5 } }],
+      models: [{
+        model: FLASH,
+        peak: { cacheHitInput: 1, cacheMissInput: 2, output: 3 },
+        offPeak: { cacheHitInput: 0.5, cacheMissInput: 1, output: 1.5 },
+      }],
     })
     expect(billing.models.get(FLASH)?.peak).toEqual({ cacheHitInput: 1, cacheMissInput: 2, output: 3 })
     expect(billing.models.has(PRO)).toBe(false)
