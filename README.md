@@ -38,12 +38,15 @@
 
 ### 1. 安装包
 
+> ⚠️ 现状：这两个包依赖的 harness 内部包（`@deepseek-ai/dsh-llm`、`dsh-session`、
+> `dsh-credentials`、`dsh-session-persistence`、`dsh-typert-protocol`、`cordis` 等）
+> **尚未发布到 npm**，所以下面的 `dsh plugin add` 目前无法从 registry 解析。
+> 本仓库是一个独立的插件源码仓库；要把插件装进某个 dsh profile，先发布这些
+> 依赖包（`@deepseek-ai` 或你自己的 scope），再用 registry 安装：
+
 ```bash
 dsh plugin --profile web add @deepseek-ai/dsh-llm-billing @deepseek-ai/dsh-client-ui-billing
 ```
-
-> 这两个包位于本仓库的 `packages/` 工作区内；需要先把它们发布到 npm
-> （`@deepseek-ai` 或你自己的 scope），`dsh plugin add` 才能从 registry 解析。
 
 ### 2. 接进组合
 
