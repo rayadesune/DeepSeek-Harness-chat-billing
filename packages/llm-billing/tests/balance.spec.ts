@@ -5,10 +5,11 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from '../src/balance.ts'
+import { apply as applyBilling } from '../src/index.ts'
 import type { DeepSeekBalance } from '../src/types.ts'
 
 const VALID_WIRE = {
@@ -174,5 +175,75 @@ describe('DeepSeekBalanceGateway', () => {
     await fiber.await()
     expect(root.get('billing')).toBeDefined()
     await root.fiber.dispose()
+  })
+})
+
+describe('apply / allSessionEvents', () => {
+  /** One today-priced flash event: now falls on today's Beijing calendar day. */
+  function pricedEvent(index: number): SessionEvent {
+    return {
+      type: 'assistant/message',
+      seq: index,
+      time: Date.now(),
+      data: {
+        turn: 0,
+        step: index,
+        message: {
+          id: `m${index}` as never,
+          role: 'assistant',
+          content: [],
+          source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        },
+        usage: { inputTokens: 100, outputTokens: 100, cacheReadTokens: 100, cacheWriteTokens: 50 },
+      },
+    } as unknown as SessionEvent
+  }
+
+  it('aggregates today\'s spend across a very large session log without exceeding the call stack', async () => {
+    const ctx = new Context()
+    ctx.provide('sessions', { list: () => [] } as never)
+    const bigEvents = Array.from({ length: 200_000 }, (_, index) => pricedEvent(index))
+    ctx.provide('sessionPersistence', {
+      list: async () => [{ id: 'session-big' }],
+      inspect: async () => ({ meta: {}, events: bigEvents }),
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    await expect(gateway.getTodaySpend()).resolves.toMatchObject({
+      total: expect.any(Number),
+      models: [{ model: 'deepseek-v4-flash' }],
+    })
+    await ctx.fiber.dispose()
+  })
+
+  it('skips a session that fails to inspect instead of failing the whole day', async () => {
+    const ctx = new Context()
+    ctx.provide('sessions', { list: () => [] } as never)
+    ctx.provide('sessionPersistence', {
+      list: async () => [{ id: 'session-ok' }, { id: 'session-bad' }],
+      inspect: async (id: SessionId) => {
+        if (id === 'session-bad' as SessionId) throw new Error('corrupt log')
+        return { meta: {}, events: [pricedEvent(0)] }
+      },
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    await expect(gateway.getTodaySpend()).resolves.toMatchObject({ total: expect.any(Number) })
+    await ctx.fiber.dispose()
+  })
+
+  it('counts live sessions first and does not double-count them through persistence', async () => {
+    const ctx = new Context()
+    ctx.provide('sessions', {
+      list: () => [{ id: 'session-live', events: [pricedEvent(0)] }],
+    } as never)
+    ctx.provide('sessionPersistence', {
+      list: async () => [{ id: 'session-live' }],
+      inspect: async () => { throw new Error('must not be read') },
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    await expect(gateway.getTodaySpend()).resolves.toMatchObject({ total: expect.any(Number) })
+    await ctx.fiber.dispose()
   })
 })

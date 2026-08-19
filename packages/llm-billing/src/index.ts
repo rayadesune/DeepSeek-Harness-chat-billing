@@ -137,7 +137,9 @@ async function sessionEvents(ctx: Context, sessionId: SessionId): Promise<readon
 /**
  * Read every session's event log, concatenated: each live SessionStore
  * session first (its log may hold events not yet flushed), then each persisted
- * session that is not live, so no event is counted twice.
+ * session that is not live, so no event is counted twice. Events are appended
+ * one at a time: spreading a very large log into `push(...)` exceeds the
+ * engine's argument limit and throws a stack RangeError.
  * @param ctx - plugin context carrying the SessionStore and optional persistence.
  * @returns every session's complete event log, concatenated.
  */
@@ -148,15 +150,20 @@ async function allSessionEvents(ctx: Context): Promise<readonly SessionEvent[]> 
   if (sessions !== undefined) {
     for (const session of sessions.list()) {
       liveIds.add(session.id)
-      events.push(...session.events)
+      for (const event of session.events) events.push(event)
     }
   }
   const persistence = ctx.get('sessionPersistence')
   if (persistence !== undefined) {
     for (const header of await persistence.list()) {
       if (liveIds.has(header.id)) continue
-      const inspection = await persistence.inspect(header.id)
-      events.push(...inspection.events)
+      try {
+        const inspection = await persistence.inspect(header.id)
+        for (const event of inspection.events) events.push(event)
+      } catch (error: unknown) {
+        // One unreadable session must not blank the whole-day aggregate.
+        ctx.logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)
+      }
     }
   }
   return events

@@ -41,4 +41,4 @@ None; its only provider call is a credential-authenticated `/user/balance` read,
 ## Known Limitations and Deferred Work
 
 - **Priced rows only** — the session and today spends only price models that have a `billing.models` row; a model without a rate row is omitted.
-- **On-demand read** — the session spend reads the session's full event log on each call rather than maintaining an incremental aggregate, so cost grows with the per-session log size; `getTodaySpend()` reads every session's log.
+- **On-demand read** — the session spend reads the session's full event log on each call rather than maintaining an incremental aggregate, so cost grows with the per-session log size; `getTodaySpend()` reads every session's log, and a session whose log cannot be read is skipped with a warning instead of failing the whole day's total.
