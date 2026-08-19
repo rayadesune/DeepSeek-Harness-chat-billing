@@ -57,3 +57,11 @@ export interface DeepSeekSessionSpend {
   /** One row per model that reported usage AND has a pricing row; empty when the session has no priced usage. */
   models: readonly DeepSeekSessionSpendModel[]
 }
+
+/** The billed spend of every session on one Beijing-time calendar day, priced per event by its peak/off-peak hour. */
+export interface DeepSeekTodaySpend {
+  /** Total billed cost in CNY across every priced model and every session. */
+  total: number
+  /** One row per model that reported usage AND has a pricing row; empty when today has no priced usage. */
+  models: readonly DeepSeekSessionSpendModel[]
+}

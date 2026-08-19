@@ -1,7 +1,7 @@
 /** Session-header billing badge: balance plus the current conversation's billed spend. */
 
 import { Fragment, useEffect, useRef, useState } from 'react'
-import type { DeepSeekBalance, DeepSeekSessionSpend } from '@deepseek-ai/dsh-llm-billing/types'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from '@deepseek-ai/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconChevronDownOutline14, IconQuestionOutline14, IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -15,6 +15,8 @@ export interface BalanceBadgeInjected {
   getBalance: () => Promise<DeepSeekBalance>
   /** Read one session's billed spend; rejects with the Remote error message. */
   getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
+  /** Read today's billed spend across every session; rejects with the Remote error message. */
+  getTodaySpend: () => Promise<DeepSeekTodaySpend>
 }
 
 /** Full props assembled by the header utilities slot renderer. */
@@ -46,20 +48,21 @@ function formatSpend(amount: number): string {
  * Render the billing badge in the session-header utilities row. The trigger
  * shows the remaining balance and this conversation's billed spend and opens
  * a label box with the amount, this session's spend with its cache-hit /
- * cache-miss-input / output cost breakdown per model, a refresh action, and a
- * spend disclaimer. Refreshing keeps the last values visible rather than
- * blanking them.
+ * cache-miss-input / output cost breakdown per model, today's spend across
+ * every session, a refresh action, and a spend disclaimer. Refreshing keeps
+ * the last values visible rather than blanking them.
  *
  * The spend follows the conversation: a new message in the current session
- * recomputes only the (local, network-free) session spend through
- * `getSessionSpend`; the balance stays a manual-refresh snapshot and is never
- * refetched on its own.
+ * recomputes only the (local, network-free) session spend and today's spend
+ * through `getSessionSpend` / `getTodaySpend`; the balance stays a
+ * manual-refresh snapshot and is never refetched on its own.
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null while the first fetch is in flight.
  */
-export function BalanceBadge({ getBalance, getSessionSpend, sessionId, useSession, t }: BalanceBadgeProps) {
+export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessionId, useSession, t }: BalanceBadgeProps) {
   const [balance, setBalance] = useState<DeepSeekBalance | null>(null)
   const [spend, setSpend] = useState<DeepSeekSessionSpend | null>(null)
+  const [todaySpend, setTodaySpend] = useState<DeepSeekTodaySpend | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [open, setOpen] = useState(false)
@@ -81,9 +84,10 @@ export function BalanceBadge({ getBalance, getSessionSpend, sessionId, useSessio
     // the first load has nothing to keep, so it stays on the loading render.
     setRefreshing(balance !== null)
     void Promise.resolve().then(async () => {
-      const [balanceResult, spendResult] = await Promise.allSettled([
+      const [balanceResult, spendResult, todaySpendResult] = await Promise.allSettled([
         getBalance(),
         getSessionSpend(sessionId),
+        getTodaySpend(),
       ])
       if (!current) return
       if (balanceResult.status === 'fulfilled') {
@@ -95,23 +99,30 @@ export function BalanceBadge({ getBalance, getSessionSpend, sessionId, useSessio
         if (balance === null) setError(cause instanceof Error ? cause.message : String(cause))
       }
       if (spendResult.status === 'fulfilled') setSpend(spendResult.value)
+      if (todaySpendResult.status === 'fulfilled') setTodaySpend(todaySpendResult.value)
       setRefreshing(false)
     })
     return () => { current = false }
-  }, [getBalance, getSessionSpend, sessionId, request])
+  }, [getBalance, getSessionSpend, getTodaySpend, sessionId, request])
 
-  // A new message lands: recompute only this session's spend. The balance is
-  // account-level and stays a manual snapshot — never refetched here.
+  // A new message lands: recompute this session's spend and today's spend
+  // across every session. The balance is account-level and stays a manual
+  // snapshot — never refetched here.
   useEffect(() => {
     if (messageCount === pricedMessageCountRef.current) return
     pricedMessageCountRef.current = messageCount
     let current = true
     void Promise.resolve().then(async () => {
-      const result = await getSessionSpend(sessionId)
-      if (current) setSpend(result)
+      const [spendResult, todaySpendResult] = await Promise.allSettled([
+        getSessionSpend(sessionId),
+        getTodaySpend(),
+      ])
+      if (!current) return
+      if (spendResult.status === 'fulfilled') setSpend(spendResult.value)
+      if (todaySpendResult.status === 'fulfilled') setTodaySpend(todaySpendResult.value)
     })
     return () => { current = false }
-  }, [getSessionSpend, sessionId, messageCount])
+  }, [getSessionSpend, getTodaySpend, sessionId, messageCount])
 
   // A pointer press outside the label box closes it.
   useEffect(() => {
@@ -187,6 +198,13 @@ export function BalanceBadge({ getBalance, getSessionSpend, sessionId, useSessio
                   : spend.models.length === 0
                     ? t('stat.none')
                     : formatSpend(spend.total),
+              })}</span>
+              <span className={css.amountLabel}>{t('label.todaySpend', {
+                amount: todaySpend === null
+                  ? '—'
+                  : todaySpend.models.length === 0
+                    ? t('stat.none')
+                    : formatSpend(todaySpend.total),
               })}</span>
             </div>
             {spend?.models.map(model => (

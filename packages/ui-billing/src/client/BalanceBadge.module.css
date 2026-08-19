@@ -107,6 +107,8 @@
 .spendRow {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 6px 8px;
   border-top: 1px solid var(--dsw-alias-border-l2);
   border-radius: 0;

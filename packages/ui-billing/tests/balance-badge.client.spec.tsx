@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { DeepSeekBalance, DeepSeekSessionSpend } from '@deepseek-ai/dsh-llm-billing/types'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from '@deepseek-ai/dsh-llm-billing/types'
 import { BalanceBadge, type BalanceBadgeProps } from '../src/client/BalanceBadge.tsx'
 import { zh } from '../src/client/locales.ts'
 
@@ -29,6 +29,23 @@ const SPEND: DeepSeekSessionSpend = {
   }],
 }
 
+const TODAY_SPEND: DeepSeekTodaySpend = {
+  total: 0.31,
+  models: [{
+    model: 'deepseek-v4-flash',
+    displayName: 'DeepSeek-V4-Flash',
+    cost: 0.31,
+    peakCost: 0.2,
+    offPeakCost: 0.11,
+    cacheHitInputTokens: 2000,
+    cacheMissInputTokens: 200000,
+    outputTokens: 30000,
+    cacheHitInputCost: 0.01,
+    cacheMissInputCost: 0.2,
+    outputCost: 0.1,
+  }],
+}
+
 function balance(over: Partial<DeepSeekBalance> = {}): DeepSeekBalance {
   return {
     isAvailable: true,
@@ -40,11 +57,13 @@ function balance(over: Partial<DeepSeekBalance> = {}): DeepSeekBalance {
 function props(
   getBalance: () => Promise<DeepSeekBalance>,
   getSessionSpend: () => Promise<DeepSeekSessionSpend> = async () => SPEND,
+  getTodaySpend: () => Promise<DeepSeekTodaySpend> = async () => TODAY_SPEND,
   useSession: (selector: (snapshot: { chat: { order: readonly string[] } }) => number) => number = () => 0,
 ): BalanceBadgeProps {
   return {
     getBalance,
     getSessionSpend,
+    getTodaySpend,
     useSession,
     sessionId: 'session-1',
     t,
@@ -69,11 +88,12 @@ describe('BalanceBadge', () => {
     expect(screen.queryByText(/本轮对话花费/)).toBeNull()
   })
 
-  it('opens the label box with the amount, the spend, and the cache-hit/input/output breakdown', async () => {
+  it('opens the label box with the amount, the spend, today\'s spend, and the cache-hit/input/output breakdown', async () => {
     render(<BalanceBadge {...props(async () => balance())} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     expect(await screen.findByText('API 剩余金额：¥110.00')).toBeDefined()
     expect(screen.getByText('本会话花费：¥0.04')).toBeDefined()
+    expect(screen.getByText('今日共花费：¥0.31')).toBeDefined()
     expect(screen.getByText('DeepSeek-V4-Flash')).toBeDefined()
     expect(screen.getByText('¥0.04')).toBeDefined()
     expect(screen.getByText('缓存命中 ¥0.01 · 未命中输入 ¥0.02 · 输出 ¥0.01')).toBeDefined()
@@ -105,25 +125,67 @@ describe('BalanceBadge', () => {
     await waitFor(() => { expect(screen.getByText('剩余额度：¥9.00')).toBeDefined() })
   })
 
-  it('recomputes only the spend when a new message lands, without refetching the balance', async () => {
+  it('keeps both spend values when a refresh rejects', async () => {
+    const getSessionSpend = vi.fn()
+      .mockResolvedValueOnce(SPEND)
+      .mockRejectedValueOnce(new Error('boom'))
+    const getTodaySpend = vi.fn()
+      .mockResolvedValueOnce(TODAY_SPEND)
+      .mockRejectedValueOnce(new Error('boom'))
+    render(<BalanceBadge {...props(async () => balance(), getSessionSpend, getTodaySpend)} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    fireEvent.click(await screen.findByRole('button', { name: zh['action.refresh'] }))
+    await waitFor(() => { expect(getSessionSpend).toHaveBeenCalledTimes(2) })
+    await waitFor(() => { expect(getTodaySpend).toHaveBeenCalledTimes(2) })
+    // A failed refetch keeps the previous values instead of blanking them.
+    expect(screen.getByText('本会话花费：¥0.04')).toBeDefined()
+    expect(screen.getByText('今日共花费：¥0.31')).toBeDefined()
+  })
+
+  it('recomputes only the spends when a new message lands, without refetching the balance', async () => {
     let messageCount = 0
     const getBalance = vi.fn(async () => balance())
     const getSessionSpend = vi.fn(async () => SPEND)
+    const getTodaySpend = vi.fn(async () => TODAY_SPEND)
     const { rerender } = render(
-      <BalanceBadge {...props(getBalance, getSessionSpend, () => messageCount)} />,
+      <BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />,
     )
     expect(await screen.findByText('剩余额度：¥110.00')).toBeDefined()
     expect(getBalance).toHaveBeenCalledTimes(1)
     const spendCallsBeforeMessage = getSessionSpend.mock.calls.length
+    const todayCallsBeforeMessage = getTodaySpend.mock.calls.length
 
     // A new message lands: the in-window message count changes and the badge
-    // recomputes this session's spend only — the balance stays untouched.
+    // recomputes this session's spend and today's spend only — the balance
+    // stays untouched.
     messageCount = 1
-    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, () => messageCount)} />)
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />)
     await waitFor(() => {
       expect(getSessionSpend.mock.calls.length).toBeGreaterThan(spendCallsBeforeMessage)
     })
+    await waitFor(() => {
+      expect(getTodaySpend.mock.calls.length).toBeGreaterThan(todayCallsBeforeMessage)
+    })
     expect(getBalance).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps both spend values when a new-message recompute rejects', async () => {
+    let messageCount = 0
+    const getBalance = vi.fn(async () => balance())
+    const getSessionSpend = vi.fn(async () => SPEND)
+    const getTodaySpend = vi.fn(async () => TODAY_SPEND)
+    const { rerender } = render(
+      <BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />,
+    )
+    await screen.findByText('剩余额度：¥110.00')
+
+    // A new message lands but both recomputes reject: the previous values stay.
+    messageCount = 1
+    getSessionSpend.mockRejectedValueOnce(new Error('boom'))
+    getTodaySpend.mockRejectedValueOnce(new Error('boom'))
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />)
+    await waitFor(() => { expect(getTodaySpend.mock.calls.length).toBe(2) })
+    expect(screen.getByText('本轮对话花费：¥0.04')).toBeDefined()
   })
 
   it('prefixes USD with the dollar sign', async () => {
@@ -136,6 +198,23 @@ describe('BalanceBadge', () => {
     render(<BalanceBadge {...props(async () => balance(), async () => ({ total: 0, models: [] }))} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     expect(await screen.findByText(`本会话花费：${zh['stat.none']}`)).toBeDefined()
+  })
+
+  it('shows the no-usage word for a day without priced usage across every session', async () => {
+    render(<BalanceBadge
+      {...props(async () => balance(), async () => SPEND, async () => ({ total: 0, models: [] }))}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await screen.findByText(`今日共花费：${zh['stat.none']}`)).toBeDefined()
+  })
+
+  it('shows a placeholder for today\'s spend when it fails to load', async () => {
+    const getTodaySpend = vi.fn(async () => { throw new Error('boom') })
+    render(<BalanceBadge {...props(async () => balance(), async () => SPEND, getTodaySpend)} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    // The balance and session spend resolved; today's spend has no value yet.
+    expect(await screen.findByText('本会话花费：¥0.04')).toBeDefined()
+    expect(screen.getByText('今日共花费：—')).toBeDefined()
   })
 
   it('trims trailing zeros in the spend amount', async () => {
