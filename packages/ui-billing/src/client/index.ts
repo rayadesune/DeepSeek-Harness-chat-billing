@@ -58,6 +58,13 @@ export async function apply(ctx: ClientContext): Promise<void> {
       }
       return result.value
     },
+    getTodaySpend: async () => {
+      const result = await billing.getTodaySpend()
+      if (!result.ok) {
+        throw new Error(`billing.getTodaySpend failed: ${result.error.code}: ${result.error.message}`)
+      }
+      return result.value
+    },
   })
 
   ctx.slots.inject(

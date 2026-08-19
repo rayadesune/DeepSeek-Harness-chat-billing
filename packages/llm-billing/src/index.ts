@@ -2,8 +2,8 @@
  * DeepSeek account balance and session-spend provider, as a standalone host
  * plugin. It resolves the DeepSeek endpoint and API key from its own config and
  * the credential/environment seams, prices each session's billed usage with the
- * peak/off-peak table, and exposes the `billing` Remote (`getBalance` and the
- * per-session `getSessionSpend`).
+ * peak/off-peak table, and exposes the `billing` Remote (`getBalance`, the
+ * per-session `getSessionSpend`, and the all-sessions `getTodaySpend`).
  * @module @deepseek-ai/dsh-llm-billing
  */
 
@@ -17,16 +17,18 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance } from './balance.ts'
 import {
   computeSessionSpend,
+  computeTodaySpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
   resolveBilling,
 } from './billing.ts'
 import type { BillingConfig, BillingConfigModel } from './billing.ts'
-import type { DeepSeekBalance, DeepSeekSessionSpend } from './types.ts'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from './types.ts'
 
 export { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from './balance.ts'
 export {
   computeSessionSpend,
+  computeTodaySpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
   isPeak,
@@ -133,6 +135,34 @@ async function sessionEvents(ctx: Context, sessionId: SessionId): Promise<readon
 }
 
 /**
+ * Read every session's event log, concatenated: each live SessionStore
+ * session first (its log may hold events not yet flushed), then each persisted
+ * session that is not live, so no event is counted twice.
+ * @param ctx - plugin context carrying the SessionStore and optional persistence.
+ * @returns every session's complete event log, concatenated.
+ */
+async function allSessionEvents(ctx: Context): Promise<readonly SessionEvent[]> {
+  const events: SessionEvent[] = []
+  const sessions = ctx.get('sessions')
+  const liveIds = new Set<SessionId>()
+  if (sessions !== undefined) {
+    for (const session of sessions.list()) {
+      liveIds.add(session.id)
+      events.push(...session.events)
+    }
+  }
+  const persistence = ctx.get('sessionPersistence')
+  if (persistence !== undefined) {
+    for (const header of await persistence.list()) {
+      if (liveIds.has(header.id)) continue
+      const inspection = await persistence.inspect(header.id)
+      events.push(...inspection.events)
+    }
+  }
+  return events
+}
+
+/**
  * Register the `billing` Remote under the `billing` namespace.
  * @param ctx - owning plugin context.
  * @param config - validated plugin config.
@@ -171,5 +201,11 @@ export function apply(ctx: Context, config: Config): void {
     return computeSessionSpend(await sessionEvents(ctx, sessionId), billing, catalog)
   }
 
-  new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchSessionSpend })
+  const fetchTodaySpend = async (): Promise<DeepSeekTodaySpend> => {
+    const billing = resolveBilling(config.billing)
+    const catalog = (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id }))
+    return computeTodaySpend(await allSessionEvents(ctx), billing, catalog)
+  }
+
+  new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchSessionSpend, fetchTodaySpend })
 }

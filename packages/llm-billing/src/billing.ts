@@ -7,7 +7,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { DeepSeekSessionSpend } from './types.ts'
+import type { DeepSeekSessionSpend, DeepSeekTodaySpend } from './types.ts'
 
 /** One token price point, in CNY per 1M tokens. */
 export interface DeepSeekTokenPrice {
@@ -105,6 +105,11 @@ function beijingHour(now: Date): number {
   return new Date(now.getTime() + 8 * 3_600_000).getUTCHours()
 }
 
+/** The Beijing (Asia/Shanghai, UTC+8, no DST) calendar-day key of a timestamp. */
+function beijingDayKey(now: Date): string {
+  return new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10)
+}
+
 /**
  * Whether a timestamp falls inside any peak-hour window (Beijing time).
  * @param billing - resolved pricing with peak-hour windows.
@@ -130,19 +135,19 @@ interface SessionSpendRow {
 }
 
 /**
- * Price one session's billed usage at the official per-model rates, applying
- * the peak/off-peak table per event by its Beijing-time hour. Each
+ * Price a set of billed events at the official per-model rates, applying the
+ * peak/off-peak table per event by its Beijing-time hour. Each
  * `assistant/message` event with usage contributes cache-hit input, cache-miss
  * input (uncached input plus cache writes), and output (reasoning included)
  * tokens at the rate of its own timestamp, with the three component costs
  * carried separately; a model with usage but no pricing row is omitted (the
  * published table prices only the two V4 rows).
- * @param events - one session's complete event log.
+ * @param events - the events to price.
  * @param billing - resolved pricing with peak-hour windows.
  * @param catalog - model display rows, in presentation order.
- * @returns the session's total cost plus one row per priced model.
+ * @returns the total cost plus one row per priced model.
  */
-export function computeSessionSpend(
+function priceEvents(
   events: readonly SessionEvent[],
   billing: ResolvedBilling,
   catalog: readonly { id: string; name: string }[],
@@ -201,4 +206,39 @@ export function computeSessionSpend(
     total: models.reduce((sum, model) => sum + model.cost, 0),
     models,
   }
+}
+
+/**
+ * Price one session's complete event log at the official per-model rates.
+ * @param events - one session's complete event log.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param catalog - model display rows, in presentation order.
+ * @returns the session's total cost plus one row per priced model.
+ */
+export function computeSessionSpend(
+  events: readonly SessionEvent[],
+  billing: ResolvedBilling,
+  catalog: readonly { id: string; name: string }[],
+): DeepSeekSessionSpend {
+  return priceEvents(events, billing, catalog)
+}
+
+/**
+ * Price every event whose Beijing-time calendar day is the day of `now`,
+ * aggregating across every session's event log. Events from other Beijing
+ * days are ignored, so a caller passes the concatenated logs of all sessions.
+ * @param events - every session's complete event log, concatenated.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param catalog - model display rows, in presentation order.
+ * @param now - the reference moment whose Beijing-time calendar day is "today".
+ * @returns today's total cost plus one row per priced model.
+ */
+export function computeTodaySpend(
+  events: readonly SessionEvent[],
+  billing: ResolvedBilling,
+  catalog: readonly { id: string; name: string }[],
+  now: Date = new Date(),
+): DeepSeekTodaySpend {
+  const day = beijingDayKey(now)
+  return priceEvents(events.filter(event => beijingDayKey(new Date(event.time)) === day), billing, catalog)
 }

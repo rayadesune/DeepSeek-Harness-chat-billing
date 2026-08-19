@@ -16,7 +16,7 @@ Add the plugin to a composition (a `cordis.yml` row) and give it a credential. I
     # baseURL: https://api.deepseek.com
 ```
 
-The plugin registers the `billing` Remote with two methods: `getBalance()` (the parsed `/user/balance` snapshot) and `getSessionSpend(sessionId)` (one session's billed cost). The session spend prices each `assistant/message` event's billed tokens (cache-hit input, cache-miss input including cache writes, and output including reasoning) at the official rate of the event's own Beijing-time peak/off-peak hour, then sums per model.
+The plugin registers the `billing` Remote with three methods: `getBalance()` (the parsed `/user/balance` snapshot), `getSessionSpend(sessionId)` (one session's billed cost), and `getTodaySpend()` (every session's billed cost on the current Beijing-time calendar day). The spend prices each `assistant/message` event's billed tokens (cache-hit input, cache-miss input including cache writes, and output including reasoning) at the official rate of the event's own Beijing-time peak/off-peak hour, then sums per model.
 
 ## Configuration
 
@@ -40,5 +40,5 @@ None; its only provider call is a credential-authenticated `/user/balance` read,
 
 ## Known Limitations and Deferred Work
 
-- **Priced rows only** — the session spend only prices models that have a `billing.models` row; a model without a rate row is omitted.
-- **On-demand read** — the session spend reads the session's full event log on each call rather than maintaining an incremental aggregate, so cost grows with the per-session log size.
+- **Priced rows only** — the session and today spends only price models that have a `billing.models` row; a model without a rate row is omitted.
+- **On-demand read** — the session spend reads the session's full event log on each call rather than maintaining an incremental aggregate, so cost grows with the per-session log size; `getTodaySpend()` reads every session's log.

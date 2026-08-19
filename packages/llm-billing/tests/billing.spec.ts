@@ -8,6 +8,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import {
   computeSessionSpend,
+  computeTodaySpend,
   isPeak,
   resolveBilling,
 } from '../src/billing.ts'
@@ -136,6 +137,74 @@ describe('computeSessionSpend', () => {
       resolveBilling(undefined),
       CATALOG,
     )
+    expect(spend.total).toBe(0)
+    expect(spend.models).toEqual([])
+  })
+})
+
+describe('computeTodaySpend', () => {
+  // 2026-08-20 04:00Z is 2026-08-20 12:00 Beijing (off-peak; day 2026-08-20).
+  const NOW = Date.parse('2026-08-20T04:00:00Z')
+  // 02:00Z is 10:00 Beijing (peak), same Beijing day as NOW.
+  const PEAK = Date.parse('2026-08-20T02:00:00Z')
+  // 12:00Z is 20:00 Beijing (off-peak), same Beijing day as NOW.
+  const OFF_PEAK = Date.parse('2026-08-20T12:00:00Z')
+  // 16:30Z is 2026-08-21 00:30 Beijing — a different Beijing calendar day.
+  const NEXT_DAY = Date.parse('2026-08-20T16:30:00Z')
+  // 2026-08-19 20:00Z is 2026-08-20 04:00 Beijing — the previous UTC day but
+  // the same Beijing calendar day as NOW.
+  const PREVIOUS_UTC_DAY = Date.parse('2026-08-19T20:00:00Z')
+  const USAGE: TokenUsage = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 500_000 }
+
+  it('prices every priced event on the reference Beijing calendar day, from any session', () => {
+    const spend = computeTodaySpend(
+      [
+        assistantMessage(FLASH, USAGE, PEAK),
+        assistantMessage(FLASH, USAGE, OFF_PEAK),
+        assistantMessage(PRO, USAGE, PREVIOUS_UTC_DAY),
+      ],
+      resolveBilling(undefined),
+      CATALOG,
+      new Date(NOW),
+    )
+    // Flash peak 13.60 + Flash off-peak 6.80 + Pro off-peak 20.40.
+    expect(spend.total).toBeCloseTo(13.60 + 6.80 + 20.40, 10)
+    expect(spend.models).toHaveLength(2)
+    const flash = spend.models.find(row => row.model === FLASH)
+    expect(flash?.peakCost).toBeCloseTo(13.60, 10)
+    expect(flash?.offPeakCost).toBeCloseTo(6.80, 10)
+    const pro = spend.models.find(row => row.model === PRO)
+    expect(pro?.cost).toBeCloseTo(20.40, 10)
+  })
+
+  it('ignores events on other Beijing calendar days', () => {
+    const spend = computeTodaySpend(
+      [
+        assistantMessage(FLASH, USAGE, PEAK),
+        // 00:30 Beijing the next day — not today.
+        assistantMessage(FLASH, USAGE, NEXT_DAY),
+      ],
+      resolveBilling(undefined),
+      CATALOG,
+      new Date(NOW),
+    )
+    expect(spend.total).toBeCloseTo(13.60, 10)
+    expect(spend.models[0]?.cost).toBeCloseTo(13.60, 10)
+  })
+
+  it('returns a zero total when nothing priced falls on the reference day', () => {
+    const spend = computeTodaySpend(
+      [assistantMessage(FLASH, USAGE, NEXT_DAY)],
+      resolveBilling(undefined),
+      CATALOG,
+      new Date(NOW),
+    )
+    expect(spend.total).toBe(0)
+    expect(spend.models).toEqual([])
+  })
+
+  it('defaults the reference moment to now', () => {
+    const spend = computeTodaySpend([], resolveBilling(undefined), CATALOG)
     expect(spend.total).toBe(0)
     expect(spend.models).toEqual([])
   })

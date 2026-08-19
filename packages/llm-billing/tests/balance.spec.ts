@@ -40,6 +40,23 @@ const VALID_SPEND = {
   }],
 }
 
+const VALID_TODAY_SPEND = {
+  total: 0.62,
+  models: [{
+    model: 'deepseek-v4-flash',
+    displayName: 'DeepSeek-V4-Flash',
+    cost: 0.62,
+    peakCost: 0.31,
+    offPeakCost: 0.31,
+    cacheHitInputTokens: 2000,
+    cacheMissInputTokens: 200000,
+    outputTokens: 40000,
+    cacheHitInputCost: 0.02,
+    cacheMissInputCost: 0.40,
+    outputCost: 0.20,
+  }],
+}
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -124,15 +141,17 @@ describe('DeepSeekBalanceGateway', () => {
   const options = {
     fetchBalance: async () => VALID_PUBLIC,
     fetchSessionSpend: async () => VALID_SPEND,
+    fetchTodaySpend: async () => VALID_TODAY_SPEND,
   }
 
-  it('registers under the billing namespace and exports getBalance and getSessionSpend', () => {
+  it('registers under the billing namespace and exports getBalance, getSessionSpend, and getTodaySpend', () => {
     const ctx = new Context()
     const gateway = new DeepSeekBalanceGateway(ctx, options)
     expect(gateway.typertRemote.namespace).toBe('billing')
     const methods = remoteMethods(gateway).map(marker => marker.exportName ?? marker.method)
     expect(methods).toContain('getBalance')
     expect(methods).toContain('getSessionSpend')
+    expect(methods).toContain('getTodaySpend')
     expect(ctx.get('billing')).toBeDefined()
   })
 
@@ -141,6 +160,7 @@ describe('DeepSeekBalanceGateway', () => {
     const gateway = new DeepSeekBalanceGateway(ctx, options)
     await expect(gateway.getBalance()).resolves.toEqual(VALID_PUBLIC)
     await expect(gateway.getSessionSpend('session-1' as SessionId)).resolves.toEqual(VALID_SPEND)
+    await expect(gateway.getTodaySpend()).resolves.toEqual(VALID_TODAY_SPEND)
   })
 
   it('is root-visible when constructed inside a plugin fiber', async () => {

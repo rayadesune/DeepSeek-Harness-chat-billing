@@ -40,12 +40,33 @@ const SPEND = {
   }],
 }
 
+const TODAY_SPEND = {
+  total: 0.62,
+  models: [{
+    model: 'deepseek-v4-flash',
+    displayName: 'DeepSeek-V4-Flash',
+    cost: 0.62,
+    peakCost: 0.31,
+    offPeakCost: 0.31,
+    cacheHitInputTokens: 2000,
+    cacheMissInputTokens: 200000,
+    outputTokens: 40000,
+    cacheHitInputCost: 0.02,
+    cacheMissInputCost: 0.40,
+    outputCost: 0.20,
+  }],
+}
+
 type BalanceResult =
   | { readonly ok: true; readonly value: typeof BALANCE }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
 type SpendResult =
   | { readonly ok: true; readonly value: typeof SPEND }
+  | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
+
+type TodaySpendResult =
+  | { readonly ok: true; readonly value: typeof TODAY_SPEND }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
 /** Slot ledger reader: entry ids currently registered in the header utilities list. */
@@ -61,6 +82,7 @@ async function bench(): Promise<{
   fiber: ReturnType<Context['plugin']>
   getBalance: ReturnType<typeof vi.fn>
   getSessionSpend: ReturnType<typeof vi.fn>
+  getTodaySpend: ReturnType<typeof vi.fn>
 }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -88,11 +110,13 @@ async function bench(): Promise<{
     .mockResolvedValue({ ok: true, value: BALANCE })
   const getSessionSpend = vi.fn<(sessionId: SessionId) => Promise<SpendResult>>()
     .mockResolvedValue({ ok: true, value: SPEND })
-  ctx.provide('remote.billing', { getBalance, getSessionSpend })
+  const getTodaySpend = vi.fn<() => Promise<TodaySpendResult>>()
+    .mockResolvedValue({ ok: true, value: TODAY_SPEND })
+  ctx.provide('remote.billing', { getBalance, getSessionSpend, getTodaySpend })
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, getBalance, getSessionSpend }
+  return { ctx, fiber, getBalance, getSessionSpend, getTodaySpend }
 }
 
 describe('ui-billing browser half', () => {
@@ -130,6 +154,17 @@ describe('ui-billing browser half', () => {
     getSessionSpend.mockResolvedValueOnce({ ok: false, error: { code: 'not_found', message: 'unknown session' } })
     await expect(injected.getSessionSpend('session-2' as SessionId))
       .rejects.toThrow('billing.getSessionSpend failed: not_found: unknown session')
+    await ctx.fiber.dispose()
+  })
+
+  it('injects a getTodaySpend face that unwraps the Remote result and reports failures', async () => {
+    const { ctx, getTodaySpend } = await bench()
+    const entry = ctx.slots.entries('conversation.session.header.utilities')[0]!
+    const injected = (entry.inject as unknown as () => BalanceBadgeInjected)()
+    await expect(injected.getTodaySpend()).resolves.toEqual(TODAY_SPEND)
+    expect(getTodaySpend).toHaveBeenCalledOnce()
+    getTodaySpend.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
+    await expect(injected.getTodaySpend()).rejects.toThrow('billing.getTodaySpend failed: internal: no key')
     await ctx.fiber.dispose()
   })
 

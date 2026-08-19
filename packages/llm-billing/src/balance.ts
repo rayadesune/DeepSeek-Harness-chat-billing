@@ -13,7 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
-import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekSessionSpend } from './types.ts'
+import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekSessionSpend, DeepSeekTodaySpend } from './types.ts'
 
 /** Map a balance HTTP status to a stable LlmError code. */
 function httpErrorCode(status: number): string {
@@ -108,6 +108,8 @@ export interface DeepSeekBalanceGatewayOptions {
   fetchBalance: () => Promise<DeepSeekBalance>
   /** Compute one session's billed spend through the plugin's resolved facts. */
   fetchSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
+  /** Compute today's billed spend across every session through the plugin's resolved facts. */
+  fetchTodaySpend: () => Promise<DeepSeekTodaySpend>
 }
 
 /**
@@ -146,6 +148,16 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   @Remote('getSessionSpend')
   getSessionSpend(sessionId: SessionId): Promise<DeepSeekSessionSpend> {
     return this.options.fetchSessionSpend(sessionId)
+  }
+
+  /**
+   * Read today's billed spend across every session, priced per event by its
+   * Beijing-time calendar day and peak/off-peak hour.
+   * @returns today's total cost plus one row per priced model.
+   */
+  @Remote('getTodaySpend')
+  getTodaySpend(): Promise<DeepSeekTodaySpend> {
+    return this.options.fetchTodaySpend()
   }
 }
 
