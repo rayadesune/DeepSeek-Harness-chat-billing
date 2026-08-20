@@ -225,6 +225,24 @@ describe('BalanceBadge', () => {
     expect(screen.getByText('今日共花费：—')).toBeDefined()
   })
 
+  it('shows the session spend as soon as it settles, without waiting for today\'s spend', async () => {
+    const getTodaySpend = vi.fn(() => new Promise<DeepSeekTodaySpend>(() => {}))
+    render(<BalanceBadge {...props(async () => balance(), async () => SPEND, getTodaySpend)} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    // The session spend landed; today's spend never settles, so its line
+    // keeps the placeholder instead of blanking the other line.
+    expect(await screen.findByText('本会话花费：¥0.04')).toBeDefined()
+    expect(screen.getByText('今日共花费：—')).toBeDefined()
+  })
+
+  it('shows today\'s spend as soon as it settles, without waiting for the session spend', async () => {
+    const getSessionSpend = vi.fn(() => new Promise<DeepSeekSessionSpend>(() => {}))
+    render(<BalanceBadge {...props(async () => balance(), getSessionSpend, async () => TODAY_SPEND)} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await screen.findByText('今日共花费：¥0.31')).toBeDefined()
+    expect(screen.getByText('本会话花费：—')).toBeDefined()
+  })
+
   it('trims trailing zeros in the spend amount', async () => {
     const trimmed: DeepSeekSessionSpend = {
       total: 0.3,

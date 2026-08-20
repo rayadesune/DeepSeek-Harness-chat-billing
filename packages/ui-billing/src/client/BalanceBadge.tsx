@@ -84,10 +84,11 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
     // the first load has nothing to keep, so it stays on the loading render.
     setRefreshing(balance !== null)
     void Promise.resolve().then(() => {
-      // The badge renders from the balance, so it settles on its own: it
-      // appears as soon as the (network) balance fetch lands, without waiting
-      // for the slower spend aggregates.
-      void Promise.resolve().then(getBalance).then(
+      // Each line settles on its own: the badge renders from the balance and
+      // the panel rows from their own spend, so a slow aggregate (today's
+      // spend scans every session) delays neither the balance nor the session
+      // spend.
+      const balanceRequest = Promise.resolve().then(getBalance).then(
         (value) => {
           if (!current) return
           setBalance(value)
@@ -99,11 +100,27 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
           if (balance === null) setError(reason instanceof Error ? reason.message : String(reason))
         },
       )
-      void Promise.allSettled([getSessionSpend(sessionId), getTodaySpend()]).then(([spendResult, todaySpendResult]) => {
-        if (!current) return
-        if (spendResult.status === 'fulfilled') setSpend(spendResult.value)
-        if (todaySpendResult.status === 'fulfilled') setTodaySpend(todaySpendResult.value)
-        setRefreshing(false)
+      const sessionSpendRequest = Promise.resolve().then(() => getSessionSpend(sessionId)).then(
+        (value) => {
+          if (!current) return
+          setSpend(value)
+        },
+        () => {
+          // A failed refetch keeps the last good value instead of blanking it.
+        },
+      )
+      const todaySpendRequest = Promise.resolve().then(getTodaySpend).then(
+        (value) => {
+          if (!current) return
+          setTodaySpend(value)
+        },
+        () => {
+          // A failed refetch keeps the last good value instead of blanking it.
+        },
+      )
+      // The refresh spinner covers the whole refresh, whatever settles last.
+      void Promise.allSettled([balanceRequest, sessionSpendRequest, todaySpendRequest]).then(() => {
+        if (current) setRefreshing(false)
       })
     })
     return () => { current = false }
@@ -116,14 +133,27 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
     if (messageCount === pricedMessageCountRef.current) return
     pricedMessageCountRef.current = messageCount
     let current = true
-    void Promise.resolve().then(async () => {
-      const [spendResult, todaySpendResult] = await Promise.allSettled([
-        getSessionSpend(sessionId),
-        getTodaySpend(),
-      ])
-      if (!current) return
-      if (spendResult.status === 'fulfilled') setSpend(spendResult.value)
-      if (todaySpendResult.status === 'fulfilled') setTodaySpend(todaySpendResult.value)
+    void Promise.resolve().then(() => {
+      // Each spend line updates on its own: the slow all-session aggregate
+      // does not delay the session line.
+      void Promise.resolve().then(() => getSessionSpend(sessionId)).then(
+        (value) => {
+          if (!current) return
+          setSpend(value)
+        },
+        () => {
+          // A failed recompute keeps the last good value.
+        },
+      )
+      void Promise.resolve().then(getTodaySpend).then(
+        (value) => {
+          if (!current) return
+          setTodaySpend(value)
+        },
+        () => {
+          // A failed recompute keeps the last good value.
+        },
+      )
     })
     return () => { current = false }
   }, [getSessionSpend, getTodaySpend, sessionId, messageCount])
