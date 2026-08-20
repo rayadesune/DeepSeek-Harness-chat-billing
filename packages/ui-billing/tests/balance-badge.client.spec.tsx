@@ -76,6 +76,14 @@ describe('BalanceBadge', () => {
     expect(container.innerHTML).toBe('')
   })
 
+  it('appears as soon as the balance settles, without waiting for the spends', async () => {
+    const getSessionSpend = vi.fn(() => new Promise<DeepSeekSessionSpend>(() => {}))
+    const getTodaySpend = vi.fn(() => new Promise<DeepSeekTodaySpend>(() => {}))
+    render(<BalanceBadge {...props(async () => balance(), getSessionSpend, getTodaySpend)} />)
+    // The balance landed; the badge renders even though both spends never settle.
+    expect(await screen.findByText('剩余额度：¥110.00')).toBeDefined()
+  })
+
   it('shows the balance and this conversation spend on the trigger', async () => {
     render(<BalanceBadge {...props(async () => balance())} />)
     expect(await screen.findByText('剩余额度：¥110.00')).toBeDefined()
