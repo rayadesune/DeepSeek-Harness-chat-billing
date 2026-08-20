@@ -171,6 +171,7 @@ describe('ui-billing browser half', () => {
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
     const { ctx, fiber } = await bench()
     const translate = ctx.locale.bind(NS)
+    ctx.locale.setLocale('zh')
     expect(translate('state.unavailable')).toBe(zh['state.unavailable'])
     ctx.locale.setLocale('en')
     expect(translate('state.unavailable')).toBe(en['state.unavailable'])

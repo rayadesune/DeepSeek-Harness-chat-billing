@@ -57,7 +57,7 @@ function formatSpend(amount: number): string {
  * through `getSessionSpend` / `getTodaySpend`; the balance stays a
  * manual-refresh snapshot and is never refetched on its own.
  * @param props - Remote face, locale, and the standard session-header runtime share.
- * @returns the badge, or null while the first fetch is in flight.
+ * @returns the badge, or null until the first balance fetch settles.
  */
 export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessionId, useSession, t }: BalanceBadgeProps) {
   const [balance, setBalance] = useState<DeepSeekBalance | null>(null)
@@ -83,24 +83,28 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
     // A refresh (values already present) keeps the previous values on screen;
     // the first load has nothing to keep, so it stays on the loading render.
     setRefreshing(balance !== null)
-    void Promise.resolve().then(async () => {
-      const [balanceResult, spendResult, todaySpendResult] = await Promise.allSettled([
-        getBalance(),
-        getSessionSpend(sessionId),
-        getTodaySpend(),
-      ])
-      if (!current) return
-      if (balanceResult.status === 'fulfilled') {
-        setBalance(balanceResult.value)
-        setError(null)
-      } else {
-        // A refresh failure keeps the last good value instead of blanking it.
-        const cause = balanceResult.reason
-        if (balance === null) setError(cause instanceof Error ? cause.message : String(cause))
-      }
-      if (spendResult.status === 'fulfilled') setSpend(spendResult.value)
-      if (todaySpendResult.status === 'fulfilled') setTodaySpend(todaySpendResult.value)
-      setRefreshing(false)
+    void Promise.resolve().then(() => {
+      // The badge renders from the balance, so it settles on its own: it
+      // appears as soon as the (network) balance fetch lands, without waiting
+      // for the slower spend aggregates.
+      void Promise.resolve().then(getBalance).then(
+        (value) => {
+          if (!current) return
+          setBalance(value)
+          setError(null)
+        },
+        (reason: unknown) => {
+          if (!current) return
+          // A refresh failure keeps the last good value instead of blanking it.
+          if (balance === null) setError(reason instanceof Error ? reason.message : String(reason))
+        },
+      )
+      void Promise.allSettled([getSessionSpend(sessionId), getTodaySpend()]).then(([spendResult, todaySpendResult]) => {
+        if (!current) return
+        if (spendResult.status === 'fulfilled') setSpend(spendResult.value)
+        if (todaySpendResult.status === 'fulfilled') setTodaySpend(todaySpendResult.value)
+        setRefreshing(false)
+      })
     })
     return () => { current = false }
   }, [getBalance, getSessionSpend, getTodaySpend, sessionId, request])
