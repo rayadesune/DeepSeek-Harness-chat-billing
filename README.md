@@ -34,25 +34,31 @@
 
 ## 安装
 
-把两个包装进 profile、接进组合、再配好 key。
+> 📌 **仓库说明**：本仓库是源码镜像/分发页。插件的主场已迁入
+> [`deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) fork 的
+> `packages/llm/llm-billing` 与 `packages/client/ui-billing`（作为 workspace 成员随
+> monorepo 构建、由 `@deepseek-ai/dsh-web-app` bundle 挂载），本仓库保留源码副本与说明。
+> 下面两种安装方式二选一。
 
-### 1. 安装包
+### 方式 A：从 fork 构建（推荐）
 
-> ⚠️ 现状：这两个包依赖的 harness 内部包（`@deepseek-ai/dsh-llm`、`dsh-session`、
-> `dsh-credentials`、`dsh-session-persistence`、`dsh-typert-protocol`、`cordis` 等）
-> **尚未发布到 npm**，所以下面的 `dsh plugin add` 目前无法从 registry 解析。
-> 本仓库是一个独立的插件源码仓库；要把插件装进某个 dsh profile，先发布这些
-> 依赖包（`@deepseek-ai` 或你自己的 scope），再用 registry 安装：
+在 deepseek-harness fork 里 `pnpm install && pnpm run build` 后，`dsh web` 即内置
+计费徽标，无需任何手动配置。
+
+### 方式 B：独立安装
+
+> ⚠️ 现状：依赖的 harness 内部包在 npm 上只有过期的 `0.0.1-rc.1`，无法从 registry
+> 解析；需要先用本地 checkout 构建好 `lib/`，再用本地路径安装：
 
 ```bash
-dsh plugin --profile web add @deepseek-ai/dsh-llm-billing @deepseek-ai/dsh-client-ui-billing
+# 在包含 packages/ 的目录执行（本仓库或 monorepo checkout 均可）
+dsh plugin --profile web add ./packages/llm-billing ./packages/ui-billing
 ```
 
-### 2. 接进组合
-
-编辑 `~/.dsh/profiles/web/cordis.patch.yml`：
+手动补行（仅当 bundle 未激活时）：
 
 ```yaml
+# ~/.dsh/profiles/web/cordis.patch.yml
 - insert:
     - id: llm-billing
       name: '@deepseek-ai/dsh-llm-billing'
@@ -60,7 +66,7 @@ dsh plugin --profile web add @deepseek-ai/dsh-llm-billing @deepseek-ai/dsh-clien
       name: '@deepseek-ai/dsh-client-ui-billing'
 ```
 
-### 3. 配置你的 DeepSeek API key
+### 配置你的 DeepSeek API key
 
 二选一：在网页「模型」页填入（会把 `DEEPSEEK_API_KEY` 写入 `~/.dsh/.credentials.yaml`），或导出环境变量：
 
@@ -68,7 +74,7 @@ dsh plugin --profile web add @deepseek-ai/dsh-llm-billing @deepseek-ai/dsh-clien
 export DEEPSEEK_API_KEY=sk-...
 ```
 
-### 4. 重启
+### 重启
 
 ```bash
 dsh web
