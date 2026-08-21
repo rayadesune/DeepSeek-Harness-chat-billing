@@ -45,9 +45,9 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 ### Installation (published to npm, one command)
 
 The three packages are published to npm under the `@rayadesu` scope. Install
-the bundle plus the two plugin packages in one command (pnpm does not install
-the bundle's local dependencies into the profile, so the two plugin packages
-must be named explicitly):
+the bundle plus the two plugin packages in one command (the bundle declares the
+two plugin packages as peer dependencies, which pnpm does not auto-install into
+the profile, so they must be named explicitly):
 
 ```bash
 dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
