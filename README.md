@@ -36,25 +36,35 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 
 ## Installation
 
-> 📌 **About this repository**: this repo is a source mirror / distribution page. The plugin's home has moved into a [`deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) fork, at `packages/llm/llm-billing` and `packages/client/ui-billing` (workspace members built with the monorepo and mounted by the `@deepseek-ai/dsh-web-app` bundle). This repo keeps the source copy and the docs. Pick one of the two installation routes below.
+> 📌 **About this repository**: this repo is the plugin's **only distribution
+> source** — the official [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
+> repository does **not** ship the billing plugin. It was briefly integrated into
+> this user's fork, which has since been reverted to the official commit
+> (`141eb6fef8`); this repo no longer depends on any fork.
 
-### Route A: build from the fork (recommended)
+### Installation (bundle, one command)
 
-After `pnpm install && pnpm run build` in the deepseek-harness fork, `dsh web` ships the billing badge with no manual configuration.
+> ⚠️ Prerequisites: the two plugin packages are not published to npm
+> (`@deepseek-ai/dsh-llm-billing` and `@deepseek-ai/dsh-client-ui-billing` are 404
+> on the registry), and building `lib/` depends on the deepseek-harness monorepo
+> layout. You need to:
+> 1. build the two packages' `lib/` in any deepseek-harness checkout (place this
+>    repo's `packages/llm-billing` and `packages/ui-billing` at the checkout's
+>    `packages/llm/llm-billing` and `packages/client/ui-billing`, run `pnpm install`
+>    and build), then sync the generated `lib/` back into this repo's matching
+>    package directories (`lib/` is gitignored and never committed);
+> 2. run `pnpm install` in this repo (the `@deepseek-ai/dsh-*` runtime dependencies
+>    resolve from npm at `^0.1.0-rc.8`, the published form of the official
+>    `workspace:^`; see "Dependency notes" below).
 
-> ⚠️ When using the fork, do **not** also install this repo as a bundle into the same profile — the `llm-billing` / `ui-billing` rows would register twice.
-
-### Route B: standalone install (bundle, one command)
-
-> ⚠️ Prerequisites: the two plugin packages are not published to npm (`@deepseek-ai/dsh-llm-billing` and `@deepseek-ai/dsh-client-ui-billing` are 404 on the registry), and building `lib/` depends on the monorepo layout. You need to:
-> 1. `pnpm install && pnpm run build` in a fork checkout (or any deepseek-harness checkout);
-> 2. sync the built `lib/` of `packages/llm/llm-billing` and `packages/client/ui-billing` back into this repo's matching package directories (`lib/` is gitignored and never committed);
-> 3. run `pnpm install` in this repo (the `@deepseek-ai/dsh-*` runtime dependencies resolve from npm at `^0.1.0-rc.8`, the published form of the fork's `workspace:^`; see "Dependency notes" below).
-
-Then install with one command (the root `package.json` declares `dsh.bundle.patch` and `cordis.patch.yml` mounts the two plugin rows):
+Then install with one command — the bundle (root `package.json` declares
+`dsh.bundle.patch`, `cordis.patch.yml` mounts the two plugin rows) plus the two
+plugin packages (so the row names resolve from the profile's node_modules; pnpm
+does not install the bundle's local dependencies into the profile, so the
+package paths must be given explicitly):
 
 ```bash
-dsh plugin --profile web add C:\path\to\DeepSeek-Harness-chat-billing
+dsh plugin --profile web add C:\path\to\DeepSeek-Harness-chat-billing C:\path\to\DeepSeek-Harness-chat-billing\packages\llm-billing C:\path\to\DeepSeek-Harness-chat-billing\packages\ui-billing
 ```
 
 Manual rows (only when you do not want the bundle):
@@ -72,11 +82,11 @@ Manual rows (only when you do not want the bundle):
 
 The runtime dependencies (`@deepseek-ai/dsh-credentials` and friends) are published
 to npm (`0.1.0-rc.8` on the `next` tag); both manifests declare them as
-`^0.1.0-rc.8` (the published form of the fork's `workspace:^`), so `pnpm install`
+`^0.1.0-rc.8` (the published form of the official `workspace:^`), so `pnpm install`
 resolves them directly. **The two plugin packages themselves**
 (`@deepseek-ai/dsh-llm-billing`, `@deepseek-ai/dsh-client-ui-billing`) are **not
 published to npm** (404 on the registry), so they can only be installed from a
-local path (Route B) — never with `pnpm add <package-name>`.
+local path (see above) — never with `pnpm add <package-name>`.
 
 ### Configure your DeepSeek API key
 

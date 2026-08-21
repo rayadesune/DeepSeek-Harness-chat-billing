@@ -36,35 +36,31 @@
 
 ## 安装
 
-> 📌 **仓库说明**：本仓库是源码镜像/分发页。插件的主场已迁入
-> [`deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) fork 的
-> `packages/llm/llm-billing` 与 `packages/client/ui-billing`（作为 workspace 成员随
-> monorepo 构建、由 `@deepseek-ai/dsh-web-app` bundle 挂载），本仓库保留源码副本与说明。
-> 下面两种安装方式二选一。
+> 📌 **仓库说明**：本仓库是插件的**唯一分发来源**——deepseek-harness 官方仓库
+> （[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)）
+> **不含**计费插件；插件曾短暂集成于本用户的 fork，现已回退到官方提交版本
+> （`141eb6fef8`），本仓库不再依赖任何 fork。
 
-### 方式 A：从 fork 构建（推荐）
+### 安装（bundle，一条命令）
 
-在 deepseek-harness fork 里 `pnpm install && pnpm run build` 后，`dsh web` 即内置
-计费徽标，无需任何手动配置。
+> ⚠️ 前置条件：本插件的两个包未发布到 npm（`@deepseek-ai/dsh-llm-billing`、
+> `@deepseek-ai/dsh-client-ui-billing` 在 registry 上 404），且 `lib/` 构建产物依赖
+> deepseek-harness monorepo 布局。需要先：
+> 1. 在任意 deepseek-harness checkout 环境中构建两个包的 `lib/`（把本仓库
+>    `packages/llm-billing`、`packages/ui-billing` 放入 checkout 的
+>    `packages/llm/llm-billing`、`packages/client/ui-billing` 位置后
+>    `pnpm install` 并构建），把生成的 `lib/` 同步回本仓库对应包目录
+>    （`lib/` 已 gitignore，不进仓库）；
+> 2. 在本仓库执行 `pnpm install`（`@deepseek-ai/dsh-*` 运行时依赖按 `^0.1.0-rc.8`
+>    从 npm 解析，与官方 `workspace:^` 的发布形态一致；见下方「依赖说明」）。
 
-> ⚠️ 使用 fork 时**不要**再把本仓库作为 bundle 装进同一 profile——`llm-billing` /
-> `ui-billing` 插件行会重复注册。
-
-### 方式 B：独立安装（bundle，一键）
-
-> ⚠️ 前置条件：本插件的两个包未发布到 npm（`@deepseek-ai/dsh-llm-billing` 等在
-> registry 上 404），且 `lib/` 构建产物依赖 monorepo 布局。需要先：
-> 1. 在 fork checkout（或任何 deepseek-harness checkout）里 `pnpm install && pnpm run build`；
-> 2. 把 `packages/llm/llm-billing` 与 `packages/client/ui-billing` 构建出的 `lib/`
->    同步回本仓库对应包目录（`lib/` 已 gitignore，不进仓库）；
-> 3. 在本仓库执行 `pnpm install`（`@deepseek-ai/dsh-*` 运行时依赖按 `^0.1.0-rc.8`
->    从 npm 解析，与 fork 里 `workspace:^` 的发布形态一致；见下方「依赖说明」）。
-
-然后一条命令安装（根 `package.json` 声明了 `dsh.bundle.patch`，`cordis.patch.yml`
-挂载两个插件行）：
+然后一条命令安装——bundle（根 `package.json` 声明 `dsh.bundle.patch`，
+`cordis.patch.yml` 挂载两个插件行）+ 两个插件包（让行名能从 profile 的
+node_modules 解析；pnpm 不会把 bundle 的本地依赖装进 profile，所以包路径要
+显式给出）：
 
 ```bash
-dsh plugin --profile web add C:\path\to\DeepSeek-Harness-chat-billing
+dsh plugin --profile web add C:\path\to\DeepSeek-Harness-chat-billing C:\path\to\DeepSeek-Harness-chat-billing\packages\llm-billing C:\path\to\DeepSeek-Harness-chat-billing\packages\ui-billing
 ```
 
 手动补行（仅当不想用 bundle 时）：
@@ -81,10 +77,10 @@ dsh plugin --profile web add C:\path\to\DeepSeek-Harness-chat-billing
 ### 依赖说明
 
 `@deepseek-ai/dsh-credentials` 等运行时依赖已发布到 npm（`0.1.0-rc.8`，`next` tag），
-两个包的 manifest 以 `^0.1.0-rc.8` 声明（fork 中 `workspace:^` 的发布形态），
+两个包的 manifest 以 `^0.1.0-rc.8` 声明（官方 monorepo 中 `workspace:^` 的发布形态），
 `pnpm install` 可直接解析；但**本插件的两个包**
 （`@deepseek-ai/dsh-llm-billing`、`@deepseek-ai/dsh-client-ui-billing`）**没有发布到
-npm**（registry 404），所以必须走本地路径安装（方式 B），不能 `pnpm add <包名>`。
+npm**（registry 404），所以必须走本地路径安装（见上），不能 `pnpm add <包名>`。
 
 ### 配置你的 DeepSeek API key
 
