@@ -109,7 +109,8 @@ describe('fetchDeepSeekBalance', () => {
       'https://api.deepseek.com/user/balance',
       expect.objectContaining({
         method: 'GET',
-        headers: expect.objectContaining({ authorization: 'Bearer secret' }),
+        // The header matcher is the assertion; objectContaining is any-typed.
+        headers: expect.objectContaining({ authorization: 'Bearer secret' }), // oxlint-disable-line typescript/no-unsafe-assignment
       }),
     )
   })
@@ -210,7 +211,7 @@ describe('apply / allSessionEvents', () => {
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     await expect(gateway.getTodaySpend()).resolves.toMatchObject({
-      total: expect.any(Number),
+      total: expect.any(Number), // oxlint-disable-line typescript/no-unsafe-assignment
       models: [{ model: 'deepseek-v4-flash' }],
     })
     await ctx.fiber.dispose()
@@ -228,7 +229,9 @@ describe('apply / allSessionEvents', () => {
     } as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
-    await expect(gateway.getTodaySpend()).resolves.toMatchObject({ total: expect.any(Number) })
+    await expect(gateway.getTodaySpend()).resolves.toMatchObject({
+      total: expect.any(Number), // oxlint-disable-line typescript/no-unsafe-assignment
+    })
     await ctx.fiber.dispose()
   })
 
@@ -243,7 +246,9 @@ describe('apply / allSessionEvents', () => {
     } as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
-    await expect(gateway.getTodaySpend()).resolves.toMatchObject({ total: expect.any(Number) })
+    await expect(gateway.getTodaySpend()).resolves.toMatchObject({
+      total: expect.any(Number), // oxlint-disable-line typescript/no-unsafe-assignment
+    })
     await ctx.fiber.dispose()
   })
 })

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-独立的宿主插件，把 DeepSeek 账户余额与会话花费变成 `billing` Remote。它拥有 `/user/balance` 传输、峰谷计价表与每会话的计费花费计价，因此部署可以在不把这个能力与聊天补全适配器耦合的前提下，展示「还剩多少、这个会话花了多少」。浏览器侧是 [`dsh-client-ui-billing`](../../client/ui-billing/README.md)。
+独立的宿主插件，把 DeepSeek 账户余额与会话花费变成 `billing` Remote。它拥有 `/user/balance` 传输、峰谷计价表与每会话的计费花费计价，因此部署可以在不把这个能力与聊天补全适配器耦合的前提下，展示「还剩多少、这个会话花了多少」。浏览器侧是 [`dsh-client-ui-billing`](../ui-billing/README.md)。
 
 ## 安装
 

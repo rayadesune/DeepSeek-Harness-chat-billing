@@ -133,7 +133,7 @@ describe('computeSessionSpend', () => {
 
   it('returns a zero total for a session without billed usage', () => {
     const spend = computeSessionSpend(
-      [{ type: 'turn/start', seq: 0, time: PEAK, data: { turn: 0 } } as SessionEvent],
+      [{ type: 'turn/start', seq: 0, time: PEAK, data: { turn: 0 } }],
       resolveBilling(undefined),
       CATALOG,
     )

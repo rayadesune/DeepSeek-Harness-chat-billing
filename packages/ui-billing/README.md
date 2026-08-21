@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Web billing feature owner: contributes one entry to `conversation.session.header.utilities` that mounts its own `billing` Remote, reads the DeepSeek account balance, this session's billed spend, and today's spend across every session through `billing/getBalance`, `billing/getSessionSpend`, and `billing/getTodaySpend`, and renders them as a top-right label box. The host half of the capability lives in [`dsh-llm-billing`](../llm/llm-billing/README.md), which owns the `/user/balance` transport, the peak/off-peak pricing table, and the `billing` Remote namespace; this package mounts that Remote and renders what it returns.
+Web billing feature owner: contributes one entry to `conversation.session.header.utilities` that mounts its own `billing` Remote, reads the DeepSeek account balance, this session's billed spend, and today's spend across every session through `billing/getBalance`, `billing/getSessionSpend`, and `billing/getTodaySpend`, and renders them as a top-right label box. The host half of the capability lives in [`dsh-llm-billing`](../llm-billing/README.md), which owns the `/user/balance` transport, the peak/off-peak pricing table, and the `billing` Remote namespace; this package mounts that Remote and renders what it returns.
 
 The trigger shows two lines — the remaining balance and this conversation's billed spend ("本轮对话花费 ¥X") — and renders nothing while the first fetch is in flight. Clicking it opens a label box with the remaining amount, this session's billed spend (本会话花费, priced per message at the official peak/off-peak rate) with today's all-session spend beside it (今日共花费), one priced row per model with the cache-hit / cache-miss-input / output cost breakdown ("缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z"), a manual refresh action, and a spend disclaimer. Refreshing keeps the last values visible rather than blanking them, and a refresh failure retains the last good value. A session or day without priced usage shows a "no usage recorded" word rather than a fabricated figure. A failure — no API key configured, a rejected credential, a transport error — renders a muted "Balance unavailable" word whose tooltip carries the Remote's own error message.
 
@@ -18,7 +18,7 @@ The spends follow the conversation and the balance stays a manual snapshot:
 
 ## Model Experience
 
-None, as this package renders account-level provider facts for a human and touches no prompt, message, schema, stream, or tool result. The model's own view of provider quota lives with the `QUOTA` / `INVALID_CREDENTIAL` error codes surfaced by [`dsh-llm`](../llm/llm/README.md) on failed requests.
+None, as this package renders account-level provider facts for a human and touches no prompt, message, schema, stream, or tool result. The model's own view of provider quota lives with the `QUOTA` / `INVALID_CREDENTIAL` error codes surfaced by [`dsh-llm`](https://github.com/deepseek-ai/deepseek-harness/tree/main/packages/llm/llm) on failed requests.
 
 #### KV Cache effect
 

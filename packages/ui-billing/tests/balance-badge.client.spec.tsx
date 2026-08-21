@@ -121,9 +121,9 @@ describe('BalanceBadge', () => {
   it('keeps the last value visible while a refresh is in flight, then updates it', async () => {
     const getBalance = vi.fn()
       .mockResolvedValueOnce(balance())
-      .mockResolvedValueOnce(new Promise(resolve => setTimeout(() => resolve(balance({
+      .mockResolvedValueOnce(new Promise(resolve => setTimeout(() => { resolve(balance({
         lines: [{ currency: 'CNY', total: '9.00', granted: '0.00', toppedUp: '9.00' }],
-      })), 20)))
+      })) }, 20)))
     render(<BalanceBadge {...props(getBalance)} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     fireEvent.click(await screen.findByRole('button', { name: zh['action.refresh'] }))
