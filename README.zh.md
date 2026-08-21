@@ -44,7 +44,7 @@
 ### 安装（已发布到 npm，一条命令）
 
 三个包已发布到 npm 的 `@rayadesu` scope。一条命令同时安装 bundle 与两个插件包
-（pnpm 不会把 bundle 的本地依赖装进 profile，所以两个插件包要显式列出）：
+（bundle 把两个插件包声明为 peer 依赖，而 profile 默认不自动安装 peer，所以要显式列出）：
 
 ```bash
 dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
