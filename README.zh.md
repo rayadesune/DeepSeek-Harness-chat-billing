@@ -63,9 +63,11 @@ dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @ra
 
 ### 依赖说明
 
-`@deepseek-ai/dsh-credentials` 等运行时依赖已发布到 npm（`0.1.0-rc.8`，`next` tag），
-两个包的 manifest 以 `^0.1.0-rc.8` 声明（官方 monorepo 中 `workspace:^` 的发布形态），
-`pnpm install` 可直接解析。
+两个插件包把它们依赖的 DeepSeek Harness 包（`@deepseek-ai/cordis`、
+`@deepseek-ai/dsh-credentials`、`@deepseek-ai/dsh-session` 以及客户端运行时包）
+声明为 `peerDependencies`（`^0.1.0-rc.8`）。dsh profile 默认不自动安装 peer，所以
+这些由 dsh 安装本身通过 `profiles/node_modules` 回退提供，而不是从 registry 拉取——
+无需额外安装，安装机也不需要 registry token。
 
 ### 配置你的 DeepSeek API key
 

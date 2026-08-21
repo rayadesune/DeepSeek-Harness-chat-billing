@@ -66,10 +66,13 @@ Manual rows (only when you do not want the bundle):
 
 ### Dependency notes
 
-The runtime dependencies (`@deepseek-ai/dsh-credentials` and friends) are published
-to npm (`0.1.0-rc.8` on the `next` tag); both manifests declare them as
-`^0.1.0-rc.8` (the published form of the official `workspace:^`), so `pnpm install`
-resolves them directly.
+The two plugin packages declare the DeepSeek Harness packages they build on
+(`@deepseek-ai/cordis`, `@deepseek-ai/dsh-credentials`, `@deepseek-ai/dsh-session`,
+and the client runtime packages) as `peerDependencies` at `^0.1.0-rc.8`. A dsh
+profile does not auto-install peers, so these are provided by the dsh
+installation itself through the `profiles/node_modules` fallback rather than
+fetched from the registry — no extra packages to install, and no registry token
+needed on the installing machine.
 
 ### Configure your DeepSeek API key
 
