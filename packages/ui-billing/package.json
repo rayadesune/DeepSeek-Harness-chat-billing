@@ -1,7 +1,7 @@
 {
   "name": "@rayadesu/dsh-client-ui-billing",
   "description": "Session-header DeepSeek account-balance and conversation-spend badge over the billing Remote",
-  "version": "0.1.0-rc.8",
+  "version": "0.1.0-rc.10",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
