@@ -1,7 +1,7 @@
 /**
  * Client-safe balance and spend vocabulary shared by the `billing` Remote,
  * its generated artifacts, and the web UI.
- * @module @deepseek-ai/dsh-llm-billing/types
+ * @module @rayadesu/dsh-llm-billing/types
  */
 
 /** One currency line of the account balance returned by `GET /user/balance`. */

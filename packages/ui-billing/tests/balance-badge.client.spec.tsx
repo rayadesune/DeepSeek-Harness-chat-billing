@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from '@deepseek-ai/dsh-llm-billing/types'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import { BalanceBadge, type BalanceBadgeProps } from '../src/client/BalanceBadge.tsx'
 import { zh } from '../src/client/locales.ts'
 

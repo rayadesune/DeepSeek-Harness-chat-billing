@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-llm-billing
+# @rayadesu/dsh-llm-billing
 
 English | [中文](README.zh.md)
 
@@ -10,7 +10,7 @@ Add the plugin to a composition (a `cordis.yml` row) and give it a credential. I
 
 ```yaml
 - id: llm-billing
-  name: '@deepseek-ai/dsh-llm-billing'
+  name: '@rayadesu/dsh-llm-billing'
   config:
     # apiKeyEnv: DEEPSEEK_API_KEY   # default
     # baseURL: https://api.deepseek.com
@@ -24,7 +24,7 @@ The plugin registers the `billing` Remote with three methods: `getBalance()` (th
 | --- | --- | --- |
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | Credential-reference (environment-variable) name resolved per call. |
 | `baseURL` | `$DEEPSEEK_BASE_URL` then `https://api.deepseek.com` | Endpoint base; `/user/balance` is appended. |
-| `models` | V4 Flash + V4 Pro | Advisory display rows, in presentation order. |
+| `models` | V4 Flash + V4 Pro + V4 Flash Vision Exp | Advisory display rows, in presentation order. |
 | `billing.peakHours` | 09:00–12:00, 14:00–18:00 (Beijing) | Peak-hour windows; all other hours are off-peak. |
 | `billing.models` | Published V4 rates | Per-model peak/off-peak price rows (`cacheHitInput`, `cacheMissInput`, `output`, in CNY per 1M tokens). |
 

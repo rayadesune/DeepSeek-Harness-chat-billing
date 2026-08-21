@@ -1,22 +1,20 @@
-# deepseek-harness-billing-plugin bundle patch for DSH.
+# @rayadesu/dsh-billing bundle patch for DSH.
 #
 # Mounts the host-side billing Remote provider (llm-billing) and the
 # session-header balance/spend badge (ui-billing). The deepseek-harness
 # official repo does not ship these packages, so the row names must resolve
-# from the profile's own node_modules: install the two packages alongside the
-# bundle (see below).
+# from the profile's own node_modules: install the three published packages
+# (bundle + the two plugin packages) in one command (see below).
 #
 # No machine-specific literals: this patch carries only plugin ids and names;
 # no credentials or paths are needed — the plugins read the DeepSeek API key
 # from the credential seam / environment at runtime.
 #
-# Install with one command — the bundle plus the two plugin packages (pnpm
-# does not install the bundle's local dependencies into the profile):
-#   dsh plugin --profile web add <path-to-this-repo> <path-to-this-repo>\packages\llm-billing <path-to-this-repo>\packages\ui-billing
-# (requires this repo's packages built to lib/ and `pnpm install` run here;
-# see README.md).
+# Install with one command (the bundle plus the two plugin packages, since
+# pnpm does not install the bundle's local dependencies into the profile):
+#   dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
 - insert:
     - id: llm-billing
-      name: '@deepseek-ai/dsh-llm-billing'
+      name: '@rayadesu/dsh-llm-billing'
     - id: ui-billing
-      name: '@deepseek-ai/dsh-client-ui-billing'
+      name: '@rayadesu/dsh-client-ui-billing'

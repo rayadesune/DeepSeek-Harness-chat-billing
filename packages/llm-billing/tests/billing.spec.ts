@@ -45,6 +45,11 @@ describe('resolveBilling', () => {
     expect(billing.peakHours).toEqual([{ start: 9, end: 12 }, { start: 14, end: 18 }])
     expect(billing.models.get(FLASH)?.peak).toEqual({ cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 })
     expect(billing.models.get(PRO)?.offPeak).toEqual({ cacheHitInput: 0.15, cacheMissInput: 4.5, output: 13.5 })
+    // deepseek-v4-flash-vision-exp bills at the same published rates as flash.
+    expect(billing.models.get('deepseek-v4-flash-vision-exp')?.peak)
+      .toEqual({ cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 })
+    expect(billing.models.get('deepseek-v4-flash-vision-exp')?.offPeak)
+      .toEqual({ cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 })
   })
 
   it('overrides a model when an explicit row is supplied', () => {
