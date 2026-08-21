@@ -1,2 +1,9 @@
 packages:
   - packages/*
+
+# Workspace matching (linkWorkspacePackages) lets @deepseek-ai/dsh-llm-billing
+# resolve to the local package even though it is not on the npm registry;
+# peer auto-install then fetches the remaining @deepseek-ai/dsh-* peers
+# (published at 0.1.0-rc.8) so the tree is self-contained at DSH boot.
+autoInstallPeers: true
+linkWorkspacePackages: true

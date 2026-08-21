@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Web 额度特性的归属方：向 `conversation.session.header.utilities` 贡献一个条目，自己挂载 `billing` Remote，通过 `billing/getBalance`、`billing/getSessionSpend` 与 `billing/getTodaySpend` 读取 DeepSeek 账户余额、本会话的计费花费与今日所有会话的计费花费，并在右上角渲染成一个标签框。该能力的宿主侧在 [`dsh-llm-billing`](../llm/llm-billing/README.md)，它拥有 `/user/balance` 传输、峰谷计价表与 `billing` Remote 命名空间；本包挂载那个 Remote 并渲染它返回的内容。
+Web 额度特性的归属方：向 `conversation.session.header.utilities` 贡献一个条目，自己挂载 `billing` Remote，通过 `billing/getBalance`、`billing/getSessionSpend` 与 `billing/getTodaySpend` 读取 DeepSeek 账户余额、本会话的计费花费与今日所有会话的计费花费，并在右上角渲染成一个标签框。该能力的宿主侧在 [`dsh-llm-billing`](../llm-billing/README.md)，它拥有 `/user/balance` 传输、峰谷计价表与 `billing` Remote 命名空间；本包挂载那个 Remote 并渲染它返回的内容。
 
 触发器显示两行——剩余额度与本轮对话的计费花费（「本轮对话花费 ¥X」）——首个请求在途时不渲染任何东西。点击后展开一个标签框：剩余金额、本会话的计费花费（本会话花费，按官方峰/谷单价逐条消息计价，右侧并列今日所有会话的合计「今日共花费」）、每个模型一行的花费及其缓存命中/未命中输入/输出分项（「缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z」）、手动刷新按钮与花费说明。刷新时旧值不消失，刷新失败保留上一次有效值。没有可计价消耗的会话或日子显示「暂无消耗记录」而不是编造数字。失败——未配置 API key、凭据被拒绝、传输错误——渲染弱化的「额度不可用」，其提示携带 Remote 自己的错误信息。
 
@@ -18,7 +18,7 @@ Web 额度特性的归属方：向 `conversation.session.header.utilities` 贡�
 
 ## 模型体验
 
-无，因为本包为人类渲染账户级的 provider 事实，不触及 prompt、消息、schema、流或工具结果。模型对 provider 额度的视角仍在 [`dsh-llm`](../llm/llm/README.md) 在请求失败时抛出的 `QUOTA` / `INVALID_CREDENTIAL` 错误码里。
+无，因为本包为人类渲染账户级的 provider 事实，不触及 prompt、消息、schema、流或工具结果。模型对 provider 额度的视角仍在 [`dsh-llm`](https://github.com/deepseek-ai/deepseek-harness/tree/main/packages/llm/llm) 在请求失败时抛出的 `QUOTA` / `INVALID_CREDENTIAL` 错误码里。
 
 #### KV Cache effect
 

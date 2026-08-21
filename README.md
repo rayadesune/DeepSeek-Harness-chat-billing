@@ -1,61 +1,63 @@
-# DeepSeek Harness 计费插件
+# DeepSeek Harness billing plugin
 
-一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，在 Web 会话头部直接显示你的 **DeepSeek 账户余额**、**当前会话（本轮对话）的花费**，以及**今日所有会话的共花费**。
+English | [中文](README.zh.md)
 
-> 余额是 `GET /user/balance` 的真实数字；会话花费与今日共花费是按官方峰/谷单价对每条消息的计费 token 逐条计价的结果，不是计费承诺。
+A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows your **DeepSeek account balance**, **this session's (this conversation's) billed spend**, and **today's total spend across all sessions** directly in the web session header.
 
-## 显示什么
+> The balance is the real `GET /user/balance` figure; the session and today spends price each message's billed tokens at the official peak/off-peak rates and are estimates, not billing promises.
 
-- **会话头部徽标** —— 两行：剩余余额（`剩余额度：¥X`）＋ 本轮对话的计费花费（`本轮对话花费：¥X`）。
-- **详情面板** —— 剩余金额、本会话花费（`本会话花费`）与其右侧的今日所有会话共花费（`今日共花费`），以及每个模型一行的花费分项（`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`），外加手动刷新按钮与花费说明。
-- **失败与空态** —— 会话或今日没有可计价消耗时显示「暂无消耗记录」而不是编造数字；未配置 key、凭据被拒或传输错误时显示弱化的「额度不可用」，其提示携带 Remote 自己的错误信息。
+## What it shows
 
-## 数据更新机制
+- **Session-header badge** — two lines: remaining balance (`剩余额度：¥X`) and this conversation's billed spend (`本轮对话花费：¥X`).
+- **Detail panel** — the remaining amount, this session's spend (`本会话花费`) with today's all-session spend beside it (`今日共花费`), one priced row per model (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), plus a manual refresh action and a spend disclaimer.
+- **Failures and empty states** — a session or day without priced usage shows "no usage recorded" instead of a fabricated figure; a missing key, rejected credential, or transport error renders a muted "Balance unavailable" whose tooltip carries the Remote's own error message.
 
-- **会话花费自动跟随** —— 当前会话每到达一条新消息，徽标就只重算**本会话的花费**与**今日共花费**（纯本地计价，不发网络请求），连续对话时花费会实时跟着走。
-- **额度保持手动** —— 余额是账户级数据，只在挂载、切换会话、手动点刷新、或刷新浏览器时重新查询 `/user/balance`；**没有轮询**，不会自动跟随账户变化。
-- **刷新期间旧值保留** —— 刷新失败保留上一次有效值，不会清空。
+## Data update mechanics
 
-## 显示样式
+- **Session spend follows the conversation** — on every new message in the current session, the badge recomputes only **this session's spend** and **today's spend** (purely local pricing, no network request), so the spend lines stay live during an ongoing conversation.
+- **Balance stays manual** — the balance is account-level data, queried only on mount, session switch, the manual refresh action, or a browser reload; **there is no polling** and it does not track account changes by itself.
+- **Old values survive refreshes** — a failed refresh keeps the last good value instead of blanking it.
+
+## Preview
 <img width="652" height="348" alt="image" src="https://github.com/user-attachments/assets/6a70df86-9228-41b3-935b-3dda74188bb5" />
 
 
-## 包结构
+## Package layout
 
-| 包 | 侧 | 作用 |
+| Package | Side | Role |
 | --- | --- | --- |
-| [`packages/llm-billing`](packages/llm-billing) —— `@deepseek-ai/dsh-llm-billing` | 主机端 | 负责 `/user/balance` 传输与峰/谷计价表。对外暴露 `billing` Remote（`getBalance`、`getSessionSpend`、`getTodaySpend`）。 |
-| [`packages/ui-billing`](packages/ui-billing) —— `@deepseek-ai/dsh-client-ui-billing` | 浏览器端 | 自己挂载 `billing` Remote，并贡献会话头部徽标与详情面板。 |
+| [`packages/llm-billing`](packages/llm-billing) — `@deepseek-ai/dsh-llm-billing` | Host | Owns the `/user/balance` transport and the peak/off-peak pricing table. Exposes the `billing` Remote (`getBalance`, `getSessionSpend`, `getTodaySpend`). |
+| [`packages/ui-billing`](packages/ui-billing) — `@deepseek-ai/dsh-client-ui-billing` | Browser | Mounts the `billing` Remote itself and contributes the session-header badge and detail panel. |
 
-## 前置条件
+## Prerequisites
 
-- **DeepSeek Harness**（`dsh`）—— 插件运行在 dsh profile 内。
-- **一个 DeepSeek API key** —— 余额从 DeepSeek API 读取，所以每个用户都需要自己的 key。
+- **DeepSeek Harness** (`dsh`) — the plugin runs inside a dsh profile.
+- **A DeepSeek API key** — the balance is read from the DeepSeek API, so every user needs their own key.
 
-## 安装
+## Installation
 
-> 📌 **仓库说明**：本仓库是源码镜像/分发页。插件的主场已迁入
-> [`deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) fork 的
-> `packages/llm/llm-billing` 与 `packages/client/ui-billing`（作为 workspace 成员随
-> monorepo 构建、由 `@deepseek-ai/dsh-web-app` bundle 挂载），本仓库保留源码副本与说明。
-> 下面两种安装方式二选一。
+> 📌 **About this repository**: this repo is a source mirror / distribution page. The plugin's home has moved into a [`deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) fork, at `packages/llm/llm-billing` and `packages/client/ui-billing` (workspace members built with the monorepo and mounted by the `@deepseek-ai/dsh-web-app` bundle). This repo keeps the source copy and the docs. Pick one of the two installation routes below.
 
-### 方式 A：从 fork 构建（推荐）
+### Route A: build from the fork (recommended)
 
-在 deepseek-harness fork 里 `pnpm install && pnpm run build` 后，`dsh web` 即内置
-计费徽标，无需任何手动配置。
+After `pnpm install && pnpm run build` in the deepseek-harness fork, `dsh web` ships the billing badge with no manual configuration.
 
-### 方式 B：独立安装
+> ⚠️ When using the fork, do **not** also install this repo as a bundle into the same profile — the `llm-billing` / `ui-billing` rows would register twice.
 
-> ⚠️ 现状：依赖的 harness 内部包在 npm 上只有过期的 `0.0.1-rc.1`，无法从 registry
-> 解析；需要先用本地 checkout 构建好 `lib/`，再用本地路径安装：
+### Route B: standalone install (bundle, one command)
+
+> ⚠️ Prerequisites: the two plugin packages are not published to npm (`@deepseek-ai/dsh-llm-billing` and `@deepseek-ai/dsh-client-ui-billing` are 404 on the registry), and building `lib/` depends on the monorepo layout. You need to:
+> 1. `pnpm install && pnpm run build` in a fork checkout (or any deepseek-harness checkout);
+> 2. sync the built `lib/` of `packages/llm/llm-billing` and `packages/client/ui-billing` back into this repo's matching package directories (`lib/` is gitignored and never committed);
+> 3. run `pnpm install` in this repo (the `@deepseek-ai/dsh-*` runtime dependencies resolve from npm at `^0.1.0-rc.8`, the published form of the fork's `workspace:^`; see "Dependency notes" below).
+
+Then install with one command (the root `package.json` declares `dsh.bundle.patch` and `cordis.patch.yml` mounts the two plugin rows):
 
 ```bash
-# 在包含 packages/ 的目录执行（本仓库或 monorepo checkout 均可）
-dsh plugin --profile web add ./packages/llm-billing ./packages/ui-billing
+dsh plugin --profile web add C:\path\to\DeepSeek-Harness-chat-billing
 ```
 
-手动补行（仅当 bundle 未激活时）：
+Manual rows (only when you do not want the bundle):
 
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
@@ -66,48 +68,58 @@ dsh plugin --profile web add ./packages/llm-billing ./packages/ui-billing
       name: '@deepseek-ai/dsh-client-ui-billing'
 ```
 
-### 配置你的 DeepSeek API key
+### Dependency notes
 
-二选一：在网页「模型」页填入（会把 `DEEPSEEK_API_KEY` 写入 `~/.dsh/.credentials.yaml`），或导出环境变量：
+The runtime dependencies (`@deepseek-ai/dsh-credentials` and friends) are published
+to npm (`0.1.0-rc.8` on the `next` tag); both manifests declare them as
+`^0.1.0-rc.8` (the published form of the fork's `workspace:^`), so `pnpm install`
+resolves them directly. **The two plugin packages themselves**
+(`@deepseek-ai/dsh-llm-billing`, `@deepseek-ai/dsh-client-ui-billing`) are **not
+published to npm** (404 on the registry), so they can only be installed from a
+local path (Route B) — never with `pnpm add <package-name>`.
+
+### Configure your DeepSeek API key
+
+Either fill it in on the web "Models" page (writes `DEEPSEEK_API_KEY` into `~/.dsh/.credentials.yaml`), or export it:
 
 ```bash
 export DEEPSEEK_API_KEY=sk-...
 ```
 
-### 重启
+### Restart
 
 ```bash
 dsh web
 ```
 
-## 配置
+## Configuration
 
-两个包都有合理默认值，下面都是可选的。
+Both packages ship sane defaults; everything below is optional.
 
-### 主机端（`llm-billing`）
+### Host (`llm-billing`)
 
-| 字段 | 默认 | 含义 |
+| Field | Default | Meaning |
 | --- | --- | --- |
-| `apiKeyEnv` | `DEEPSEEK_API_KEY` | 每次调用时解析的凭据引用（环境变量）名。 |
-| `baseURL` | `$DEEPSEEK_BASE_URL`，其次 `https://api.deepseek.com` | 端点基础地址；会追加 `/user/balance`。 |
-| `models` | V4 Flash + V4 Pro | 展示用的模型行，按展示顺序。 |
-| `billing.peakHours` | 09:00–12:00、14:00–18:00（北京） | 高峰时段窗口；其余时段为低谷。 |
-| `billing.models` | 官方 V4 费率 | 每个模型的峰/谷单价行（`cacheHitInput`、`cacheMissInput`、`output`，单位：元/百万 token）。 |
+| `apiKeyEnv` | `DEEPSEEK_API_KEY` | Credential-reference (environment-variable) name resolved per call. |
+| `baseURL` | `$DEEPSEEK_BASE_URL` then `https://api.deepseek.com` | Endpoint base; `/user/balance` is appended. |
+| `models` | V4 Flash + V4 Pro | Advisory display rows, in presentation order. |
+| `billing.peakHours` | 09:00–12:00, 14:00–18:00 (Beijing) | Peak-hour windows; all other hours are off-peak. |
+| `billing.models` | Published V4 rates | Per-model peak/off-peak price rows (`cacheHitInput`, `cacheMissInput`, `output`, in CNY per 1M tokens). |
 
-## 会话花费是怎么算的
+## How session spend is computed
 
-- 每条 `assistant/message` 事件报告三个计费 token 桶：**缓存命中输入**、**未命中输入**（未缓存输入 + 缓存写入）、**输出**（含推理）。
-- 每条消息按其**发生时刻（北京时间）**所在的峰/谷时段单价计价，三个桶分别计费（`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`），再按模型汇总。
-- **今日共花费**按同一个计价规则汇总当天（北京时间自然日）所有会话的事件；事件归属的日期同样按北京时间计算。
-- 没有费率行的模型不计入（内置价目表目前只含两个 V4 行）。计费按 DeepSeek **8 月 17 日实行**的费率（北京时间峰/谷时段）。
+- Each `assistant/message` event reports three billed token buckets: **cache-hit input**, **cache-miss input** (uncached input + cache writes), and **output** (including reasoning).
+- Each message is priced at the peak/off-peak rate of its own **Beijing-time** hour, the three buckets are billed separately (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), then summed per model.
+- **Today's spend** aggregates every session's events on the current Beijing-time calendar day with the same pricing rules; event dates are also assigned in Beijing time.
+- Models without a rate row are not priced (the built-in catalog currently has only the two V4 rows). Rates follow the DeepSeek pricing effective **August 17** (Beijing-time peak/off-peak hours).
 
-## 已知限制
+## Known limitations
 
-- **有费率行才计价** —— 会话花费与今日共花费只统计价目表（`billing.models`）里有的模型。
-- **按需读取** —— 今日共花费每次刷新都会读取所有会话的完整事件日志，成本随总日志大小增长。
-- **额度不自动跟随** —— 余额保持手动刷新（无轮询），账户在其他客户端产生消耗时，界面值不会自动变化，需手动刷新或刷新浏览器。
-- **是估算，不是承诺** —— 会话花费按官方单价对 token 计价；实际计费以服务商为准。
+- **Priced rows only** — the session and today spends only price models that have a `billing.models` row.
+- **On-demand read** — today's spend reads every session's full event log on each refresh, so cost grows with total log size.
+- **Balance does not follow automatically** — the balance stays a manual snapshot (no polling); spending from another client does not move the shown value until a refresh or browser reload.
+- **Estimate, not a promise** — the session spend prices tokens at official rates; the provider's actual billing prevails.
 
-## 许可证
+## License
 
 [MIT](LICENSE)
