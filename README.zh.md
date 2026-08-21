@@ -19,7 +19,7 @@
 - **刷新期间旧值保留** —— 刷新失败保留上一次有效值，不会清空。
 
 ## 显示样式
-<img width="652" height="348" alt="image" src="https://github.com/user-attachments/assets/6a70df86-9228-41b3-935b-3dda74188bb5" />
+<img width="505" height="264" alt="image" src="billing-preview.png" />
 
 
 ## 包结构

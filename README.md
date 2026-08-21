@@ -19,7 +19,7 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 - **Old values survive refreshes** — a failed refresh keeps the last good value instead of blanking it.
 
 ## Preview
-<img width="652" height="348" alt="image" src="https://github.com/user-attachments/assets/6a70df86-9228-41b3-935b-3dda74188bb5" />
+<img width="505" height="264" alt="image" src="billing-preview.png" />
 
 
 ## Package layout
