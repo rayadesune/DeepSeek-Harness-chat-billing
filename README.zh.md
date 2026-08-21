@@ -26,8 +26,8 @@
 
 | 包 | 侧 | 作用 |
 | --- | --- | --- |
-| [`packages/llm-billing`](packages/llm-billing) —— `@deepseek-ai/dsh-llm-billing` | 主机端 | 负责 `/user/balance` 传输与峰/谷计价表。对外暴露 `billing` Remote（`getBalance`、`getSessionSpend`、`getTodaySpend`）。 |
-| [`packages/ui-billing`](packages/ui-billing) —— `@deepseek-ai/dsh-client-ui-billing` | 浏览器端 | 自己挂载 `billing` Remote，并贡献会话头部徽标与详情面板。 |
+| [`packages/llm-billing`](packages/llm-billing) —— `@rayadesu/dsh-llm-billing` | 主机端 | 负责 `/user/balance` 传输与峰/谷计价表。对外暴露 `billing` Remote（`getBalance`、`getSessionSpend`、`getTodaySpend`）。 |
+| [`packages/ui-billing`](packages/ui-billing) —— `@rayadesu/dsh-client-ui-billing` | 浏览器端 | 自己挂载 `billing` Remote，并贡献会话头部徽标与详情面板。 |
 
 ## 前置条件
 
@@ -41,26 +41,13 @@
 > **不含**计费插件；插件曾短暂集成于本用户的 fork，现已回退到官方提交版本
 > （`141eb6fef8`），本仓库不再依赖任何 fork。
 
-### 安装（bundle，一条命令）
+### 安装（已发布到 npm，一条命令）
 
-> ⚠️ 前置条件：本插件的两个包未发布到 npm（`@deepseek-ai/dsh-llm-billing`、
-> `@deepseek-ai/dsh-client-ui-billing` 在 registry 上 404），且 `lib/` 构建产物依赖
-> deepseek-harness monorepo 布局。需要先：
-> 1. 在任意 deepseek-harness checkout 环境中构建两个包的 `lib/`（把本仓库
->    `packages/llm-billing`、`packages/ui-billing` 放入 checkout 的
->    `packages/llm/llm-billing`、`packages/client/ui-billing` 位置后
->    `pnpm install` 并构建），把生成的 `lib/` 同步回本仓库对应包目录
->    （`lib/` 已 gitignore，不进仓库）；
-> 2. 在本仓库执行 `pnpm install`（`@deepseek-ai/dsh-*` 运行时依赖按 `^0.1.0-rc.8`
->    从 npm 解析，与官方 `workspace:^` 的发布形态一致；见下方「依赖说明」）。
-
-然后一条命令安装——bundle（根 `package.json` 声明 `dsh.bundle.patch`，
-`cordis.patch.yml` 挂载两个插件行）+ 两个插件包（让行名能从 profile 的
-node_modules 解析；pnpm 不会把 bundle 的本地依赖装进 profile，所以包路径要
-显式给出）：
+三个包已发布到 npm 的 `@rayadesu` scope。一条命令同时安装 bundle 与两个插件包
+（pnpm 不会把 bundle 的本地依赖装进 profile，所以两个插件包要显式列出）：
 
 ```bash
-dsh plugin --profile web add C:\path\to\DeepSeek-Harness-chat-billing C:\path\to\DeepSeek-Harness-chat-billing\packages\llm-billing C:\path\to\DeepSeek-Harness-chat-billing\packages\ui-billing
+dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
 ```
 
 手动补行（仅当不想用 bundle 时）：
@@ -69,18 +56,16 @@ dsh plugin --profile web add C:\path\to\DeepSeek-Harness-chat-billing C:\path\to
 # ~/.dsh/profiles/web/cordis.patch.yml
 - insert:
     - id: llm-billing
-      name: '@deepseek-ai/dsh-llm-billing'
+      name: '@rayadesu/dsh-llm-billing'
     - id: ui-billing
-      name: '@deepseek-ai/dsh-client-ui-billing'
+      name: '@rayadesu/dsh-client-ui-billing'
 ```
 
 ### 依赖说明
 
 `@deepseek-ai/dsh-credentials` 等运行时依赖已发布到 npm（`0.1.0-rc.8`，`next` tag），
 两个包的 manifest 以 `^0.1.0-rc.8` 声明（官方 monorepo 中 `workspace:^` 的发布形态），
-`pnpm install` 可直接解析；但**本插件的两个包**
-（`@deepseek-ai/dsh-llm-billing`、`@deepseek-ai/dsh-client-ui-billing`）**没有发布到
-npm**（registry 404），所以必须走本地路径安装（见上），不能 `pnpm add <包名>`。
+`pnpm install` 可直接解析。
 
 ### 配置你的 DeepSeek API key
 
@@ -106,7 +91,7 @@ dsh web
 | --- | --- | --- |
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | 每次调用时解析的凭据引用（环境变量）名。 |
 | `baseURL` | `$DEEPSEEK_BASE_URL`，其次 `https://api.deepseek.com` | 端点基础地址；会追加 `/user/balance`。 |
-| `models` | V4 Flash + V4 Pro | 展示用的模型行，按展示顺序。 |
+| `models` | V4 Flash + V4 Pro + V4 Flash Vision Exp | 展示用的模型行，按展示顺序。 |
 | `billing.peakHours` | 09:00–12:00、14:00–18:00（北京） | 高峰时段窗口；其余时段为低谷。 |
 | `billing.models` | 官方 V4 费率 | 每个模型的峰/谷单价行（`cacheHitInput`、`cacheMissInput`、`output`，单位：元/百万 token）。 |
 
@@ -115,7 +100,7 @@ dsh web
 - 每条 `assistant/message` 事件报告三个计费 token 桶：**缓存命中输入**、**未命中输入**（未缓存输入 + 缓存写入）、**输出**（含推理）。
 - 每条消息按其**发生时刻（北京时间）**所在的峰/谷时段单价计价，三个桶分别计费（`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`），再按模型汇总。
 - **今日共花费**按同一个计价规则汇总当天（北京时间自然日）所有会话的事件；事件归属的日期同样按北京时间计算。
-- 没有费率行的模型不计入（内置价目表目前只含两个 V4 行）。计费按 DeepSeek **8 月 17 日实行**的费率（北京时间峰/谷时段）。
+- 没有费率行的模型不计入（内置价目表目前含三个 V4 行：V4 Flash、V4 Pro、V4 Flash Vision Exp）。计费按 DeepSeek **8 月 17 日实行**的费率（北京时间峰/谷时段）。
 
 ## 已知限制
 

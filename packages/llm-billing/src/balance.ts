@@ -4,7 +4,7 @@
  * takes an already-resolved endpoint and bearer token so the registering
  * plugin stays the one owner of credential policy; the gateway carries only a
  * `fetchBalance` thunk for the same reason.
- * @module @deepseek-ai/dsh-llm-billing/balance
+ * @module @rayadesu/dsh-llm-billing/balance
  */
 
 import type { Context } from '@deepseek-ai/cordis'

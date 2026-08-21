@@ -3,7 +3,7 @@
  * pricing. Pure functions over session events and the pricing table, so the
  * Remote gateway stays transport-free and the whole spend is testable without
  * a key.
- * @module @deepseek-ai/dsh-llm-billing/billing
+ * @module @rayadesu/dsh-llm-billing/billing
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -49,7 +49,7 @@ export interface PeakHourWindow {
 export interface BillingConfig {
   /** Peak-hour windows in Beijing time. */
   peakHours?: PeakHourWindow[]
-  /** Per-model pricing rows; omission uses the V4 Flash and V4 Pro defaults. */
+  /** Per-model pricing rows; omission uses the V4 Flash, V4 Pro, and V4 Flash Vision defaults. */
   models?: BillingConfigModel[]
 }
 
@@ -70,6 +70,13 @@ export const DEFAULT_MODEL_PRICING: BillingConfigModel[] = [
     model: 'deepseek-v4-pro',
     peak: { cacheHitInput: 0.30, cacheMissInput: 9.0, output: 27.0 },
     offPeak: { cacheHitInput: 0.15, cacheMissInput: 4.5, output: 13.5 },
+  },
+  // deepseek-v4-flash-vision-exp bills at the same rates as deepseek-v4-flash;
+  // images are converted to tokens at the same per-token price.
+  {
+    model: 'deepseek-v4-flash-vision-exp',
+    peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
+    offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
   },
 ]
 

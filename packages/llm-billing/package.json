@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-llm-billing",
+  "name": "@rayadesu/dsh-llm-billing",
   "description": "Standalone DeepSeek account-balance and session-spend provider exposed through the billing Remote",
   "version": "0.1.0-rc.8",
   "publishConfig": {

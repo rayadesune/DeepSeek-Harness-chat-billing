@@ -1,4 +1,4 @@
-# @deepseek-ai/dsh-client-ui-billing
+# @rayadesu/dsh-client-ui-billing
 
 [English](README.md) | 中文
 

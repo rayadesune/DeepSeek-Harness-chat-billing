@@ -1,8 +1,8 @@
 /** DeepSeek account-balance badge, browser half: one session-header utility entry. */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import billingRemote from '@deepseek-ai/dsh-llm-billing/remote'
-import type {} from '@deepseek-ai/dsh-llm-billing/remote'
+import billingRemote from '@rayadesu/dsh-llm-billing/remote'
+import type {} from '@rayadesu/dsh-llm-billing/remote'
 import type { TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'

@@ -1,7 +1,7 @@
 /** Session-header billing badge: balance plus the current conversation's billed spend. */
 
 import { Fragment, useEffect, useRef, useState } from 'react'
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from '@deepseek-ai/dsh-llm-billing/types'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { IconChevronDownOutline14, IconQuestionOutline14, IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'

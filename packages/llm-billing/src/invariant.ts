@@ -1,13 +1,13 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-llm-billing`.
- * @module @deepseek-ai/dsh-llm-billing/invariant
+ * Package-owned invariant companion for `@rayadesu/dsh-llm-billing`.
+ * @module @rayadesu/dsh-llm-billing/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-llm-billing'
+const PACKAGE_NAME = '@rayadesu/dsh-llm-billing'
 
 /** Cordis companion plugin name. */
 export const name = 'llm-billing-invariant'

@@ -1,13 +1,13 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-client-ui-billing`.
- * @module @deepseek-ai/dsh-client-ui-billing/invariant
+ * Package-owned invariant companion for `@rayadesu/dsh-client-ui-billing`.
+ * @module @rayadesu/dsh-client-ui-billing/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-client-ui-billing'
+const PACKAGE_NAME = '@rayadesu/dsh-client-ui-billing'
 
 /** Cordis companion plugin name. */
 export const name = 'client-ui-billing-invariant'
