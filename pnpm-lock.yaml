@@ -9,10 +9,10 @@ importers:
   .:
     dependencies:
       '@rayadesu/dsh-client-ui-billing':
-        specifier: ^0.1.0-rc.10
+        specifier: ^0.1.0
         version: link:packages/ui-billing
       '@rayadesu/dsh-llm-billing':
-        specifier: ^0.1.0-rc.10
+        specifier: ^0.1.0
         version: link:packages/llm-billing
 
   packages/llm-billing:
@@ -79,7 +79,7 @@ importers:
         specifier: ^0.1.0-rc.8
         version: 0.1.0-rc.8(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.0-rc.8(@deepseek-ai/cordis@4.0.1))
       '@rayadesu/dsh-llm-billing':
-        specifier: ^0.1.0-rc.8
+        specifier: ^0.1.0
         version: link:../llm-billing
       '@types/react':
         specifier: ~18.3.1

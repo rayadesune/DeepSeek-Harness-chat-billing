@@ -16,7 +16,7 @@
     # baseURL: https://api.deepseek.com
 ```
 
-插件注册 `billing` Remote，含三个方法：`getBalance()`（解析后的 `/user/balance` 快照）、`getSessionSpend(sessionId)`（单个会话的计费花费）与 `getTodaySpend()`（当前北京时间自然日内所有会话的计费花费合计）。会话花费把每条 `assistant/message` 事件的计费 token（缓存命中输入、含缓存写入的未命中输入、含推理的输出）按事件自身发生时刻（北京时间）所在的峰/谷单价计价，再按模型汇总。
+插件注册 `billing` Remote，含三个方法：`getBalance()`（解析后的 `/user/balance` 快照）、`getSessionSpend(sessionId)`（单个会话的计费花费）与 `getTodaySpend()`（当前北京时间自然日内所有会话的计费花费合计）。会话花费把每条 `assistant/message` 事件的计费 token（缓存命中输入、含缓存写入的未命中输入、含推理的输出）按事件自身发生时刻（北京时间）所在的峰/谷单价计价——高峰窗口仅周一至周五适用，周末全天按低谷价——再按模型汇总。
 
 ## 配置
 
@@ -25,7 +25,7 @@
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | 每次调用时解析的凭据引用（环境变量）名。 |
 | `baseURL` | `$DEEPSEEK_BASE_URL`，其次 `https://api.deepseek.com` | 端点基础地址；会追加 `/user/balance`。 |
 | `models` | V4 Flash + V4 Pro + V4 Flash Vision Exp | 展示用的模型行，按展示顺序。 |
-| `billing.peakHours` | 09:00–12:00、14:00–18:00（北京） | 高峰时段窗口；其余时段为低谷。 |
+| `billing.peakHours` | 09:00–12:00、14:00–18:00（北京，仅工作日） | 高峰时段窗口，仅周一至周五适用；周末与其余时段均为低谷。 |
 | `billing.models` | 官方 V4 费率 | 每个模型的峰/谷单价行（`cacheHitInput`、`cacheMissInput`、`output`，单位：元/百万 token）。 |
 
 只想覆盖某个模型而不丢其它，就提供一个非空的 `billing.models` 列表；空或省略则回退到官方默认费率。

@@ -99,15 +99,15 @@ Both packages ship sane defaults; everything below is optional.
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | Credential-reference (environment-variable) name resolved per call. |
 | `baseURL` | `$DEEPSEEK_BASE_URL` then `https://api.deepseek.com` | Endpoint base; `/user/balance` is appended. |
 | `models` | V4 Flash + V4 Pro + V4 Flash Vision Exp | Advisory display rows, in presentation order. |
-| `billing.peakHours` | 09:00–12:00, 14:00–18:00 (Beijing) | Peak-hour windows; all other hours are off-peak. |
+| `billing.peakHours` | 09:00–12:00, 14:00–18:00 (Beijing, weekdays) | Peak-hour windows, applied weekdays (Mon–Fri) only; weekends and all other hours are off-peak. |
 | `billing.models` | Published V4 rates | Per-model peak/off-peak price rows (`cacheHitInput`, `cacheMissInput`, `output`, in CNY per 1M tokens). |
 
 ## How session spend is computed
 
 - Each `assistant/message` event reports three billed token buckets: **cache-hit input**, **cache-miss input** (uncached input + cache writes), and **output** (including reasoning).
-- Each message is priced at the peak/off-peak rate of its own **Beijing-time** hour, the three buckets are billed separately (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), then summed per model.
+- Each message is priced at the peak/off-peak rate of its own **Beijing-time** hour, the three buckets are billed separately (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), then summed per model. Peak windows apply weekdays (Monday–Friday) only; weekends are always off-peak.
 - **Today's spend** aggregates every session's events on the current Beijing-time calendar day with the same pricing rules; event dates are also assigned in Beijing time.
-- Models without a rate row are not priced (the built-in catalog currently has the three V4 rows: V4 Flash, V4 Pro, and V4 Flash Vision Exp). Rates follow the DeepSeek pricing effective **August 17** (Beijing-time peak/off-peak hours).
+- Models without a rate row are not priced (the built-in catalog currently has the three V4 rows: V4 Flash, V4 Pro, and V4 Flash Vision Exp). Rates follow the DeepSeek pricing effective **August 17**; the weekend-off-peak rule (weekends billed at off-peak prices all day) follows the adjustment effective **August 23**.
 
 ## Known limitations
 
