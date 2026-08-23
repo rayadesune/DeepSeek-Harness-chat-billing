@@ -37,7 +37,7 @@ export interface BillingConfigModel {
   offPeak: DeepSeekTokenPrice
 }
 
-/** One peak-hour window on a 24h Beijing-time clock. */
+/** One peak-hour window on a 24h Beijing-time clock, applied weekdays only. */
 export interface PeakHourWindow {
   /** Inclusive start hour, `0`–`23`. */
   start: number
@@ -47,13 +47,20 @@ export interface PeakHourWindow {
 
 /** Optional billing configuration; omission uses the published defaults. */
 export interface BillingConfig {
-  /** Peak-hour windows in Beijing time. */
+  /**
+   * Peak-hour windows in Beijing time, applied on weekdays (Monday–Friday)
+   * only; weekends (Saturday and Sunday) are always off-peak.
+   */
   peakHours?: PeakHourWindow[]
   /** Per-model pricing rows; omission uses the V4 Flash, V4 Pro, and V4 Flash Vision defaults. */
   models?: BillingConfigModel[]
 }
 
-/** Published peak-hour windows (Beijing time): 09:00–12:00 and 14:00–18:00. */
+/**
+ * Published peak-hour windows (Beijing time): 09:00–12:00 and 14:00–18:00,
+ * applied on weekdays (Monday–Friday) only — weekends are always off-peak
+ * (effective 2026-08-23).
+ */
 export const DEFAULT_PEAK_HOURS: { start: number; end: number }[] = [
   { start: 9, end: 12 },
   { start: 14, end: 18 },
@@ -112,18 +119,30 @@ function beijingHour(now: Date): number {
   return new Date(now.getTime() + 8 * 3_600_000).getUTCHours()
 }
 
+/**
+ * The Beijing (Asia/Shanghai, UTC+8, no DST) weekday of a timestamp, as
+ * `getUTCDay()`: `0` is Sunday, `6` is Saturday.
+ */
+function beijingWeekday(now: Date): number {
+  return new Date(now.getTime() + 8 * 3_600_000).getUTCDay()
+}
+
 /** The Beijing (Asia/Shanghai, UTC+8, no DST) calendar-day key of a timestamp. */
 function beijingDayKey(now: Date): string {
   return new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10)
 }
 
 /**
- * Whether a timestamp falls inside any peak-hour window (Beijing time).
+ * Whether a timestamp falls inside any peak-hour window (Beijing time,
+ * weekdays Monday–Friday only). Weekends (Saturday and Sunday) are always
+ * off-peak, matching the published peak-hours rule.
  * @param billing - resolved pricing with peak-hour windows.
  * @param now - the moment to classify.
- * @returns true during peak hours.
+ * @returns true during a weekday peak hour.
  */
 export function isPeak(billing: ResolvedBilling, now: Date): boolean {
+  const weekday = beijingWeekday(now)
+  if (weekday === 0 || weekday === 6) return false
   const hour = beijingHour(now)
   return billing.peakHours.some(({ start, end }) => hour >= start && hour < end)
 }
@@ -143,7 +162,8 @@ interface SessionSpendRow {
 
 /**
  * Price a set of billed events at the official per-model rates, applying the
- * peak/off-peak table per event by its Beijing-time hour. Each
+ * peak/off-peak table per event by its Beijing-time hour and weekday (peak
+ * windows apply Monday–Friday only; weekends are off-peak). Each
  * `assistant/message` event with usage contributes cache-hit input, cache-miss
  * input (uncached input plus cache writes), and output (reasoning included)
  * tokens at the rate of its own timestamp, with the three component costs

@@ -141,7 +141,8 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   }
 
   /**
-   * Read one session's billed spend, priced per event by its peak/off-peak hour.
+   * Read one session's billed spend, priced per event by its Beijing-time
+   * peak/off-peak hour and weekday (weekends are always off-peak).
    * @param sessionId - the session whose spend to compute.
    * @returns the session's total cost plus one row per priced model.
    */
@@ -152,7 +153,7 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
 
   /**
    * Read today's billed spend across every session, priced per event by its
-   * Beijing-time calendar day and peak/off-peak hour.
+   * Beijing-time calendar day, hour, and weekday (weekends are always off-peak).
    * @returns today's total cost plus one row per priced model.
    */
   @Remote('getTodaySpend')

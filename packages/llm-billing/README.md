@@ -16,7 +16,7 @@ Add the plugin to a composition (a `cordis.yml` row) and give it a credential. I
     # baseURL: https://api.deepseek.com
 ```
 
-The plugin registers the `billing` Remote with three methods: `getBalance()` (the parsed `/user/balance` snapshot), `getSessionSpend(sessionId)` (one session's billed cost), and `getTodaySpend()` (every session's billed cost on the current Beijing-time calendar day). The spend prices each `assistant/message` event's billed tokens (cache-hit input, cache-miss input including cache writes, and output including reasoning) at the official rate of the event's own Beijing-time peak/off-peak hour, then sums per model.
+The plugin registers the `billing` Remote with three methods: `getBalance()` (the parsed `/user/balance` snapshot), `getSessionSpend(sessionId)` (one session's billed cost), and `getTodaySpend()` (every session's billed cost on the current Beijing-time calendar day). The spend prices each `assistant/message` event's billed tokens (cache-hit input, cache-miss input including cache writes, and output including reasoning) at the official rate of the event's own Beijing-time peak/off-peak classification — peak windows apply weekdays (Monday–Friday) only, and weekends are always off-peak — then sums per model.
 
 ## Configuration
 
@@ -25,7 +25,7 @@ The plugin registers the `billing` Remote with three methods: `getBalance()` (th
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | Credential-reference (environment-variable) name resolved per call. |
 | `baseURL` | `$DEEPSEEK_BASE_URL` then `https://api.deepseek.com` | Endpoint base; `/user/balance` is appended. |
 | `models` | V4 Flash + V4 Pro + V4 Flash Vision Exp | Advisory display rows, in presentation order. |
-| `billing.peakHours` | 09:00–12:00, 14:00–18:00 (Beijing) | Peak-hour windows; all other hours are off-peak. |
+| `billing.peakHours` | 09:00–12:00, 14:00–18:00 (Beijing, weekdays) | Peak-hour windows, applied weekdays (Mon–Fri) only; weekends and all other hours are off-peak. |
 | `billing.models` | Published V4 rates | Per-model peak/off-peak price rows (`cacheHitInput`, `cacheMissInput`, `output`, in CNY per 1M tokens). |
 
 Override one model without dropping the others by supplying a non-empty `billing.models` list; an empty or omitted list falls back to the published defaults.

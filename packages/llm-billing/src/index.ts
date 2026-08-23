@@ -78,7 +78,7 @@ export interface Config {
   baseURL?: string
   /** Advisory display rows, in presentation order; defaults to V4 Flash, V4 Pro, and V4 Flash Vision Exp. */
   models?: BillingModel[]
-  /** Pricing table and peak-hour windows; omission uses the published defaults. */
+  /** Pricing table and peak-hour windows; omission uses the published defaults. Peak windows apply weekdays (Monday–Friday) only; weekends are always off-peak. */
   billing?: BillingConfig
 }
 

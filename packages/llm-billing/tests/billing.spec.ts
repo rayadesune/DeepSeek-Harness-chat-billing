@@ -1,7 +1,7 @@
 /**
- * Session spend pricing: pricing resolution, peak-hour classification, and the
- * per-session spend conversion. Pure functions only, so the suite is keyless
- * and deterministic.
+ * Session spend pricing: pricing resolution, weekday peak-hour classification
+ * (weekends are always off-peak), and the per-session spend conversion. Pure
+ * functions only, so the suite is keyless and deterministic.
  */
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -73,16 +73,27 @@ describe('resolveBilling', () => {
 })
 
 describe('isPeak', () => {
-  it('classifies Beijing daytime hours as peak and others as off-peak', () => {
+  it('classifies weekday Beijing daytime hours as peak and others as off-peak', () => {
     const billing = resolveBilling(undefined)
-    // 10:00 Beijing = 02:00 UTC; 20:00 Beijing = 12:00 UTC.
+    // 10:00 Beijing = 02:00 UTC; 20:00 Beijing = 12:00 UTC; 2026-08-20 is a Thursday.
     expect(isPeak(billing, new Date('2026-08-20T02:00:00Z'))).toBe(true)
     expect(isPeak(billing, new Date('2026-08-20T12:00:00Z'))).toBe(false)
+  })
+
+  it('treats weekends as off-peak all day, even inside a weekday peak window', () => {
+    const billing = resolveBilling(undefined)
+    // 2026-08-22 is a Saturday and 2026-08-23 a Sunday; 02:00Z is 10:00 Beijing,
+    // which is peak on weekdays but off-peak on weekends.
+    expect(isPeak(billing, new Date('2026-08-22T02:00:00Z'))).toBe(false)
+    expect(isPeak(billing, new Date('2026-08-23T02:00:00Z'))).toBe(false)
+    // Weekend hours outside the windows are off-peak too.
+    expect(isPeak(billing, new Date('2026-08-22T12:00:00Z'))).toBe(false)
   })
 })
 
 describe('computeSessionSpend', () => {
-  // 02:00Z is 10:00 Beijing (peak); 12:00Z is 20:00 Beijing (off-peak).
+  // 2026-08-20 is a Thursday (weekday): 02:00Z is 10:00 Beijing (peak);
+  // 12:00Z is 20:00 Beijing (off-peak).
   const PEAK = Date.parse('2026-08-20T02:00:00Z')
   const OFF_PEAK = Date.parse('2026-08-20T12:00:00Z')
   // Flash peak: hit 0.10, miss 3.0, output 9.0 CNY/M; off-peak: 0.05, 1.5, 4.5.
@@ -123,6 +134,20 @@ describe('computeSessionSpend', () => {
     )
     expect(spend.total).toBeCloseTo(13.60 + 6.80, 10)
     expect(spend.models[0]?.peakCost).toBeCloseTo(13.60, 10)
+    expect(spend.models[0]?.offPeakCost).toBeCloseTo(6.80, 10)
+  })
+
+  it('prices a weekend event at the off-peak rate even during a weekday peak window', () => {
+    // 2026-08-22 02:00Z is Saturday 10:00 Beijing — inside the weekday peak
+    // window, but weekends are always off-peak (effective 2026-08-23).
+    const WEEKEND_PEAK_HOUR = Date.parse('2026-08-22T02:00:00Z')
+    const spend = computeSessionSpend(
+      [assistantMessage(FLASH, USAGE, WEEKEND_PEAK_HOUR)],
+      resolveBilling(undefined),
+      CATALOG,
+    )
+    expect(spend.total).toBeCloseTo(0.05 + 2.25 + 4.50, 10)
+    expect(spend.models[0]?.peakCost).toBe(0)
     expect(spend.models[0]?.offPeakCost).toBeCloseTo(6.80, 10)
   })
 

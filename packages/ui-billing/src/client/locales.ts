@@ -17,7 +17,7 @@ export const zh = {
   'state.unavailable': '额度不可用',
   'action.refresh': '刷新',
   'info.aria': '花费说明',
-  'info.hint': '仅能预估 DeepSeek 相关模型。本会话花费按每条消息的发生时刻（北京时间）所在峰谷时段单价计费：缓存命中输入、未命中输入（含缓存写入）、输出（含推理）分别计价。费用按 8 月 17 日实行的标准。',
+  'info.hint': '仅能预估 DeepSeek 相关模型。本会话花费按每条消息的发生时刻（北京时间）所在峰谷时段单价计费：缓存命中输入、未命中输入（含缓存写入）、输出（含推理）分别计价。费率按 8 月 17 日实行的标准，高峰时段为北京时间周一至周五 9:00–12:00、14:00–18:00，周末全天按低谷价计费。',
   'badge.aria': 'DeepSeek 额度：{amount}',
   'panel.aria': 'DeepSeek 额度详情',
 } as const
@@ -36,7 +36,7 @@ export const en: Record<BillingKey, string> = {
   'state.unavailable': 'Balance unavailable',
   'action.refresh': 'Refresh',
   'info.aria': 'About this spend',
-  'info.hint': "Only DeepSeek models are estimated. This session's spend is priced per message at the rate of its Beijing-time peak/off-peak hour: cache-hit input, cache-miss input (including cache writes), and output (including reasoning) are billed separately. Pricing follows the August 17 rates.",
+  'info.hint': "Only DeepSeek models are estimated. This session's spend is priced per message at the rate of its Beijing-time peak/off-peak hour: cache-hit input, cache-miss input (including cache writes), and output (including reasoning) are billed separately. Rates follow the August 17 pricing; peak hours are Beijing time Monday–Friday 09:00–12:00 and 14:00–18:00, and weekends are billed at off-peak prices all day.",
   'badge.aria': 'DeepSeek balance {amount}',
   'panel.aria': 'DeepSeek balance details',
 }
