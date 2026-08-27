@@ -68,7 +68,7 @@ Manual rows (only when you do not want the bundle):
 
 The two plugin packages declare the DeepSeek Harness packages they build on
 (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-credentials`, `@deepseek-ai/dsh-session`,
-and the client runtime packages) as `peerDependencies` at `^0.1.0-rc.8`. A dsh
+and the client runtime packages) as `peerDependencies` at `^0.1.1-rc.2`. A dsh
 profile does not auto-install peers, so these are provided by the dsh
 installation itself through the `profiles/node_modules` fallback rather than
 fetched from the registry — no extra packages to install, and no registry token
@@ -86,6 +86,41 @@ export DEEPSEEK_API_KEY=sk-...
 
 ```bash
 dsh web
+```
+
+## Development
+
+This repository is a standalone pnpm workspace: the plugin packages resolve the
+`@deepseek-ai/*` peer packages from npm, so building does not need a full
+DeepSeek Harness checkout.
+
+Requirements: Node `^22.19 || >=24` and pnpm.
+
+```sh
+pnpm install                 # installs workspace and npm dev dependencies
+pnpm run build               # host face (tsc + tsdown + typert artifacts), then client face
+pnpm run typecheck           # both compile faces
+pnpm run test                # vitest unit/browser tests
+pnpm run verify              # pre-publish gate (also runs via prepublishOnly)
+```
+
+The host pass regenerates `lib/typert.host.js` and `lib/typert.remote-client.*`
+from the package source, keyed by each package.json name; the client pass
+rebuilds `lib/client.js`. `lib/` is git-ignored build output — do not hand-edit
+it. If a typert manifest ever names a package other than its own
+(`TYPERT.package` !== package.json name), the `verify` gate fails before publish.
+
+The typert generator recognizes `Remote`/`TypertRemoteService` only from a
+workspace-registered protocol package, so `packages/typert-protocol` vendors
+the published `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2` declarations; when
+the dsh dependency line moves, refresh it from the installed package.
+
+Publishing (the bundle and both plugins share one version):
+
+```sh
+pnpm --filter @rayadesu/dsh-llm-billing publish --access public
+pnpm --filter @rayadesu/dsh-client-ui-billing publish --access public
+pnpm publish --access public   # @rayadesu/dsh-billing bundle
 ```
 
 ## Configuration

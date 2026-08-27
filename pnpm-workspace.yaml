@@ -4,6 +4,8 @@ packages:
 # Workspace matching (linkWorkspacePackages) lets @rayadesu/dsh-llm-billing
 # resolve to the local package even though it is not on the npm registry;
 # peer auto-install then fetches the remaining @deepseek-ai/dsh-* peers
-# (published at 0.1.0-rc.8) so the tree is self-contained at DSH boot.
+# (published at 0.1.2-alpha.1) so the tree is self-contained at DSH boot.
 autoInstallPeers: true
 linkWorkspacePackages: true
+patchedDependencies:
+  '@deepseek-ai/dsh-client-ui-renderer@0.1.1-rc.2': patches/@deepseek-ai__dsh-client-ui-renderer@0.1.1-rc.2.patch

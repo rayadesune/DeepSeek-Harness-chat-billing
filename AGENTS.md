@@ -11,6 +11,7 @@ deepseek-harness 官方仓库（[deepseek-ai/deepseek-harness](https://github.co
 ```
 packages/llm-billing/    宿主插件 @rayadesu/dsh-llm-billing（/user/balance 传输、峰谷计价、billing Remote）
 packages/ui-billing/     浏览器插件 @rayadesu/dsh-client-ui-billing（会话头部徽标与详情面板）
+packages/typert-protocol/ 内嵌 Typert 协议声明（@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2 的 lib/types），构建期供 typert 生成器识别装饰器
 cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-billing 两个插件行
 ```
 
@@ -31,23 +32,31 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
 ## 约定
 
 - **源文件以本仓库为准**：`packages/*/src` 与 `tests/` 没有上游 fork，改动直接在本仓库进行。
-- **不在本仓库构建**：tsconfig 依赖 deepseek-harness monorepo 布局
-  （`tsconfig.base*.json`、vendor/ 引用），构建需在任意 deepseek-harness checkout 环境中
-  进行（把两个包放入 `packages/llm/llm-billing` 与 `packages/client/ui-billing` 位置后
-  构建），再把生成的 `lib/` 同步回本仓库对应包目录；`lib/` 已 gitignore，不进仓库。
-- **依赖以发布形态声明**：`@deepseek-ai/dsh-*` 依赖写 `^0.1.0-rc.8`（npm `next` tag 上的
-  发布形态，对应官方 monorepo 里的 `workspace:^`）；本插件的三个包发布到 npm 的
+- **本仓库独立构建**：本仓库是独立 pnpm workspace，tsconfig 只依赖仓库根的
+  `tsconfig.base*.json`，`@deepseek-ai/*` peer 包从 npm 解析。`pnpm run build`
+  依次跑 host/client 两个编译面：`tsc -b` 产出 `lib/types`，tsdown 产出
+  `lib/index.js`/`lib/invariant.js`，typert 生成器按 package.json 的 name 重新生成
+  `lib/typert.host.js` 与 `lib/typert.remote-client.*`，client 面重建 `lib/client.js`。
+  `lib/` 仍是 gitignore 的构建产物，不进仓库。
+- **发布前校验**：`pnpm run verify`（每个包 `prepublishOnly` 自动运行）检查
+  `lib/typert.host.js` 的 `TYPERT.package` 必须等于导出它的包名，且 lib 中不得残留
+  其他包名的清单；失败即禁止发布。
+- **依赖以发布形态声明**：`@deepseek-ai/dsh-*` 依赖写 `^0.1.1-rc.2`（对应官方 monorepo 当前发布基线，monorepo 内为 
+  `workspace:^`）；本插件的三个包发布到 npm 的
   `@rayadesu` scope，直接 `dsh plugin add @rayadesu/...` 安装。
 - **密钥不进仓库**：`DEEPSEEK_API_KEY` 等一律由用户环境或凭据 seam 提供，仓库不含真实值。
 - **README 双语**：每个 README 遵循 DSH 结构 `README.md`(EN) + `README.zh.md`(ZH) +
   `README.i18n.yaml`（记录两文件 git blob hash，改动后需更新）。
-- **版本对齐**：根 bundle 与两个包统一版本号（当前 0.2.1），`pnpm-lock.yaml` 随依赖变更更新。
+- **版本对齐**：根 bundle 与两个包统一版本号（当前 0.2.2），`pnpm-lock.yaml` 随依赖变更更新。
 - **文本规范**：LF 换行、文件末尾一个换行（`.editorconfig`/`.gitattributes` 已声明）。
 
 ## 常用命令
 
 ```sh
 pnpm install   # 安装本仓库依赖（dsh-* 从 registry 解析）
+pnpm run build # host + client 两个编译面（tsc + tsdown + typert 产物）
+pnpm run test  # vitest
+pnpm run verify # 发布前校验
 dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing  # 安装进 DSH
 ```
 

@@ -6,8 +6,5 @@
   },
   "include": [
     "src"
-  ],
-  "references": [
-    { "path": "../typert-protocol" }
   ]
 }

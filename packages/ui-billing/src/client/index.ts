@@ -1,6 +1,10 @@
 /** DeepSeek account-balance badge, browser half: one session-header utility entry. */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// Type-only: pulls the generated Remote API and ctx.remote merge.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only: pulls the SlotRegistry service merge (ctx.slots).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import billingRemote from '@rayadesu/dsh-llm-billing/remote'
 import type {} from '@rayadesu/dsh-llm-billing/remote'
 import type { TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
