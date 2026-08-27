@@ -58,8 +58,8 @@ export async function apply(ctx: ClientContext): Promise<void> {
       }
       return result.value
     },
-    getTodaySpend: async () => {
-      const result = await billing.getTodaySpend()
+    getTodaySpend: async (force) => {
+      const result = await billing.getTodaySpend(force)
       if (!result.ok) {
         throw new Error(`billing.getTodaySpend failed: ${result.error.code}: ${result.error.message}`)
       }

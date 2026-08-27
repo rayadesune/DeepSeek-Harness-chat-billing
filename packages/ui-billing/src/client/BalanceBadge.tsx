@@ -15,8 +15,12 @@ export interface BalanceBadgeInjected {
   getBalance: () => Promise<DeepSeekBalance>
   /** Read one session's billed spend; rejects with the Remote error message. */
   getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
-  /** Read today's billed spend across every session; rejects with the Remote error message. */
-  getTodaySpend: () => Promise<DeepSeekTodaySpend>
+  /**
+   * Read today's billed spend across every session; rejects with the Remote
+   * error message. `force` bypasses the host-side cache — the manual refresh
+   * passes it, the message-triggered recompute does not.
+   */
+  getTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
 }
 
 /** Full props assembled by the header utilities slot renderer. */
@@ -109,7 +113,7 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
           // A failed refetch keeps the last good value instead of blanking it.
         },
       )
-      const todaySpendRequest = Promise.resolve().then(getTodaySpend).then(
+      const todaySpendRequest = Promise.resolve().then(() => getTodaySpend(request > 0)).then(
         (value) => {
           if (!current) return
           setTodaySpend(value)
@@ -128,34 +132,42 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
 
   // A new message lands: recompute this session's spend and today's spend
   // across every session. The balance is account-level and stays a manual
-  // snapshot — never refetched here.
+  // snapshot — never refetched here. The recompute is debounced so a message
+  // storm (a streaming agent turn landing its messages back-to-back) prices
+  // once instead of once per message; the host-side cache then serves the
+  // first miss for the rest of the minute.
   useEffect(() => {
     if (messageCount === pricedMessageCountRef.current) return
     pricedMessageCountRef.current = messageCount
     let current = true
-    void Promise.resolve().then(() => {
-      // Each spend line updates on its own: the slow all-session aggregate
-      // does not delay the session line.
-      void Promise.resolve().then(() => getSessionSpend(sessionId)).then(
-        (value) => {
-          if (!current) return
-          setSpend(value)
-        },
-        () => {
-          // A failed recompute keeps the last good value.
-        },
-      )
-      void Promise.resolve().then(getTodaySpend).then(
-        (value) => {
-          if (!current) return
-          setTodaySpend(value)
-        },
-        () => {
-          // A failed recompute keeps the last good value.
-        },
-      )
-    })
-    return () => { current = false }
+    const timer = setTimeout(() => {
+      void Promise.resolve().then(() => {
+        // Each spend line updates on its own: the slow all-session aggregate
+        // does not delay the session line.
+        void Promise.resolve().then(() => getSessionSpend(sessionId)).then(
+          (value) => {
+            if (!current) return
+            setSpend(value)
+          },
+          () => {
+            // A failed recompute keeps the last good value.
+          },
+        )
+        void Promise.resolve().then(() => getTodaySpend()).then(
+          (value) => {
+            if (!current) return
+            setTodaySpend(value)
+          },
+          () => {
+            // A failed recompute keeps the last good value.
+          },
+        )
+      })
+    }, 2_000)
+    return () => {
+      clearTimeout(timer)
+      current = false
+    }
   }, [getSessionSpend, getTodaySpend, sessionId, messageCount])
 
   // A pointer press outside the label box closes it.
