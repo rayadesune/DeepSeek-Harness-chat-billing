@@ -12,9 +12,9 @@ The badge is account-level even though the slot is session-scoped: the header ut
 
 The spends follow the conversation and the balance stays a manual snapshot:
 
-- **Spends follow new messages** — the component subscribes to the current session's message count through the framework `useSession` seat. When a new message lands, it recomputes this session's spend (`billing/getSessionSpend`) and today's spend (`billing/getTodaySpend`), local pricing passes with no network request, so the spend lines stay live during an ongoing conversation.
+- **Spends follow new messages, debounced** — the component subscribes to the current session's message count through the framework `useSession` seat. When a new message lands, it recomputes this session's spend (`billing/getSessionSpend`) and today's spend (`billing/getTodaySpend`), local pricing passes with no network request, so the spend lines stay live during an ongoing conversation. The recompute is debounced for two seconds, so a burst of messages (a streaming agent turn) prices once instead of once per message; the host-side cache (see `dsh-llm-billing`) then serves the first miss for the rest of the minute.
 - **Balance is manual** — the account balance is fetched on mount, on session switch, and on the explicit refresh action (`billing/getBalance`). There is no polling and no automatic refetch: the balance line only changes when one of those events happens.
-- **Refresh keeps the last values** — an in-flight refresh leaves the previous values on screen, and a failed refresh retains the last good value instead of blanking it.
+- **Refresh keeps the last values** — an in-flight refresh leaves the previous values on screen, and a failed refresh retains the last good value instead of blanking it. The refresh action calls `billing/getTodaySpend(true)`, which bypasses the host-side cache; the message-triggered recompute and the mount/session-switch read use the cached path.
 
 ## Model Experience
 

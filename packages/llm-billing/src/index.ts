@@ -4,6 +4,15 @@
  * the credential/environment seams, prices each session's billed usage with the
  * peak/off-peak table, and exposes the `billing` Remote (`getBalance`, the
  * per-session `getSessionSpend`, and the all-sessions `getTodaySpend`).
+ *
+ * Today's spend never scans every session log per request: a 60-second
+ * Beijing-day cache with in-flight coalescing serves the message-triggered
+ * reads, the manual refresh may bypass the time window (`force`), and the
+ * computation behind a miss reads only sessions whose persisted revision
+ * changed since the last resolution (see today-spend.ts). When the
+ * session-projection registry is composed, the plugin additionally registers
+ * the `billingTodaySpend` projection unit, which folds each session's spend
+ * eagerly and lets cold reads ride the projection-cache ladder.
  * @module @rayadesu/dsh-llm-billing
  */
 
@@ -17,32 +26,43 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance } from './balance.ts'
 import {
   computeSessionSpend,
-  computeTodaySpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
   resolveBilling,
 } from './billing.ts'
 import type { BillingConfig, BillingConfigModel } from './billing.ts'
 import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from './types.ts'
+import { billingTodaySpendDefinition } from './projection.ts'
+import { TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
 
 export { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from './balance.ts'
 export {
+  addEventContribution,
+  beijingDayKey,
   computeSessionSpend,
   computeTodaySpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
+  emptyTodaySpend,
   isPeak,
+  mergeTodaySpend,
+  priceEvent,
   resolveBilling,
 } from './billing.ts'
 export type {
   BillingConfig,
   BillingConfigModel,
+  BillingEventContribution,
   DeepSeekModelPricing,
   DeepSeekTokenPrice,
   PeakHourWindow,
   ResolvedBilling,
 } from './billing.ts'
 export type * from './types.ts'
+export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit } from './projection.ts'
+export type { BillingUnitState } from './projection.ts'
+export { TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
+export type { ScannerPersistedHeader, ScannerSession, TodaySpendScannerDeps } from './today-spend.ts'
 
 export const name = 'llm-billing'
 
@@ -112,9 +132,15 @@ export const Config: z<Config> = z.object({
   billing: billingConfig,
 })
 
+/** How often a Beijing-day "today spend" value may be recomputed (60s). */
+export const TODAY_SPEND_CACHE_MS = 60_000
+/** Hard cap on today's events collected by the events scan path. */
+export const TODAY_SPEND_MAX_EVENTS = 200_000
+
 /**
  * Read one session's event log: the live SessionStore first, then the
- * persistence backend for a flushed session.
+ * persistence backend for a flushed session (inspected directly by id — no
+ * header listing).
  * @param ctx - plugin context carrying the SessionStore and optional persistence.
  * @param sessionId - the session to read.
  * @returns the session's complete event log.
@@ -126,48 +152,13 @@ async function sessionEvents(ctx: Context, sessionId: SessionId): Promise<readon
   if (live !== undefined) return live.events
   const persistence = ctx.get('sessionPersistence')
   if (persistence !== undefined) {
-    for (const header of await persistence.list()) {
-      if (header.id !== sessionId) continue
-      const inspection = await persistence.inspect(sessionId)
-      return inspection.events
+    try {
+      return (await persistence.inspect(sessionId)).events
+    } catch (error: unknown) {
+      throw new LlmError(`llm-billing: session ${sessionId} not found`, 'NOT_FOUND', { cause: error })
     }
   }
   throw new LlmError(`llm-billing: session ${sessionId} not found`, 'NOT_FOUND')
-}
-
-/**
- * Read every session's event log, concatenated: each live SessionStore
- * session first (its log may hold events not yet flushed), then each persisted
- * session that is not live, so no event is counted twice. Events are appended
- * one at a time: spreading a very large log into `push(...)` exceeds the
- * engine's argument limit and throws a stack RangeError.
- * @param ctx - plugin context carrying the SessionStore and optional persistence.
- * @returns every session's complete event log, concatenated.
- */
-async function allSessionEvents(ctx: Context): Promise<readonly SessionEvent[]> {
-  const events: SessionEvent[] = []
-  const sessions = ctx.get('sessions')
-  const liveIds = new Set<SessionId>()
-  if (sessions !== undefined) {
-    for (const session of sessions.list()) {
-      liveIds.add(session.id)
-      for (const event of session.events) events.push(event)
-    }
-  }
-  const persistence = ctx.get('sessionPersistence')
-  if (persistence !== undefined) {
-    for (const header of await persistence.list()) {
-      if (liveIds.has(header.id)) continue
-      try {
-        const inspection = await persistence.inspect(header.id)
-        for (const event of inspection.events) events.push(event)
-      } catch (error: unknown) {
-        // One unreadable session must not blank the whole-day aggregate.
-        ctx.logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)
-      }
-    }
-  }
-  return events
 }
 
 /**
@@ -203,17 +194,51 @@ export function apply(ctx: Context, config: Config): void {
     return fetchDeepSeekBalance(baseURL(), apiKey)
   }
 
+  const billing = resolveBilling(config.billing)
+  const catalog = (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id }))
+
   const fetchSessionSpend = async (sessionId: SessionId): Promise<DeepSeekSessionSpend> => {
-    const billing = resolveBilling(config.billing)
-    const catalog = (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id }))
     return computeSessionSpend(await sessionEvents(ctx, sessionId), billing, catalog)
   }
 
-  const fetchTodaySpend = async (): Promise<DeepSeekTodaySpend> => {
-    const billing = resolveBilling(config.billing)
-    const catalog = (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id }))
-    return computeTodaySpend(await allSessionEvents(ctx), billing, catalog)
+  // Plan C: register the per-session spend projection unit on the projection
+  // registry. Registration is lazy — it happens on the first projection-path
+  // scan, not through `ctx.inject` (whose plugin-mount wait would also engage
+  // the test-invariant host in suites that never provide the registry). The
+  // registry builds cells lazily over the in-memory log, so events committed
+  // before registration are folded on first touch; without the registry the
+  // events path serves today's spend.
+  const unit = billingTodaySpendDefinition(billing, catalog)
+  let unitRegistered = false
+  const ensureUnit = (): void => {
+    if (unitRegistered) return
+    const registry = ctx.get('sessionProjections')
+    if (registry === undefined) return
+    registry.register(unit)
+    unitRegistered = true
   }
+
+  // Plans A1–A3: 60s Beijing-day cache with in-flight coalescing and a force
+  // bypass, over a revision-gated scanner (projection path when the registry
+  // is composed, events path otherwise).
+  const scanner = new TodaySpendScanner({
+    sessions: () => ctx.get('sessions'),
+    persistence: () => ctx.get('sessionPersistence'),
+    projections: () => ctx.get('sessionProjections'),
+    projectionCache: () => ctx.get('sessionProjectionCache'),
+    ensureUnit,
+    unit,
+    maxEvents: TODAY_SPEND_MAX_EVENTS,
+    logger: ctx.logger,
+    billing,
+    catalog,
+  })
+  const todayCache = new TodaySpendCache(
+    dayKey => scanner.scan(dayKey),
+    TODAY_SPEND_CACHE_MS,
+  )
+
+  const fetchTodaySpend = async (force = false): Promise<DeepSeekTodaySpend> => todayCache.get(force)
 
   new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchSessionSpend, fetchTodaySpend })
 }

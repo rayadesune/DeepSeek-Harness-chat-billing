@@ -5,6 +5,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { LlmError } from '@deepseek-ai/dsh-llm'
+import { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -163,6 +164,7 @@ describe('DeepSeekBalanceGateway', () => {
     await expect(gateway.getBalance()).resolves.toEqual(VALID_PUBLIC)
     await expect(gateway.getSessionSpend('session-1' as SessionId)).resolves.toEqual(VALID_SPEND)
     await expect(gateway.getTodaySpend()).resolves.toEqual(VALID_TODAY_SPEND)
+    await expect(gateway.getTodaySpend(true)).resolves.toEqual(VALID_TODAY_SPEND)
   })
 
   it('is root-visible when constructed inside a plugin fiber', async () => {
@@ -179,7 +181,7 @@ describe('DeepSeekBalanceGateway', () => {
   })
 })
 
-describe('apply / allSessionEvents', () => {
+describe('apply / today spend', () => {
   /** One today-priced flash event: now falls on today's Beijing calendar day. */
   function pricedEvent(index: number): SessionEvent {
     return {
@@ -205,7 +207,9 @@ describe('apply / allSessionEvents', () => {
     ctx.provide('sessions', { list: () => [] } as never)
     const bigEvents = Array.from({ length: 200_000 }, (_, index) => pricedEvent(index))
     ctx.provide('sessionPersistence', {
-      list: async () => [{ id: 'session-big' }],
+      listSnapshots: async () => [
+        { header: { id: 'session-big' }, revision: SessionPersistenceRevision('r-big') },
+      ],
       inspect: async () => ({ meta: {}, events: bigEvents }),
     } as never)
     applyBilling(ctx, {})
@@ -221,7 +225,10 @@ describe('apply / allSessionEvents', () => {
     const ctx = new Context()
     ctx.provide('sessions', { list: () => [] } as never)
     ctx.provide('sessionPersistence', {
-      list: async () => [{ id: 'session-ok' }, { id: 'session-bad' }],
+      listSnapshots: async () => [
+        { header: { id: 'session-ok' }, revision: SessionPersistenceRevision('r-ok') },
+        { header: { id: 'session-bad' }, revision: SessionPersistenceRevision('r-bad') },
+      ],
       inspect: async (id: SessionId) => {
         if (id === 'session-bad' as SessionId) throw new Error('corrupt log')
         return { meta: {}, events: [pricedEvent(0)] }
@@ -241,7 +248,9 @@ describe('apply / allSessionEvents', () => {
       list: () => [{ id: 'session-live', events: [pricedEvent(0)] }],
     } as never)
     ctx.provide('sessionPersistence', {
-      list: async () => [{ id: 'session-live' }],
+      listSnapshots: async () => [
+        { header: { id: 'session-live' }, revision: SessionPersistenceRevision('r-live') },
+      ],
       inspect: async () => { throw new Error('must not be read') },
     } as never)
     applyBilling(ctx, {})
@@ -249,6 +258,28 @@ describe('apply / allSessionEvents', () => {
     await expect(gateway.getTodaySpend()).resolves.toMatchObject({
       total: expect.any(Number), // oxlint-disable-line typescript/no-unsafe-assignment
     })
+    await ctx.fiber.dispose()
+  })
+
+  it('serves the 60s cache within the window; force recomputes but the revision gate holds', async () => {
+    const ctx = new Context()
+    ctx.provide('sessions', { list: () => [] } as never)
+    const inspect = vi.fn(async () => ({ meta: {}, events: [pricedEvent(0)] }))
+    ctx.provide('sessionPersistence', {
+      listSnapshots: async () => [
+        { header: { id: 'session-a' }, revision: SessionPersistenceRevision('r-a') },
+      ],
+      inspect,
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    await gateway.getTodaySpend()
+    await gateway.getTodaySpend()
+    expect(inspect).toHaveBeenCalledTimes(1)
+    // Force bypasses the time window; the revision gate is a correctness cache,
+    // so an unchanged log still costs nothing.
+    await gateway.getTodaySpend(true)
+    expect(inspect).toHaveBeenCalledTimes(1)
     await ctx.fiber.dispose()
   })
 })

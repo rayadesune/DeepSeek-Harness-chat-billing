@@ -3,11 +3,17 @@
  * pricing. Pure functions over session events and the pricing table, so the
  * Remote gateway stays transport-free and the whole spend is testable without
  * a key.
+ *
+ * The per-event pricing lives in {@link priceEvent}, the one shared fold
+ * primitive: the events-scan paths ({@link computeSessionSpend},
+ * {@link computeTodaySpend}) and the session-projection unit
+ * (`billingTodaySpend` in projection.ts) all fold the same contribution, so a
+ * pricing-table change cannot drift one path from the others.
  * @module @rayadesu/dsh-llm-billing/billing
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { DeepSeekSessionSpend, DeepSeekTodaySpend } from './types.ts'
+import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel, DeepSeekTodaySpend } from './types.ts'
 
 /** One token price point, in CNY per 1M tokens. */
 export interface DeepSeekTokenPrice {
@@ -128,7 +134,7 @@ function beijingWeekday(now: Date): number {
 }
 
 /** The Beijing (Asia/Shanghai, UTC+8, no DST) calendar-day key of a timestamp. */
-function beijingDayKey(now: Date): string {
+export function beijingDayKey(now: Date): string {
   return new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10)
 }
 
@@ -147,17 +153,166 @@ export function isPeak(billing: ResolvedBilling, now: Date): boolean {
   return billing.peakHours.some(({ start, end }) => hour >= start && hour < end)
 }
 
-/** Running per-model spend accumulation for {@link computeSessionSpend}. */
-interface SessionSpendRow {
-  cacheHitInputTokens: number
-  cacheMissInputTokens: number
-  outputTokens: number
+/**
+ * One priced billed event's contribution: the model row plus the Beijing
+ * calendar day its timestamp falls on. `undefined` when the event carries no
+ * priced usage (not an `assistant/message`, no usage report, or a model
+ * without a pricing row).
+ */
+export interface BillingEventContribution {
+  /** Beijing-time calendar-day key of the event's timestamp. */
+  dayKey: string
+  /** Wire model id, e.g. `deepseek-v4-flash`. */
+  model: string
+  /** Selector label for the model. */
+  displayName: string
+  /** Billed cost in CNY (peak plus off-peak portions). */
   cost: number
+  /** Cost portion billed at peak rates. */
   peakCost: number
+  /** Cost portion billed at off-peak rates. */
   offPeakCost: number
+  /** Cache-hit input tokens billed at the hit rate. */
+  cacheHitInputTokens: number
+  /** Cache-miss input tokens (uncached input plus cache writes), billed at the miss rate. */
+  cacheMissInputTokens: number
+  /** Output tokens (reasoning included), billed at the output rate. */
+  outputTokens: number
+  /** Billed cost of cache-hit input tokens in CNY. */
   cacheHitInputCost: number
+  /** Billed cost of cache-miss input tokens (uncached input plus cache writes) in CNY. */
   cacheMissInputCost: number
+  /** Billed cost of output tokens (reasoning included) in CNY. */
   outputCost: number
+}
+
+/**
+ * Price one event at the official per-model rates, applying the peak/off-peak
+ * table by its Beijing-time hour and weekday (peak windows apply Monday–Friday
+ * only; weekends are off-peak). Each `assistant/message` event with usage
+ * contributes cache-hit input, cache-miss input (uncached input plus cache
+ * writes), and output (reasoning included) tokens at the rate of its own
+ * timestamp; a model with usage but no pricing row contributes nothing (the
+ * published table prices only the two V4 rows).
+ * @param event - the event to price.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param names - model id → display label.
+ * @returns the priced contribution, or `undefined` when the event has no priced usage.
+ */
+export function priceEvent(
+  event: SessionEvent,
+  billing: ResolvedBilling,
+  names: ReadonlyMap<string, string>,
+): BillingEventContribution | undefined {
+  if (event.type !== 'assistant/message') return undefined
+  const reported = event.data.usage
+  if (reported === undefined) return undefined
+  const model = event.data.message.source.model
+  const pricing = billing.models.get(model)
+  if (pricing === undefined) return undefined
+  const time = new Date(event.time)
+  const peak = isPeak(billing, time)
+  const price = peak ? pricing.peak : pricing.offPeak
+  const hit = reported.cacheReadTokens ?? 0
+  const miss = reported.inputTokens + (reported.cacheWriteTokens ?? 0)
+  const output = reported.outputTokens
+  const hitCost = (hit * price.cacheHitInput) / 1_000_000
+  const missCost = (miss * price.cacheMissInput) / 1_000_000
+  const outputCost = (output * price.output) / 1_000_000
+  const cost = hitCost + missCost + outputCost
+  return {
+    dayKey: beijingDayKey(time),
+    model,
+    displayName: names.get(model) ?? model,
+    cost,
+    peakCost: peak ? cost : 0,
+    offPeakCost: peak ? 0 : cost,
+    cacheHitInputTokens: hit,
+    cacheMissInputTokens: miss,
+    outputTokens: output,
+    cacheHitInputCost: hitCost,
+    cacheMissInputCost: missCost,
+    outputCost,
+  }
+}
+
+/** A spend with no priced usage. */
+export function emptyTodaySpend(): DeepSeekTodaySpend {
+  return { total: 0, models: [] }
+}
+
+/** The today-spend shape of a single priced contribution. */
+function contributionModel(priced: BillingEventContribution): DeepSeekSessionSpendModel {
+  return {
+    model: priced.model,
+    displayName: priced.displayName,
+    cost: priced.cost,
+    peakCost: priced.peakCost,
+    offPeakCost: priced.offPeakCost,
+    cacheHitInputTokens: priced.cacheHitInputTokens,
+    cacheMissInputTokens: priced.cacheMissInputTokens,
+    outputTokens: priced.outputTokens,
+    cacheHitInputCost: priced.cacheHitInputCost,
+    cacheMissInputCost: priced.cacheMissInputCost,
+    outputCost: priced.outputCost,
+  }
+}
+
+/**
+ * Merge one priced event's contribution into an accumulator spend (pure:
+ * returns a new spend, never mutates its input).
+ * @param spend - the accumulator (per session and day, or across sessions).
+ * @param priced - the priced contribution to add.
+ * @returns the merged spend.
+ */
+export function addEventContribution(
+  spend: DeepSeekTodaySpend,
+  priced: BillingEventContribution,
+): DeepSeekTodaySpend {
+  const rows = spend.models.map(row => row.model === priced.model
+    ? {
+        ...row,
+        cost: row.cost + priced.cost,
+        peakCost: row.peakCost + priced.peakCost,
+        offPeakCost: row.offPeakCost + priced.offPeakCost,
+        cacheHitInputTokens: row.cacheHitInputTokens + priced.cacheHitInputTokens,
+        cacheMissInputTokens: row.cacheMissInputTokens + priced.cacheMissInputTokens,
+        outputTokens: row.outputTokens + priced.outputTokens,
+        cacheHitInputCost: row.cacheHitInputCost + priced.cacheHitInputCost,
+        cacheMissInputCost: row.cacheMissInputCost + priced.cacheMissInputCost,
+        outputCost: row.outputCost + priced.outputCost,
+      }
+    : row)
+  if (!rows.some(row => row.model === priced.model)) rows.push(contributionModel(priced))
+  return { total: spend.total + priced.cost, models: rows }
+}
+
+/**
+ * Sum two spends (per session and day, or across sessions) into one (pure:
+ * returns a new spend, never mutates its inputs).
+ * @param target - the accumulator spend.
+ * @param source - the spend to add.
+ * @returns the summed spend.
+ */
+export function mergeTodaySpend(target: DeepSeekTodaySpend, source: DeepSeekTodaySpend): DeepSeekTodaySpend {
+  let merged = target
+  for (const row of source.models) {
+    merged = addEventContribution(merged, {
+      dayKey: '',
+      model: row.model,
+      displayName: row.displayName,
+      cost: row.cost,
+      peakCost: row.peakCost,
+      offPeakCost: row.offPeakCost,
+      cacheHitInputTokens: row.cacheHitInputTokens,
+      cacheMissInputTokens: row.cacheMissInputTokens,
+      outputTokens: row.outputTokens,
+      cacheHitInputCost: row.cacheHitInputCost,
+      cacheMissInputCost: row.cacheMissInputCost,
+      outputCost: row.outputCost,
+    })
+  }
+  return merged
 }
 
 /**
@@ -180,59 +335,13 @@ function priceEvents(
   catalog: readonly { id: string; name: string }[],
 ): DeepSeekSessionSpend {
   const names = new Map(catalog.map(model => [model.id, model.name]))
-  const rows = new Map<string, SessionSpendRow>()
+  let spend: DeepSeekSessionSpend = { total: 0, models: [] }
   for (const event of events) {
-    if (event.type !== 'assistant/message') continue
-    const reported = event.data.usage
-    if (reported === undefined) continue
-    const model = event.data.message.source.model
-    const pricing = billing.models.get(model)
-    if (pricing === undefined) continue
-    const peak = isPeak(billing, new Date(event.time))
-    const price = peak ? pricing.peak : pricing.offPeak
-    const hit = reported.cacheReadTokens ?? 0
-    const miss = reported.inputTokens + (reported.cacheWriteTokens ?? 0)
-    const output = reported.outputTokens
-    const hitCost = (hit * price.cacheHitInput) / 1_000_000
-    const missCost = (miss * price.cacheMissInput) / 1_000_000
-    const outputCost = (output * price.output) / 1_000_000
-    const cost = hitCost + missCost + outputCost
-    let row = rows.get(model)
-    if (row === undefined) {
-      row = {
-        cacheHitInputTokens: 0, cacheMissInputTokens: 0, outputTokens: 0,
-        cost: 0, peakCost: 0, offPeakCost: 0,
-        cacheHitInputCost: 0, cacheMissInputCost: 0, outputCost: 0,
-      }
-      rows.set(model, row)
-    }
-    row.cacheHitInputTokens += hit
-    row.cacheMissInputTokens += miss
-    row.outputTokens += output
-    row.cost += cost
-    row.cacheHitInputCost += hitCost
-    row.cacheMissInputCost += missCost
-    row.outputCost += outputCost
-    if (peak) row.peakCost += cost
-    else row.offPeakCost += cost
+    const priced = priceEvent(event, billing, names)
+    if (priced === undefined) continue
+    spend = addEventContribution(spend, priced)
   }
-  const models = [...rows.entries()].map(([model, row]) => ({
-    model,
-    displayName: names.get(model) ?? model,
-    cost: row.cost,
-    peakCost: row.peakCost,
-    offPeakCost: row.offPeakCost,
-    cacheHitInputTokens: row.cacheHitInputTokens,
-    cacheMissInputTokens: row.cacheMissInputTokens,
-    outputTokens: row.outputTokens,
-    cacheHitInputCost: row.cacheHitInputCost,
-    cacheMissInputCost: row.cacheMissInputCost,
-    outputCost: row.outputCost,
-  }))
-  return {
-    total: models.reduce((sum, model) => sum + model.cost, 0),
-    models,
-  }
+  return spend
 }
 
 /**
@@ -267,5 +376,12 @@ export function computeTodaySpend(
   now: Date = new Date(),
 ): DeepSeekTodaySpend {
   const day = beijingDayKey(now)
-  return priceEvents(events.filter(event => beijingDayKey(new Date(event.time)) === day), billing, catalog)
+  const names = new Map(catalog.map(model => [model.id, model.name]))
+  let spend: DeepSeekTodaySpend = emptyTodaySpend()
+  for (const event of events) {
+    const priced = priceEvent(event, billing, names)
+    if (priced === undefined || priced.dayKey !== day) continue
+    spend = addEventContribution(spend, priced)
+  }
+  return spend
 }

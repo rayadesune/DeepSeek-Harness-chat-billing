@@ -16,7 +16,18 @@ Add the plugin to a composition (a `cordis.yml` row) and give it a credential. I
     # baseURL: https://api.deepseek.com
 ```
 
-The plugin registers the `billing` Remote with three methods: `getBalance()` (the parsed `/user/balance` snapshot), `getSessionSpend(sessionId)` (one session's billed cost), and `getTodaySpend()` (every session's billed cost on the current Beijing-time calendar day). The spend prices each `assistant/message` event's billed tokens (cache-hit input, cache-miss input including cache writes, and output including reasoning) at the official rate of the event's own Beijing-time peak/off-peak classification — peak windows apply weekdays (Monday–Friday) only, and weekends are always off-peak — then sums per model.
+The plugin registers the `billing` Remote with three methods: `getBalance()` (the parsed `/user/balance` snapshot), `getSessionSpend(sessionId)` (one session's billed cost), and `getTodaySpend(force?)` (every session's billed cost on the current Beijing-time calendar day; `force` bypasses the host-side cache, for the badge's manual refresh). The spend prices each `assistant/message` event's billed tokens (cache-hit input, cache-miss input including cache writes, and output including reasoning) at the official rate of the event's own Beijing-time peak/off-peak classification — peak windows apply weekdays (Monday–Friday) only, and weekends are always off-peak — then sums per model.
+
+### Today-spend read path (no full scans per message)
+
+`getTodaySpend()` never scans every session log per request. A 60-second Beijing-day cache with in-flight coalescing serves message-triggered reads; only the manual refresh (`force`) bypasses the time window. Behind a miss, two revision-gated strategies compute the aggregate:
+
+- **Projection path** (used when `@deepseek-ai/dsh-session-projection` is composed): the plugin registers the `billingTodaySpend` projection unit, which folds each session's spend eagerly as events commit. Live sessions are read from their eager cells with zero log I/O; cold sessions ride the projection-cache ladder (`coldSnapshot`) or, without the cache service, one detached fold per session. Only sessions whose persisted revision changed since the last resolution are touched.
+- **Events path** (fallback without the registry): collects only today's events (Beijing-day filter during collection) with a 200 000-event cap, skipping sessions whose persisted revision is unchanged.
+
+After the first resolution per process, steady-state reads cost only the sessions whose logs actually changed. A session whose log cannot be read is skipped with a warning instead of failing the whole day's total.
+
+Note: the projection path prices a session's history once, at the rates in effect when its events were folded — changing `billing.models` re-prices only events folded after the change (the events path re-prices the whole log).
 
 ## Configuration
 
@@ -41,4 +52,5 @@ None; its only provider call is a credential-authenticated `/user/balance` read,
 ## Known Limitations and Deferred Work
 
 - **Priced rows only** — the session and today spends only price models that have a `billing.models` row; a model without a rate row is omitted.
-- **On-demand read** — the session spend reads the session's full event log on each call rather than maintaining an incremental aggregate, so cost grows with the per-session log size; `getTodaySpend()` reads every session's log, and a session whose log cannot be read is skipped with a warning instead of failing the whole day's total.
+- **Up-to-60s staleness** — `getTodaySpend()` is served from the host-side cache for up to 60 seconds; only the manual refresh (`force`) recomputes immediately (still revision-gated, so an unchanged log costs nothing).
+- **Projection pricing is history-frozen** — when the projection path is active, a pricing-table change prices only events folded after the change; restart (or the events fallback) re-prices the full log.

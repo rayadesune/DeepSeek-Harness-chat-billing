@@ -157,12 +157,14 @@ describe('ui-billing browser half', () => {
     await ctx.fiber.dispose()
   })
 
-  it('injects a getTodaySpend face that unwraps the Remote result and reports failures', async () => {
+  it('injects a getTodaySpend face that unwraps the Remote result, forwards force, and reports failures', async () => {
     const { ctx, getTodaySpend } = await bench()
     const entry = ctx.slots.entries('conversation.session.header.utilities')[0]!
     const injected = (entry.inject as unknown as () => BalanceBadgeInjected)()
     await expect(injected.getTodaySpend()).resolves.toEqual(TODAY_SPEND)
-    expect(getTodaySpend).toHaveBeenCalledOnce()
+    expect(getTodaySpend).toHaveBeenCalledWith(undefined)
+    await expect(injected.getTodaySpend(true)).resolves.toEqual(TODAY_SPEND)
+    expect(getTodaySpend).toHaveBeenLastCalledWith(true)
     getTodaySpend.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
     await expect(injected.getTodaySpend()).rejects.toThrow('billing.getTodaySpend failed: internal: no key')
     await ctx.fiber.dispose()

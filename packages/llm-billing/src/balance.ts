@@ -108,8 +108,12 @@ export interface DeepSeekBalanceGatewayOptions {
   fetchBalance: () => Promise<DeepSeekBalance>
   /** Compute one session's billed spend through the plugin's resolved facts. */
   fetchSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
-  /** Compute today's billed spend across every session through the plugin's resolved facts. */
-  fetchTodaySpend: () => Promise<DeepSeekTodaySpend>
+  /**
+   * Compute today's billed spend across every session through the plugin's
+   * resolved facts. `force` bypasses the host-side time window (the manual
+   * refresh path); a `force` miss still reuses revision-gated increments.
+   */
+  fetchTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
 }
 
 /**
@@ -154,11 +158,14 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   /**
    * Read today's billed spend across every session, priced per event by its
    * Beijing-time calendar day, hour, and weekday (weekends are always off-peak).
+   * @param force - bypass the host-side 60s cache (manual refresh); omitted
+   *   means a cached read. Remote parameters cannot carry default values, so
+   *   the thunk receives `undefined` for an omitted argument.
    * @returns today's total cost plus one row per priced model.
    */
   @Remote('getTodaySpend')
-  getTodaySpend(): Promise<DeepSeekTodaySpend> {
-    return this.options.fetchTodaySpend()
+  getTodaySpend(force?: boolean): Promise<DeepSeekTodaySpend> {
+    return this.options.fetchTodaySpend(force ?? false)
   }
 }
 
