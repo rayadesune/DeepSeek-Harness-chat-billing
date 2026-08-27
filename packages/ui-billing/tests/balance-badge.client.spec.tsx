@@ -59,7 +59,7 @@ function props(
   getBalance: () => Promise<DeepSeekBalance>,
   getSessionSpend: () => Promise<DeepSeekSessionSpend> = async () => SPEND,
   getTodaySpend: () => Promise<DeepSeekTodaySpend> = async () => TODAY_SPEND,
-  useSession: (selector: (snapshot: { chat: { order: readonly string[] } }) => number) => number = () => 0,
+  useSession: (selector: (snapshot: { running: boolean }) => boolean) => boolean = () => false,
 ): BalanceBadgeProps {
   return {
     getBalance,
@@ -151,14 +151,14 @@ describe('BalanceBadge', () => {
     expect(screen.getByText('今日共花费：¥0.31')).toBeDefined()
   })
 
-  it('recomputes only the spends when a new message lands, without refetching the balance', async () => {
+  it('recomputes only the spends when a turn settles, without refetching the balance', async () => {
     vi.useFakeTimers()
-    let messageCount = 0
+    let running = false
     const getBalance = vi.fn(async () => balance())
     const getSessionSpend = vi.fn(async () => SPEND)
     const getTodaySpend = vi.fn(async () => TODAY_SPEND)
     const { rerender } = render(
-      <BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />,
+      <BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />,
     )
     // Flush the mount effect's microtask chain (no timers involved).
     await act(async () => {})
@@ -167,10 +167,13 @@ describe('BalanceBadge', () => {
     const spendCallsBeforeMessage = getSessionSpend.mock.calls.length
     const todayCallsBeforeMessage = getTodaySpend.mock.calls.length
 
-    // A new message lands: the in-window message count changes; the debounced
-    // recompute fires after the 2s window, and the balance stays untouched.
-    messageCount = 1
-    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />)
+    // A turn runs and settles: the running flag flips true then false; the
+    // debounced recompute fires after the 2s window, and the balance stays
+    // untouched.
+    running = true
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />)
+    running = false
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />)
     await act(async () => { vi.advanceTimersByTime(1_000) })
     expect(getSessionSpend.mock.calls.length).toBe(spendCallsBeforeMessage)
     await act(async () => { vi.advanceTimersByTime(1_000) })
@@ -179,25 +182,29 @@ describe('BalanceBadge', () => {
     expect(getBalance).toHaveBeenCalledTimes(1)
   })
 
-  it('debounces a message storm: messages inside the window price once', async () => {
+  it('debounces a turn storm: turns settling inside the window price once', async () => {
     vi.useFakeTimers()
-    let messageCount = 0
+    let running = false
     const getBalance = vi.fn(async () => balance())
     const getSessionSpend = vi.fn(async () => SPEND)
     const getTodaySpend = vi.fn(async () => TODAY_SPEND)
     const { rerender } = render(
-      <BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />,
+      <BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />,
     )
     await act(async () => {})
     const spendCallsBefore = getSessionSpend.mock.calls.length
     const todayCallsBefore = getTodaySpend.mock.calls.length
 
-    // Two messages land inside the debounce window (e.g. a streaming agent
-    // turn); only ONE recompute may fire after the window.
-    messageCount = 1
-    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />)
-    messageCount = 2
-    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />)
+    // Two turns settle inside the debounce window (an agent continuing across
+    // turns); only ONE recompute may fire after the window.
+    running = true
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />)
+    running = false
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />)
+    running = true
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />)
+    running = false
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />)
     await act(async () => { vi.advanceTimersByTime(2_000) })
     expect(getSessionSpend.mock.calls.length).toBe(spendCallsBefore + 1)
     expect(getTodaySpend.mock.calls.length).toBe(todayCallsBefore + 1)
@@ -217,23 +224,25 @@ describe('BalanceBadge', () => {
     expect(getTodaySpend.mock.calls[1]?.[0]).toBe(true)
   })
 
-  it('keeps both spend values when a new-message recompute rejects', async () => {
+  it('keeps both spend values when a turn-settle recompute rejects', async () => {
     vi.useFakeTimers()
-    let messageCount = 0
+    let running = false
     const getBalance = vi.fn(async () => balance())
     const getSessionSpend = vi.fn(async () => SPEND)
     const getTodaySpend = vi.fn(async () => TODAY_SPEND)
     const { rerender } = render(
-      <BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />,
+      <BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />,
     )
     await act(async () => {})
     expect(screen.getByText('剩余额度：¥110.00')).toBeDefined()
 
-    // A new message lands but both recomputes reject: the previous values stay.
-    messageCount = 1
+    // A turn settles but both recomputes reject: the previous values stay.
+    running = true
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />)
     getSessionSpend.mockRejectedValueOnce(new Error('boom'))
     getTodaySpend.mockRejectedValueOnce(new Error('boom'))
-    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => messageCount)} />)
+    running = false
+    rerender(<BalanceBadge {...props(getBalance, getSessionSpend, getTodaySpend, () => running)} />)
     await act(async () => { vi.advanceTimersByTime(2_000) })
     expect(getTodaySpend.mock.calls.length).toBe(2)
     expect(screen.getByText('本轮对话花费：¥0.04')).toBeDefined()

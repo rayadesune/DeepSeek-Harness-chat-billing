@@ -18,7 +18,7 @@ export interface BalanceBadgeInjected {
   /**
    * Read today's billed spend across every session; rejects with the Remote
    * error message. `force` bypasses the host-side cache — the manual refresh
-   * passes it, the message-triggered recompute does not.
+   * passes it, the turn-triggered recompute does not.
    */
   getTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
 }
@@ -56,10 +56,11 @@ function formatSpend(amount: number): string {
  * every session, a refresh action, and a spend disclaimer. Refreshing keeps
  * the last values visible rather than blanking them.
  *
- * The spend follows the conversation: a new message in the current session
- * recomputes only the (local, network-free) session spend and today's spend
- * through `getSessionSpend` / `getTodaySpend`; the balance stays a
- * manual-refresh snapshot and is never refetched on its own.
+ * The spend follows the conversation: when a prompt turn settles in the
+ * current session, the badge recomputes only the (local, network-free)
+ * session spend and today's spend through `getSessionSpend` /
+ * `getTodaySpend`; the balance stays a manual-refresh snapshot and is never
+ * refetched on its own.
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null until the first balance fetch settles.
  */
@@ -73,14 +74,14 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
   const [request, setRequest] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  // The in-window message count is the "new message" signal: it changes when a
-  // message lands in the current session, letting the spend-only effect below
-  // react without touching the account balance.
-  const messageCount = useSession(snapshot => snapshot.chat.order.length)
+  // The running flag is the "turn settled" signal: it flips true when a prompt
+  // turn starts and false when the turn ends, letting the spend-only effect
+  // below react to a landed turn without touching the account balance.
+  const running = useSession(snapshot => snapshot.running)
 
-  // The last message count this component already priced, so the spend-only
+  // The last running state this component already priced, so the spend-only
   // effect skips the initial mount (the mount effect already fetched).
-  const pricedMessageCountRef = useRef(messageCount)
+  const pricedRunningRef = useRef(running)
 
   useEffect(() => {
     let current = true
@@ -130,15 +131,16 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
     return () => { current = false }
   }, [getBalance, getSessionSpend, getTodaySpend, sessionId, request])
 
-  // A new message lands: recompute this session's spend and today's spend
-  // across every session. The balance is account-level and stays a manual
-  // snapshot — never refetched here. The recompute is debounced so a message
-  // storm (a streaming agent turn landing its messages back-to-back) prices
-  // once instead of once per message; the host-side cache then serves the
-  // first miss for the rest of the minute.
+  // A turn settles: recompute this session's spend and today's spend across
+  // every session. The balance is account-level and stays a manual snapshot —
+  // never refetched here. The recompute is debounced so a burst of turns (an
+  // agent continuing across turns) prices once instead of once per turn; the
+  // host-side cache then serves the first miss for the rest of the minute.
   useEffect(() => {
-    if (messageCount === pricedMessageCountRef.current) return
-    pricedMessageCountRef.current = messageCount
+    if (running === pricedRunningRef.current) return
+    pricedRunningRef.current = running
+    // A turn starting only arms the edge; the settle (running → false) prices.
+    if (running) return
     let current = true
     const timer = setTimeout(() => {
       void Promise.resolve().then(() => {
@@ -168,7 +170,7 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
       clearTimeout(timer)
       current = false
     }
-  }, [getSessionSpend, getTodaySpend, sessionId, messageCount])
+  }, [getSessionSpend, getTodaySpend, sessionId, running])
 
   // A pointer press outside the label box closes it.
   useEffect(() => {
