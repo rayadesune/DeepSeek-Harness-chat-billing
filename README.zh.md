@@ -65,7 +65,7 @@ dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @ra
 
 两个插件包把它们依赖的 DeepSeek Harness 包（`@deepseek-ai/cordis`、
 `@deepseek-ai/dsh-credentials`、`@deepseek-ai/dsh-session` 以及客户端运行时包）
-声明为 `peerDependencies`（`^0.1.0-rc.8`）。dsh profile 默认不自动安装 peer，所以
+声明为 `peerDependencies`（`^0.1.1-rc.2`）。dsh profile 默认不自动安装 peer，所以
 这些由 dsh 安装本身通过 `profiles/node_modules` 回退提供，而不是从 registry 拉取——
 无需额外安装，安装机也不需要 registry token。
 
@@ -81,6 +81,38 @@ export DEEPSEEK_API_KEY=sk-...
 
 ```bash
 dsh web
+```
+
+## 开发
+
+本仓库是独立的 pnpm workspace：两个插件包从 npm 解析 `@deepseek-ai/*` peer 包，
+构建不需要完整的 DeepSeek Harness checkout。
+
+环境要求：Node `^22.19 || >=24` 与 pnpm。
+
+```sh
+pnpm install                 # 安装 workspace 与 npm 开发依赖
+pnpm run build               # host 面（tsc + tsdown + typert 产物），再 client 面
+pnpm run typecheck           # 两个编译面
+pnpm run test                # vitest 单元/浏览器测试
+pnpm run verify              # 发布前校验（prepublishOnly 也会自动运行）
+```
+
+host 面会从源码重新生成 `lib/typert.host.js` 与 `lib/typert.remote-client.*`，
+包名取自各 package.json；client 面重建 `lib/client.js`。`lib/` 是 git-ignored
+的构建产物，不要手工修改。一旦 typert 清单里的 `TYPERT.package` 与 package.json
+的 name 不一致，`verify` 会在发布前直接失败。
+
+typert 生成器只认工作区内已注册协议包里的 `Remote`/`TypertRemoteService` 声明，所以
+`packages/typert-protocol` 内嵌了 npm 上 `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2` 的
+声明文件；dsh 依赖线升级时，从安装包重新刷新它。
+
+发布（bundle 与两个插件包统一版本号）：
+
+```sh
+pnpm --filter @rayadesu/dsh-llm-billing publish --access public
+pnpm --filter @rayadesu/dsh-client-ui-billing publish --access public
+pnpm publish --access public   # @rayadesu/dsh-billing bundle
 ```
 
 ## 配置

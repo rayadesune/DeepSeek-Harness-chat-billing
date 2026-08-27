@@ -1,0 +1,14 @@
+{
+  // Client solution: compiles the ui-billing browser half with React JSX and
+  // no ambient node types; also the client-face anchor for the build.
+  "extends": "./tsconfig.base.client.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": false
+  },
+  "files": [],
+  "references": [
+    { "path": "./packages/llm-billing" },
+    { "path": "./packages/ui-billing" }
+  ]
+}

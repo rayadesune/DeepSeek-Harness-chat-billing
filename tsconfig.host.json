@@ -1,0 +1,16 @@
+{
+  // Host solution: compiles both packages' src into lib/types and anchors the
+  // typert generator's host-face program (tsdown locates the workspace root by
+  // walking up to this file).
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": false
+  },
+  "files": [],
+  "references": [
+    { "path": "./packages/typert-protocol" },
+    { "path": "./packages/llm-billing" },
+    { "path": "./packages/ui-billing" }
+  ]
+}
