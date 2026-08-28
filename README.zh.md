@@ -50,6 +50,24 @@
 dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
 ```
 
+### pnpm 11 发布龄门槛
+
+dsh profile 通过 pnpm 安装插件，而 pnpm 11 的供应链发布龄门槛默认不会采纳发布不足
+24 小时的包——刚发布的新版本不会立即被解析。想在发布后立刻拿到最新版：
+
+- 在 profile 的 pnpm 配置里关掉发布龄门槛：
+
+  ```yaml
+  # ~/.dsh/profiles/web/pnpm-workspace.yaml
+  minimumReleaseAge: 0
+  ```
+
+- 或者在 24 小时窗口内用**显式钉版本**安装（显式钉版本可绕开门槛，把 `0.2.3` 换成你要的版本）：
+
+  ```bash
+  dsh plugin --profile web add @rayadesu/dsh-billing@0.2.3 @rayadesu/dsh-llm-billing@0.2.3 @rayadesu/dsh-client-ui-billing@0.2.3
+  ```
+
 手动补行（仅当不想用 bundle 时）：
 
 ```yaml
@@ -59,6 +77,17 @@ dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @ra
       name: '@rayadesu/dsh-llm-billing'
     - id: ui-billing
       name: '@rayadesu/dsh-client-ui-billing'
+```
+
+### 常用命令
+
+在 deepseek-harness 仓库根目录执行（`pnpm dsh` 即仓库内 CLI，与全局 `dsh` 等价）：
+
+```sh
+pnpm dsh plugin --profile web list    # 列出 web profile 已安装的插件
+pnpm dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+pnpm dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+pnpm dsh plugin --profile web update  # 把插件更新到当前允许的最新版本
 ```
 
 ### 依赖说明
@@ -107,12 +136,17 @@ typert 生成器只认工作区内已注册协议包里的 `Remote`/`TypertRemot
 `packages/typert-protocol` 内嵌了 npm 上 `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2` 的
 声明文件；dsh 依赖线升级时，从安装包重新刷新它。
 
-发布（bundle 与两个插件包统一版本号）：
+发布（bundle 与两个插件包统一版本号；`prepublishOnly` 会自动跑 `verify` 门禁）。
+要用 `npm publish` 且**必须在各包目录内执行**——`pnpm publish` 会失败（token 读取方式问题），
+而 `npm publish packages/llm-billing` 这种带路径参数的形式会被 npm 解析成 GitHub 仓库简写，
+触发假的 `git ls-remote` 而不是发布。registry 要求 **bypass-2FA 的 token**（`npm login`
+的会话 token 会 E403）；`NODE_AUTH_TOKEN` 对 `npm publish` 不生效，所以要显式把 token
+作为命令行参数传入——绝不提交进仓库：
 
 ```sh
-pnpm --filter @rayadesu/dsh-llm-billing publish --access public
-pnpm --filter @rayadesu/dsh-client-ui-billing publish --access public
-pnpm publish --access public   # @rayadesu/dsh-billing bundle
+cd packages/llm-billing && npm publish --//registry.npmjs.org/:_authToken=<TOKEN>
+cd packages/ui-billing && npm publish --//registry.npmjs.org/:_authToken=<TOKEN>
+npm publish --//registry.npmjs.org/:_authToken=<TOKEN>   # @rayadesu/dsh-billing bundle（仓库根）
 ```
 
 ## 配置
@@ -139,7 +173,7 @@ pnpm publish --access public   # @rayadesu/dsh-billing bundle
 ## 已知限制
 
 - **有费率行才计价** —— 会话花费与今日共花费只统计价目表（`billing.models`）里有的模型。
-- **按需读取** —— 今日共花费每次刷新都会读取所有会话的完整事件日志，成本随总日志大小增长。
+- **按需聚合** —— 今日共花费在主机端 60 秒缓存之后计算；缓存未命中时只扫描持久化日志自上次解析以来变化过的会话（有投影注册表时，活跃会话直接读投影单元），增长中的会话花费按增量计价（只重算新增尾部）。
 - **额度不自动跟随** —— 余额保持手动刷新（无轮询），账户在其他客户端产生消耗时，界面值不会自动变化，需手动刷新或刷新浏览器。
 - **是估算，不是承诺** —— 会话花费按官方单价对 token 计价；实际计费以服务商为准。
 
