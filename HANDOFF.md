@@ -1,4 +1,42 @@
-# HANDOFF — billing 插件 0.2.2 已发布（profile 安装待用户自行执行 · 2026-08-28）
+# HANDOFF — billing 插件 0.2.3 已发布（全量优化 · 2026-08-28）
+
+## 本轮改动（0.2.3 · 全量优化，按用户审核通过的方案执行）
+
+**性能（热路径）**
+- `withConcurrency` 索引化：`queue.shift()` O(n²) → 共享索引 O(n)。
+- `SpendAccumulator`（Map 键控折叠原语）：`priceEvents` / `computeTodaySpend` / `scanEvents`
+  单遍路径统一折叠实现，`addEventContribution` / `mergeTodaySpend` 收敛到同一 `mergeModelRows`；
+  20 万事件折叠不再每事件拷贝数组，GC 压力大减。公开 API 签名与语义不变。
+- `beijingParts` 单点时区换算：`isPeak` / `beijingDayKey` / `priceEvent` 共用一次 `Date`
+  分配（原每个计价事件 3 次），时区换算逻辑不再三处分散。
+- `scanEvents` 单遍"收集即计价"：去掉中间事件数组与第二次 dayKey 过滤/计价；上限截断语义、
+  告警、revision 水位推进逻辑不变。
+- `scanProjections` 服务解析外提：`projections()` / `projectionCache()` 每扫描解析一次。
+- **会话花费增量缓存**（第二组增强）：`fetchSessionSpend` 按 `(sessionId, 事件数)` 键控——
+  日志未变命中缓存（同一引用），增长只计新增尾部并合并；与投影单元相同的只追加假设，
+  表变更不追溯重计价（同投影路径既有说明）；Map 上限 1024 防无界增长。
+
+**结构 / 健壮性**
+- ui-billing `injected` face 一次性构建（函数身份稳定，避免 slot 渲染器重复调用 inject 时
+  触发 badge 挂载 effect 重拉）+ `unwrap` 帮助函数收敛三处重复解包。
+- `BalanceBadge` 提取 `fetchLine` 帮助函数，消除两处重复微任务链（约 60 行）。
+- 根 bundle `files` 补 `README.i18n.yaml`。
+
+**测试与验证**
+- 新增 8 用例（折叠等价性 2、mergeTodaySpend 纯性 1、单遍路径等价 1、并发上限 1、增量缓存 3）；
+  全套 **91 用例全绿**；build / typecheck / verify 全绿。
+- 文档：README.md / README.zh.md 数据更新机制补充增量计价说明，README.i18n.yaml blob hash
+  已更新，AGENTS.md 版本号更新为 0.2.3。
+
+## 发布记录（2026-08-28 · 0.2.3）
+- 发布方式同前：npm publish **显式传参** `--//registry.npmjs.org/:_authToken=<TOKEN>`（pnpm
+  publish 404、NODE_AUTH_TOKEN 不生效的坑照旧）。prepublishOnly（verify-packages.mjs）随发布
+  自动运行并通过。
+- 三包版本对齐 0.2.3：@rayadesu/dsh-billing、@rayadesu/dsh-llm-billing、@rayadesu/dsh-client-ui-billing。
+
+---
+
+## 历史：0.2.2（2026-08-28）
 
 ## 目标与进度
 - 目标：修复 @rayadesu/dsh-llm-billing 的 TYPERT 清单包名归属错误，恢复独立构建，发布 0.2.2。
@@ -6,14 +44,14 @@
   **0.2.2 已发布到 npm**（@rayadesu/dsh-billing、@rayadesu/dsh-llm-billing、@rayadesu/dsh-client-ui-billing，
   均 PUT 200）；本轮改动已提交 `58be982`。剩余唯一可选步骤：把 0.2.2 装进 DSH profile 验证（用户明确暂不执行）。
 
-## 发布记录（2026-08-28）
+## 历史发布记录（0.2.2 · 2026-08-28）
 - 发布方式：npm publish（**显式传参** `--//registry.npmjs.org/:_authToken=<TOKEN>`）。
   注意：pnpm publish 会 404（token 读取方式问题），NODE_AUTH_TOKEN 环境变量对 npm publish 也不生效；
   必须用命令行显式传 `--//registry.npmjs.org/:_authToken=`。prepublishOnly（verify-packages.mjs）随发布自动运行并通过。
 - token 由用户提供，仅用于发布命令，未写入仓库任何文件。
 - registry 验证：三个包最新版本均为 0.2.2。
 
-## 本轮改动（提交 58be982，相对 0ed0a37）
+## 0.2.2 改动（提交 58be982，相对 0ed0a37）
 1. **vitest.config.ts 修复**：上一轮提交的配置里正则被写坏（反斜杠丢失、正则拆行）导致 vitest 无法加载；已按 harness 原版（vitest.shared.ts）重写 standardDecoratorPlugin。
 2. **typert-protocol 移出 pnpm workspace**：内嵌包只有声明（`export declare`），没有运行时实现，且 `linkWorkspacePackages` 会让它遮蔽 npm 包；现在 `packages:` 只含 llm-billing / ui-billing，`@deepseek-ai/dsh-typert-protocol` 从 npm 解析（lib 带真实 remoteMethods 实现）。typert 生成器不受影响（它按 tsconfig references 注册包，不依赖 pnpm workspace 成员身份）。
 3. **ui-billing 客户端测试基础设施**（npm 0.1.1-rc.2 client 栈发布缺陷的完整应对）：

@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import billingRemote from '@rayadesu/dsh-llm-billing/remote'
 import type {} from '@rayadesu/dsh-llm-billing/remote'
-import type { TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
+import type { RemoteResult, TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { BalanceBadge, type BalanceBadgeInjected } from './BalanceBadge.tsx'
@@ -29,6 +29,12 @@ export const inject = ['slots', 'locale', 'remote']
 /** The mounted `billing` namespace surface, selected from the generated Remote map. */
 type BillingNamespace = TypertRemoteNamespaceMap['billing']
 
+/** Unwrap one Remote result into its value, reporting the endpoint on failure. */
+function unwrap<T>(endpoint: string, result: RemoteResult<T>): T {
+  if (!result.ok) throw new Error(`${endpoint} failed: ${result.error.code}: ${result.error.message}`)
+  return result.value
+}
+
 /**
  * Client plugin body: mount the `billing` Remote, register the dictionaries,
  * and contribute the header utility badge.
@@ -47,29 +53,15 @@ export async function apply(ctx: ClientContext): Promise<void> {
   }
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-billing: dictionaries')
 
-  const injected = (): BalanceBadgeInjected => ({
-    getBalance: async () => {
-      const result = await billing.getBalance()
-      if (!result.ok) {
-        throw new Error(`billing.getBalance failed: ${result.error.code}: ${result.error.message}`)
-      }
-      return result.value
-    },
-    getSessionSpend: async (sessionId) => {
-      const result = await billing.getSessionSpend(sessionId)
-      if (!result.ok) {
-        throw new Error(`billing.getSessionSpend failed: ${result.error.code}: ${result.error.message}`)
-      }
-      return result.value
-    },
-    getTodaySpend: async (force) => {
-      const result = await billing.getTodaySpend(force)
-      if (!result.ok) {
-        throw new Error(`billing.getTodaySpend failed: ${result.error.code}: ${result.error.message}`)
-      }
-      return result.value
-    },
-  })
+  // The injected face is built ONCE so its function identities stay stable:
+  // the badge's fetch effects list these functions as dependencies, so a
+  // per-call rebuild would re-trigger the mount fetch on every render that
+  // re-invokes the slot's injector.
+  const injected: BalanceBadgeInjected = {
+    getBalance: async () => unwrap('billing.getBalance', await billing.getBalance()),
+    getSessionSpend: async (sessionId) => unwrap('billing.getSessionSpend', await billing.getSessionSpend(sessionId)),
+    getTodaySpend: async (force) => unwrap('billing.getTodaySpend', await billing.getTodaySpend(force)),
+  }
 
   ctx.slots.inject(
     'conversation.session.header.utilities',
@@ -78,7 +70,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
       id: 'billing-balance',
       order: 30,
       locale: NS,
-      inject: injected,
+      inject: () => injected,
     }, BalanceBadge),
   )
 }
