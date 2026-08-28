@@ -1,7 +1,7 @@
 /** Session-header billing badge: balance plus the current conversation's billed spend. */
 
 import { Fragment, useEffect, useRef, useState } from 'react'
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { IconChevronDownOutline14, IconQuestionOutline14, IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -21,6 +21,13 @@ export interface BalanceBadgeInjected {
    * passes it, the turn-triggered recompute does not.
    */
   getTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
+  /**
+   * Read today's billed spend per session, sorted by cost descending; rejects
+   * with the Remote error message. `force` behaves as in {@link getTodaySpend}.
+   */
+  getTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend>
+  /** Read one completed Turn's billed cost, located by its closing message id. */
+  getTurnSpend: (sessionId: SessionId, messageId: string) => Promise<DeepSeekTurnSpend>
 }
 
 /** Full props assembled by the header utilities slot renderer. */
@@ -47,6 +54,9 @@ function primaryLine(balance: DeepSeekBalance): { symbol: string; total: string 
 function formatSpend(amount: number): string {
   return `¥${amount.toFixed(4).replace(/\.?0+$/, '')}`
 }
+
+/** How many per-session ranking rows the panel shows before the overflow hint. */
+export const SESSION_RANKING_LIMIT = 10
 
 /**
  * Run one fetch line: the fetch is deferred to a microtask so the effect's
@@ -83,10 +93,11 @@ function fetchLine<T>(
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null until the first balance fetch settles.
  */
-export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessionId, useSession, t }: BalanceBadgeProps) {
+export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession, t }: BalanceBadgeProps) {
   const [balance, setBalance] = useState<DeepSeekBalance | null>(null)
   const [spend, setSpend] = useState<DeepSeekSessionSpend | null>(null)
   const [todaySpend, setTodaySpend] = useState<DeepSeekTodaySpend | null>(null)
+  const [sessionsSpend, setSessionsSpend] = useState<DeepSeekTodaySessionsSpend | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [open, setOpen] = useState(false)
@@ -122,13 +133,14 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
       })
       const sessionSpendRequest = fetchLine(isCurrent, () => getSessionSpend(sessionId), setSpend)
       const todaySpendRequest = fetchLine(isCurrent, () => getTodaySpend(request > 0), setTodaySpend)
+      const sessionsSpendRequest = fetchLine(isCurrent, () => getTodaySessionsSpend(request > 0), setSessionsSpend)
       // The refresh spinner covers the whole refresh, whatever settles last.
-      void Promise.allSettled([balanceRequest, sessionSpendRequest, todaySpendRequest]).then(() => {
+      void Promise.allSettled([balanceRequest, sessionSpendRequest, todaySpendRequest, sessionsSpendRequest]).then(() => {
         if (current) setRefreshing(false)
       })
     })
     return () => { current = false }
-  }, [getBalance, getSessionSpend, getTodaySpend, sessionId, request])
+  }, [getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, request])
 
   // A turn settles: recompute this session's spend and today's spend across
   // every session. The balance is account-level and stays a manual snapshot —
@@ -147,12 +159,13 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
       // does not delay the session line.
       void fetchLine(isCurrent, () => getSessionSpend(sessionId), setSpend)
       void fetchLine(isCurrent, () => getTodaySpend(), setTodaySpend)
+      void fetchLine(isCurrent, () => getTodaySessionsSpend(), setSessionsSpend)
     }, 2_000)
     return () => {
       clearTimeout(timer)
       current = false
     }
-  }, [getSessionSpend, getTodaySpend, sessionId, running])
+  }, [getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, running])
 
   // A pointer press outside the label box closes it.
   useEffect(() => {
@@ -254,6 +267,25 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, sessi
                 </div>
               </Fragment>
             ))}
+            {sessionsSpend !== null && sessionsSpend.sessions.length > 0 && (
+              <div className={css.ranking}>
+                <div className={css.rankingTitle}>{t('label.sessionRanking')}</div>
+                {sessionsSpend.sessions.slice(0, SESSION_RANKING_LIMIT).map((row, index) => (
+                  <div key={row.sessionId} className={css.rankingRow}>
+                    <span className={css.rankingIndex}>{index + 1}</span>
+                    <span className={css.rankingName} title={row.title ?? undefined}>
+                      {row.title ?? t('stat.untitled')}
+                    </span>
+                    <span className={css.rankingAmount}>{formatSpend(row.total)}</span>
+                  </div>
+                ))}
+                {sessionsSpend.sessions.length > SESSION_RANKING_LIMIT && (
+                  <div className={css.rankingMore}>
+                    {t('label.sessionRanking.more', { count: sessionsSpend.sessions.length - SESSION_RANKING_LIMIT })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )
         : null}

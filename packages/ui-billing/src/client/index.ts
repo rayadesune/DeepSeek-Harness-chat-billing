@@ -11,9 +11,11 @@ import type { RemoteResult, TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-ty
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { BalanceBadge, type BalanceBadgeInjected } from './BalanceBadge.tsx'
+import { TurnCostAction, type TurnCostActionInjected } from './TurnCostAction.tsx'
 import { en, NS, zh, type BillingKey } from './locales.ts'
 
 export type { BalanceBadgeInjected, BalanceBadgeProps } from './BalanceBadge.tsx'
+export type { TurnCostActionInjected, TurnCostActionProps } from './TurnCostAction.tsx'
 export type { BillingKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -61,6 +63,8 @@ export async function apply(ctx: ClientContext): Promise<void> {
     getBalance: async () => unwrap('billing.getBalance', await billing.getBalance()),
     getSessionSpend: async (sessionId) => unwrap('billing.getSessionSpend', await billing.getSessionSpend(sessionId)),
     getTodaySpend: async (force) => unwrap('billing.getTodaySpend', await billing.getTodaySpend(force)),
+    getTodaySessionsSpend: async (force) => unwrap('billing.getTodaySessionsSpend', await billing.getTodaySessionsSpend(force)),
+    getTurnSpend: async (sessionId, messageId) => unwrap('billing.getTurnSpend', await billing.getTurnSpend(sessionId, messageId)),
   }
 
   ctx.slots.inject(
@@ -72,5 +76,23 @@ export async function apply(ctx: ClientContext): Promise<void> {
       locale: NS,
       inject: () => injected,
     }, BalanceBadge),
+  )
+
+  // The per-turn cost label rides ui-chat's assistant-actions list slot (the
+  // same strip ui-message-feedback uses), so it coexists with every other
+  // entry; the actions row renders once per completed Turn, for its closing
+  // assistant message.
+  const turnCostInjected: TurnCostActionInjected = {
+    getTurnSpend: injected.getTurnSpend,
+  }
+  ctx.slots.inject(
+    'conversation.chat.assistant-actions',
+    () => ctx.slots.register({
+      name: 'conversation.chat.assistant-actions',
+      id: 'billing-turn-cost',
+      order: 20,
+      locale: NS,
+      inject: () => turnCostInjected,
+    }, TurnCostAction),
   )
 }

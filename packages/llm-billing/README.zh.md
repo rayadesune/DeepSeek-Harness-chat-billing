@@ -16,7 +16,7 @@
     # baseURL: https://api.deepseek.com
 ```
 
-插件注册 `billing` Remote，含三个方法：`getBalance()`（解析后的 `/user/balance` 快照）、`getSessionSpend(sessionId)`（单个会话的计费花费）与 `getTodaySpend(force?)`（当前北京时间自然日内所有会话的计费花费合计；`force` 绕过宿主侧缓存，供徽标手动刷新使用）。会话花费把每条 `assistant/message` 事件的计费 token（缓存命中输入、含缓存写入的未命中输入、含推理的输出）按事件自身发生时刻（北京时间）所在的峰/谷单价计价——高峰窗口仅周一至周五适用，周末全天按低谷价——再按模型汇总。
+插件注册 `billing` Remote，含五个方法：`getBalance()`（解析后的 `/user/balance` 快照）、`getSessionSpend(sessionId)`（单个会话的计费花费）、`getTodaySpend(force?)`（当前北京时间自然日内所有会话的计费花费合计；`force` 绕过宿主侧缓存，供徽标手动刷新使用）、`getTodaySessionsSpend(force?)`（今日按会话的计费花费，按花费从高到低排序，每行带会话的持久标题）与 `getTurnSpend(sessionId, messageId)`（单个已完成回合的计费花费，按收尾助手消息 id 定位）。会话花费把每条 `assistant/message` 事件的计费 token（缓存命中输入、含缓存写入的未命中输入、含推理的输出）按事件自身发生时刻（北京时间）所在的峰/谷单价计价——高峰窗口仅周一至周五适用，周末全天按低谷价——再按模型汇总。一个回合即收尾消息所在的 `turn/start`..`turn/end` 区间；排行从每个会话日志里最后一条 `session/title` 事件折叠标题（last-wins，重命名事件一旦提交、会话被重新读取即反映新名字）。
 
 ### 今日花费读取路径（消息触发不再全量扫描）
 

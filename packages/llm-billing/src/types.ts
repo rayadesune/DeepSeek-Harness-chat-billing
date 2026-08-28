@@ -4,6 +4,8 @@
  * @module @rayadesu/dsh-llm-billing/types
  */
 
+import type { SessionId } from '@deepseek-ai/dsh-session'
+
 /** One currency line of the account balance returned by `GET /user/balance`. */
 export interface DeepSeekBalanceLine {
   /** Currency code, e.g. `CNY` or `USD`. */
@@ -64,4 +66,29 @@ export interface DeepSeekTodaySpend {
   total: number
   /** One row per model that reported usage AND has a pricing row; empty when today has no priced usage. */
   models: readonly DeepSeekSessionSpendModel[]
+}
+
+/** One session's billed spend on one Beijing-time calendar day, priced per event by its Beijing-time hour and weekday (peak hours apply Monday–Friday only; weekends are off-peak). */
+export interface DeepSeekTodaySessionSpend {
+  /** The session's durable identity. */
+  sessionId: SessionId
+  /**
+   * The session's display title: the latest `session/title` event's text, or
+   * `null` when the session has no title (or the title could not be resolved).
+   */
+  title: string | null
+  /** Billed cost in CNY on the queried Beijing day. */
+  total: number
+}
+
+/** Today's per-session billed spend across every session with a non-zero cost. */
+export interface DeepSeekTodaySessionsSpend {
+  /** Sessions with today's spend, sorted by `total` descending. */
+  sessions: readonly DeepSeekTodaySessionSpend[]
+}
+
+/** The billed cost of one completed Turn, priced per event by its Beijing-time hour and weekday (peak hours apply Monday–Friday only; weekends are off-peak). */
+export interface DeepSeekTurnSpend {
+  /** Total billed cost in CNY across every priced model in the Turn. */
+  total: number
 }

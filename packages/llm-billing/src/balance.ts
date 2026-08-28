@@ -13,7 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
-import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekSessionSpend, DeepSeekTodaySpend } from './types.ts'
+import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 
 /** Map a balance HTTP status to a stable LlmError code. */
 function httpErrorCode(status: number): string {
@@ -114,6 +114,17 @@ export interface DeepSeekBalanceGatewayOptions {
    * refresh path); a `force` miss still reuses revision-gated increments.
    */
   fetchTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
+  /**
+   * Compute today's billed spend per session through the plugin's resolved
+   * facts, sorted by cost descending. `force` bypasses the host-side time
+   * window like {@link fetchTodaySpend}.
+   */
+  fetchTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend>
+  /**
+   * Compute one completed Turn's billed spend through the plugin's resolved
+   * facts, identified by its closing assistant message id.
+   */
+  fetchTurnSpend: (sessionId: SessionId, messageId: string) => Promise<DeepSeekTurnSpend>
 }
 
 /**
@@ -166,6 +177,33 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   @Remote('getTodaySpend')
   getTodaySpend(force?: boolean): Promise<DeepSeekTodaySpend> {
     return this.options.fetchTodaySpend(force ?? false)
+  }
+
+  /**
+   * Read today's billed spend per session, priced per event by its
+   * Beijing-time calendar day, hour, and weekday (weekends are always
+   * off-peak). Rows carry the session's durable title and sort by cost
+   * descending; sessions with no priced usage on the day are omitted.
+   * @param force - bypass the host-side 60s cache (manual refresh); omitted
+   *   means a cached read.
+   * @returns today's per-session rows, highest first.
+   */
+  @Remote('getTodaySessionsSpend')
+  getTodaySessionsSpend(force?: boolean): Promise<DeepSeekTodaySessionsSpend> {
+    return this.options.fetchTodaySessionsSpend(force ?? false)
+  }
+
+  /**
+   * Read one completed Turn's billed spend, priced per event by its
+   * Beijing-time hour and weekday (weekends are always off-peak).
+   * @param sessionId - the session owning the Turn.
+   * @param messageId - the closing assistant message's durable id, which
+   *   locates the Turn in the session log.
+   * @returns the Turn's total cost in CNY.
+   */
+  @Remote('getTurnSpend')
+  getTurnSpend(sessionId: SessionId, messageId: string): Promise<DeepSeekTurnSpend> {
+    return this.options.fetchTurnSpend(sessionId, messageId)
   }
 }
 

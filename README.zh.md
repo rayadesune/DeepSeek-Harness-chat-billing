@@ -2,14 +2,15 @@
 
 [English](README.md) | 中文
 
-一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，在 Web 会话头部直接显示你的 **DeepSeek 账户余额**、**当前会话（本轮对话）的花费**，以及**今日所有会话的共花费**。
+一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件，在 Web 会话头部直接显示你的 **DeepSeek 账户余额**、**当前会话（本轮对话）的花费**，以及**今日所有会话的共花费**；每条已完成的回合还会在消息操作行里显示**本轮花费**，详情面板底部带**今日各会话花费排行**。
 
-> 余额是 `GET /user/balance` 的真实数字；会话花费与今日共花费是按官方峰/谷单价对每条消息的计费 token 逐条计价的结果，不是计费承诺。
+> 余额是 `GET /user/balance` 的真实数字；会话花费、本轮花费与今日共花费是按官方峰/谷单价对每条消息的计费 token 逐条计价的结果，不是计费承诺。
 
 ## 显示什么
 
 - **会话头部徽标** —— 两行：剩余余额（`剩余额度：¥X`）＋ 本轮对话的计费花费（`本轮对话花费：¥X`）。
-- **详情面板** —— 剩余金额、本会话花费（`本会话花费`）与其右侧的今日所有会话共花费（`今日共花费`），以及每个模型一行的花费分项（`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`），外加手动刷新按钮与花费说明。
+- **详情面板** —— 剩余金额、本会话花费（`本会话花费`）与其右侧的今日所有会话共花费（`今日共花费`），以及每个模型一行的花费分项（`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`），外加手动刷新按钮与花费说明；面板底部是**今日会话花费排行**：按今日花费从高到低排列的会话列表（会话名取日志中的中文标题，重命名后自动同步；最多显示前 10 条，其余以「…还有 N 个会话」提示）。
+- **本轮花费行** —— 每条已完成回合的收尾消息操作行**最前**（复制按钮之前）显示 `本轮花费 ¥X`：「本轮花费」一词用「本轮用量」卡片标题色、金额用卡片摘要色，**始终显示**（不随悬停隐藏，不同于时钟文本）；回合没有 DeepSeek 用量（花费为 0）或加载失败时不显示。
 - **失败与空态** —— 会话或今日没有可计价消耗时显示「暂无消耗记录」而不是编造数字；未配置 key、凭据被拒或传输错误时显示弱化的「额度不可用」，其提示携带 Remote 自己的错误信息。
 
 ## 数据更新机制
@@ -19,15 +20,22 @@
 - **刷新期间旧值保留** —— 刷新失败保留上一次有效值，不会清空。
 
 ## 显示样式
-<img width="505" height="264" alt="image" src="billing-preview.png" />
+
+真实会话中的会话头部徽标与详情面板（剩余金额、本会话花费与今日共花费、按模型分项、今日会话花费排行），以及消息操作行里的本轮花费行：
+
+<img width="1200" alt="计费插件总览：会话头部徽标、详情面板（按模型分项与今日会话花费排行）、消息操作行里的本轮花费行" src="preview-overview.png" />
+
+本轮花费行特写 —— 钱袋图标、`本轮花费` 标签与 `¥` 金额，位于复制控件之前：
+
+<img width="640" alt="本轮花费行特写：钱袋图标、本轮花费标签与金额，位于复制控件之前" src="preview-turn-cost.png" />
 
 
 ## 包结构
 
 | 包 | 侧 | 作用 |
 | --- | --- | --- |
-| [`packages/llm-billing`](packages/llm-billing) —— `@rayadesu/dsh-llm-billing` | 主机端 | 负责 `/user/balance` 传输与峰/谷计价表。对外暴露 `billing` Remote（`getBalance`、`getSessionSpend`、`getTodaySpend`）。 |
-| [`packages/ui-billing`](packages/ui-billing) —— `@rayadesu/dsh-client-ui-billing` | 浏览器端 | 自己挂载 `billing` Remote，并贡献会话头部徽标与详情面板。 |
+| [`packages/llm-billing`](packages/llm-billing) —— `@rayadesu/dsh-llm-billing` | 主机端 | 负责 `/user/balance` 传输与峰/谷计价表。对外暴露 `billing` Remote（`getBalance`、`getSessionSpend`、`getTodaySpend`、`getTodaySessionsSpend`、`getTurnSpend`）。 |
+| [`packages/ui-billing`](packages/ui-billing) —— `@rayadesu/dsh-client-ui-billing` | 浏览器端 | 自己挂载 `billing` Remote，并贡献会话头部徽标与详情面板、消息操作行里的本轮花费行。 |
 
 ## 前置条件
 
@@ -69,11 +77,11 @@ dsh profile 通过 pnpm 安装插件，而 pnpm 11 的供应链发布龄门槛�
   minimumReleaseAge: 0
   ```
 
-- 或者在 24 小时窗口内用**显式钉版本**安装（显式钉版本可绕开门槛，把 `0.2.3` 换成你要的版本；
+- 或者在 24 小时窗口内用**显式钉版本**安装（显式钉版本可绕开门槛，把 `0.3.0` 换成你要的版本；
   源码构建的 dsh 用 `pnpm dsh …`，同上）：
 
   ```bash
-  dsh plugin --profile web add @rayadesu/dsh-billing@0.2.3 @rayadesu/dsh-llm-billing@0.2.3 @rayadesu/dsh-client-ui-billing@0.2.3
+  dsh plugin --profile web add @rayadesu/dsh-billing@0.3.0 @rayadesu/dsh-llm-billing@0.3.0 @rayadesu/dsh-client-ui-billing@0.3.0
   ```
 
 手动补行（仅当不想用 bundle 时）：
@@ -149,14 +157,26 @@ typert 生成器只认工作区内已注册协议包里的 `Remote`/`TypertRemot
 要用 `npm publish` 且**必须在各包目录内执行**——`pnpm publish` 会失败（token 读取方式问题），
 而 `npm publish packages/llm-billing` 这种带路径参数的形式会被 npm 解析成 GitHub 仓库简写，
 触发假的 `git ls-remote` 而不是发布。registry 要求 **bypass-2FA 的 token**（`npm login`
-的会话 token 会 E403）；`NODE_AUTH_TOKEN` 对 `npm publish` 不生效，所以要显式把 token
-作为命令行参数传入——绝不提交进仓库：
+的会话 token 会 E403）。
+
+**一次性配置 token（之后命令里不再出现 token）** —— 在 `~/.npmrc` 里写一行并引用环境变量，
+npm 发布时从环境展开：
+
+```ini
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+```
+
+然后设置环境变量并直接 `npm publish` —— token 不在任何命令行参数里，也不进 shell 历史：
 
 ```sh
-cd packages/llm-billing && npm publish --//registry.npmjs.org/:_authToken=<TOKEN>
-cd packages/ui-billing && npm publish --//registry.npmjs.org/:_authToken=<TOKEN>
-npm publish --//registry.npmjs.org/:_authToken=<TOKEN>   # @rayadesu/dsh-billing bundle（仓库根）
+export NPM_TOKEN=<你的 npm token>
+cd packages/llm-billing && npm publish
+cd packages/ui-billing && npm publish
+npm publish   # @rayadesu/dsh-billing bundle（仓库根）
 ```
+
+（备选：把真实 token 直接写进 `~/.npmrc`，如 `npm config set //registry.npmjs.org/:_authToken <TOKEN>`，
+之后命令行同样不含 token。无论哪种方式，**绝不把 token 提交进仓库**。）
 
 ## 配置
 
@@ -177,12 +197,16 @@ npm publish --//registry.npmjs.org/:_authToken=<TOKEN>   # @rayadesu/dsh-billing
 - 每条 `assistant/message` 事件报告三个计费 token 桶：**缓存命中输入**、**未命中输入**（未缓存输入 + 缓存写入）、**输出**（含推理）。
 - 每条消息按其**发生时刻（北京时间）**所在的峰/谷时段单价计价，三个桶分别计费（`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`），再按模型汇总。高峰窗口仅周一至周五适用；周末全天按低谷价计费。
 - **今日共花费**按同一个计价规则汇总当天（北京时间自然日）所有会话的事件；事件归属的日期同样按北京时间计算。
+- **本轮花费**按同一规则计价该回合 `turn/start`..`turn/end` 区间内的消息（定位到收尾消息的会话 id + 消息 id）。
+- **今日会话花费排行**按同一规则按会话汇总今日花费（跨天会话只统计今天的部分），从高到低排序；会话名取日志中最后一条 `session/title` 事件（自动生成的中文标题或用户重命名的新标题）。
 - 没有费率行的模型不计入（内置价目表目前含三个 V4 行：V4 Flash、V4 Pro、V4 Flash Vision Exp）。计费按 DeepSeek **8 月 17 日实行**的费率；**周末按低谷价计费**的规则按 **8 月 23 日**生效的调整执行。
 
 ## 已知限制
 
-- **有费率行才计价** —— 会话花费与今日共花费只统计价目表（`billing.models`）里有的模型。
-- **按需聚合** —— 今日共花费在主机端 60 秒缓存之后计算；缓存未命中时只扫描持久化日志自上次解析以来变化过的会话（有投影注册表时，活跃会话直接读投影单元），增长中的会话花费按增量计价（只重算新增尾部）。
+- **有费率行才计价** —— 会话花费、本轮花费与今日共花费只统计价目表（`billing.models`）里有的模型。
+- **按需聚合** —— 今日共花费与今日会话排行在主机端 60 秒缓存之后计算；缓存未命中时只扫描持久化日志自上次解析以来变化过的会话（有投影注册表时，活跃会话直接读投影单元），增长中的会话花费按增量计价（只重算新增尾部）。
+- **排行只显示前 10** —— 详情面板最多展示前 10 个会话，其余以「…还有 N 个会话」提示。
+- **本轮花费只出现在已定稿的收尾消息** —— 中断的回合没有操作行，不显示本轮花费；冷会话（投影缓存直接命中）排行标题可能显示「未命名」，待其日志被重新读取后恢复。
 - **额度不自动跟随** —— 余额保持手动刷新（无轮询），账户在其他客户端产生消耗时，界面值不会自动变化，需手动刷新或刷新浏览器。
 - **是估算，不是承诺** —— 会话花费按官方单价对 token 计价；实际计费以服务商为准。
 

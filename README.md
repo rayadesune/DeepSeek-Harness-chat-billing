@@ -2,14 +2,15 @@
 
 English | [中文](README.zh.md)
 
-A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows your **DeepSeek account balance**, **this session's (this conversation's) billed spend**, and **today's total spend across all sessions** directly in the web session header.
+A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows your **DeepSeek account balance**, **this session's (this conversation's) billed spend**, and **today's total spend across all sessions** directly in the web session header; each completed turn also shows its **turn cost** in the message actions row, and the detail panel ends with a **today session-spend ranking**.
 
-> The balance is the real `GET /user/balance` figure; the session and today spends price each message's billed tokens at the official peak/off-peak rates and are estimates, not billing promises.
+> The balance is the real `GET /user/balance` figure; the session, turn, and today spends price each message's billed tokens at the official peak/off-peak rates and are estimates, not billing promises.
 
 ## What it shows
 
 - **Session-header badge** — two lines: remaining balance (`剩余额度：¥X`) and this conversation's billed spend (`本轮对话花费：¥X`).
-- **Detail panel** — the remaining amount, this session's spend (`本会话花费`) with today's all-session spend beside it (`今日共花费`), one priced row per model (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), plus a manual refresh action and a spend disclaimer.
+- **Detail panel** — the remaining amount, this session's spend (`本会话花费`) with today's all-session spend beside it (`今日共花费`), one priced row per model (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), plus a manual refresh action and a spend disclaimer. The panel ends with a **today session-spend ranking**: sessions sorted by today's spend, highest first (names come from the log's Chinese titles and follow renames automatically; at most the top 10 rows, with a "…N more sessions" hint).
+- **Turn cost row** — each completed turn's closing message shows `本轮花费 ¥X` at the **front** of the actions row (before the copy control): the "本轮花费" word in the usage-card title tone and the amount in the summary tone, **always visible** (not hover-revealed like the clock text); turns without DeepSeek usage (zero cost) or failed loads stay hidden.
 - **Failures and empty states** — a session or day without priced usage shows "no usage recorded" instead of a fabricated figure; a missing key, rejected credential, or transport error renders a muted "Balance unavailable" whose tooltip carries the Remote's own error message.
 
 ## Data update mechanics
@@ -19,15 +20,22 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 - **Old values survive refreshes** — a failed refresh keeps the last good value instead of blanking it.
 
 ## Preview
-<img width="505" height="264" alt="image" src="billing-preview.png" />
+
+A real session: the session-header badge, the detail panel (remaining amount, this session's spend next to today's all-session spend, per-model breakdown, and the today session-spend ranking), plus the turn-cost row in the message actions row:
+
+<img width="1200" alt="Billing plugin overview: session header badge, detail panel with per-model rows and today's session ranking, and the turn-cost row" src="preview-overview.png" />
+
+Close-up of the turn-cost row — money-bag icon, `本轮花费` label and the `¥` amount, in front of the copy control:
+
+<img width="640" alt="Turn-cost row close-up: money-bag icon, 本轮花费 label and ¥ amount before the copy control" src="preview-turn-cost.png" />
 
 
 ## Package layout
 
 | Package | Side | Role |
 | --- | --- | --- |
-| [`packages/llm-billing`](packages/llm-billing) — `@rayadesu/dsh-llm-billing` | Host | Owns the `/user/balance` transport and the peak/off-peak pricing table. Exposes the `billing` Remote (`getBalance`, `getSessionSpend`, `getTodaySpend`). |
-| [`packages/ui-billing`](packages/ui-billing) — `@rayadesu/dsh-client-ui-billing` | Browser | Mounts the `billing` Remote itself and contributes the session-header badge and detail panel. |
+| [`packages/llm-billing`](packages/llm-billing) — `@rayadesu/dsh-llm-billing` | Host | Owns the `/user/balance` transport and the peak/off-peak pricing table. Exposes the `billing` Remote (`getBalance`, `getSessionSpend`, `getTodaySpend`, `getTodaySessionsSpend`, `getTurnSpend`). |
+| [`packages/ui-billing`](packages/ui-billing) — `@rayadesu/dsh-client-ui-billing` | Browser | Mounts the `billing` Remote itself and contributes the session-header badge and detail panel, plus the turn-cost row in the message actions strip. |
 
 ## Prerequisites
 
@@ -75,11 +83,11 @@ latest version right after a publish:
   ```
 
 - Or, within the 24-hour window, install with an explicitly pinned version (an
-  explicit pin bypasses the age gate; replace `0.2.3` with the version you want;
+  explicit pin bypasses the age gate; replace `0.3.0` with the version you want;
   from a source checkout, use `pnpm dsh …` as above):
 
   ```bash
-  dsh plugin --profile web add @rayadesu/dsh-billing@0.2.3 @rayadesu/dsh-llm-billing@0.2.3 @rayadesu/dsh-client-ui-billing@0.2.3
+  dsh plugin --profile web add @rayadesu/dsh-billing@0.3.0 @rayadesu/dsh-llm-billing@0.3.0 @rayadesu/dsh-client-ui-billing@0.3.0
   ```
 
 Manual rows (only when you do not want the bundle):
@@ -162,14 +170,29 @@ package directory** — `pnpm publish` fails (token resolution) and a folder
 argument like `npm publish packages/llm-billing` is parsed as a GitHub
 shorthand, which triggers a bogus `git ls-remote` instead of a publish. The
 registry requires a token that bypasses 2FA (an `npm login` session token gets
-E403); `NODE_AUTH_TOKEN` does not work for `npm publish`, so pass the token
-explicitly on the command line — never commit it:
+E403).
+
+**Configure the token once, so it never appears in a command** — put one line
+in `~/.npmrc` referencing an environment variable, which npm expands at
+publish time:
+
+```ini
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+```
+
+Then set the variable and `npm publish` plainly — the token is in no argument
+and stays out of shell history:
 
 ```sh
-cd packages/llm-billing && npm publish --//registry.npmjs.org/:_authToken=<TOKEN>
-cd packages/ui-billing && npm publish --//registry.npmjs.org/:_authToken=<TOKEN>
-npm publish --//registry.npmjs.org/:_authToken=<TOKEN>   # @rayadesu/dsh-billing bundle (repo root)
+export NPM_TOKEN=<your npm token>
+cd packages/llm-billing && npm publish
+cd packages/ui-billing && npm publish
+npm publish   # @rayadesu/dsh-billing bundle (repo root)
 ```
+
+(Alternatively write the real token directly into `~/.npmrc`, e.g.
+`npm config set //registry.npmjs.org/:_authToken <TOKEN>`; the commands then
+carry no token either. Either way, **never commit the token**.)
 
 ## Configuration
 
@@ -190,12 +213,16 @@ Both packages ship sane defaults; everything below is optional.
 - Each `assistant/message` event reports three billed token buckets: **cache-hit input**, **cache-miss input** (uncached input + cache writes), and **output** (including reasoning).
 - Each message is priced at the peak/off-peak rate of its own **Beijing-time** hour, the three buckets are billed separately (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), then summed per model. Peak windows apply weekdays (Monday–Friday) only; weekends are always off-peak.
 - **Today's spend** aggregates every session's events on the current Beijing-time calendar day with the same pricing rules; event dates are also assigned in Beijing time.
+- **Turn cost** prices the messages inside the turn's `turn/start`..`turn/end` range with the same rules (located by the closing message's session id + message id).
+- **Today session ranking** aggregates today's spend per session with the same rules (a cross-day session counts only today's part), sorted descending; names come from the log's latest `session/title` event (the auto-generated Chinese title or a user rename).
 - Models without a rate row are not priced (the built-in catalog currently has the three V4 rows: V4 Flash, V4 Pro, and V4 Flash Vision Exp). Rates follow the DeepSeek pricing effective **August 17**; the weekend-off-peak rule (weekends billed at off-peak prices all day) follows the adjustment effective **August 23**.
 
 ## Known limitations
 
-- **Priced rows only** — the session and today spends only price models that have a `billing.models` row.
-- **On-demand aggregation** — today's spend is computed on the host behind a 60-second cache; a miss scans only sessions whose persisted log changed since the last resolution (live sessions fold through the projection cells when the registry is composed), and a growing session's spend is priced incrementally (only the appended tail is re-priced).
+- **Priced rows only** — the session, turn, and today spends only price models that have a `billing.models` row.
+- **On-demand aggregation** — today's spend and the session ranking are computed on the host behind a 60-second cache; a miss scans only sessions whose persisted log changed since the last resolution (live sessions fold through the projection cells when the registry is composed), and a growing session's spend is priced incrementally (only the appended tail is re-priced).
+- **Ranking capped at 10** — the panel shows at most the top 10 sessions, with a "…N more sessions" hint.
+- **Turn cost needs a finalized closing message** — interrupted turns have no actions row, so no turn cost; cold sessions served straight from the projection cache may rank with an "Untitled" name until their log is read again.
 - **Balance does not follow automatically** — the balance stays a manual snapshot (no polling); spending from another client does not move the shown value until a refresh or browser reload.
 - **Estimate, not a promise** — the session spend prices tokens at official rates; the provider's actual billing prevails.
 
