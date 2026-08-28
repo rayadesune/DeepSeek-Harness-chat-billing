@@ -53,6 +53,27 @@ the profile, so they must be named explicitly):
 dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
 ```
 
+### pnpm 11 release-age gate
+
+A dsh profile installs plugins through pnpm, and pnpm 11's supply-chain
+release-age gate does not pick up packages younger than 24 hours by default —
+a freshly published version is therefore not resolved immediately. To get the
+latest version right after a publish:
+
+- Disable the age gate in the profile's pnpm config:
+
+  ```yaml
+  # ~/.dsh/profiles/web/pnpm-workspace.yaml
+  minimumReleaseAge: 0
+  ```
+
+- Or, within the 24-hour window, install with an explicitly pinned version (an
+  explicit pin bypasses the age gate; replace `0.2.3` with the version you want):
+
+  ```bash
+  dsh plugin --profile web add @rayadesu/dsh-billing@0.2.3 @rayadesu/dsh-llm-billing@0.2.3 @rayadesu/dsh-client-ui-billing@0.2.3
+  ```
+
 Manual rows (only when you do not want the bundle):
 
 ```yaml
@@ -62,6 +83,18 @@ Manual rows (only when you do not want the bundle):
       name: '@rayadesu/dsh-llm-billing'
     - id: ui-billing
       name: '@rayadesu/dsh-client-ui-billing'
+```
+
+### Common commands
+
+Run inside the deepseek-harness checkout (`pnpm dsh` is the harness-local CLI,
+equivalent to a global `dsh`):
+
+```sh
+pnpm dsh plugin --profile web list    # list the web profile's installed plugins
+pnpm dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+pnpm dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+pnpm dsh plugin --profile web update  # update plugins to the latest allowed versions
 ```
 
 ### Dependency notes
@@ -115,12 +148,19 @@ workspace-registered protocol package, so `packages/typert-protocol` vendors
 the published `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2` declarations; when
 the dsh dependency line moves, refresh it from the installed package.
 
-Publishing (the bundle and both plugins share one version):
+Publishing (the bundle and both plugins share one version; `prepublishOnly`
+runs the `verify` gate automatically). Use `npm publish` from **inside each
+package directory** — `pnpm publish` fails (token resolution) and a folder
+argument like `npm publish packages/llm-billing` is parsed as a GitHub
+shorthand, which triggers a bogus `git ls-remote` instead of a publish. The
+registry requires a token that bypasses 2FA (an `npm login` session token gets
+E403); `NODE_AUTH_TOKEN` does not work for `npm publish`, so pass the token
+explicitly on the command line — never commit it:
 
 ```sh
-pnpm --filter @rayadesu/dsh-llm-billing publish --access public
-pnpm --filter @rayadesu/dsh-client-ui-billing publish --access public
-pnpm publish --access public   # @rayadesu/dsh-billing bundle
+cd packages/llm-billing && npm publish --//registry.npmjs.org/:_authToken=<TOKEN>
+cd packages/ui-billing && npm publish --//registry.npmjs.org/:_authToken=<TOKEN>
+npm publish --//registry.npmjs.org/:_authToken=<TOKEN>   # @rayadesu/dsh-billing bundle (repo root)
 ```
 
 ## Configuration
@@ -147,7 +187,7 @@ Both packages ship sane defaults; everything below is optional.
 ## Known limitations
 
 - **Priced rows only** — the session and today spends only price models that have a `billing.models` row.
-- **On-demand read** — today's spend reads every session's full event log on each refresh, so cost grows with total log size.
+- **On-demand aggregation** — today's spend is computed on the host behind a 60-second cache; a miss scans only sessions whose persisted log changed since the last resolution (live sessions fold through the projection cells when the registry is composed), and a growing session's spend is priced incrementally (only the appended tail is re-priced).
 - **Balance does not follow automatically** — the balance stays a manual snapshot (no polling); spending from another client does not move the shown value until a refresh or browser reload.
 - **Estimate, not a promise** — the session spend prices tokens at official rates; the provider's actual billing prevails.
 
