@@ -104,6 +104,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The API-remaining row is the panel headline: clearly larger than the spend
+   rows below it (本会话花费 / 今日共花费 stay at 13px). */
+.amountRow > .amountLabel {
+  font-size: 15px;
+  line-height: 22px;
+}
+
 .spendRow {
   display: flex;
   align-items: center;
@@ -202,7 +209,9 @@
 .rankingRow {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  /* No gap: the middot separator carries its own spacing (the same literal
+     " · " the cost breakdown uses), and the amount keeps an 8px margin. */
+  gap: 0;
   min-width: 0;
   padding: 3px 8px;
   border-radius: 8px;
@@ -212,8 +221,11 @@
   background: var(--dsw-alias-fill-l2);
 }
 
-/* The rank, name, and amount all share the cost-breakdown font format
-   (缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z: 11px tertiary tabular-nums). */
+/* The rank, the middot separator, and the name all share the cost-breakdown
+   font format (缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z: 11px tertiary
+   tabular-nums), so the row reads as "1 · 会话标题". The rank keeps its
+   fixed right-aligned column, so the title stays indented as before; the
+   middot follows right after the column. */
 .rankingIndex {
   flex: none;
   width: 16px;
@@ -222,6 +234,19 @@
   line-height: 16px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* The separator between the rank and the title: the same middot the cost
+   breakdown uses. white-space: pre keeps the literal spaces, so size, tone,
+   and spacing match the breakdown's dots exactly (it renders " · " in this
+   same font). */
+.rankingDot {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
 }
 
 .rankingName {
@@ -238,6 +263,9 @@
 
 .rankingAmount {
   flex: none;
+  /* The row gap is gone (the dot carries its own spacing), so the amount
+     keeps the previous 8px separation from a fully-ellipsized title. */
+  margin-left: 8px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 16px;
