@@ -29,10 +29,19 @@
   已更新，AGENTS.md 版本号更新为 0.2.3。
 
 ## 发布记录（2026-08-28 · 0.2.3）
-- 发布方式同前：npm publish **显式传参** `--//registry.npmjs.org/:_authToken=<TOKEN>`（pnpm
-  publish 404、NODE_AUTH_TOKEN 不生效的坑照旧）。prepublishOnly（verify-packages.mjs）随发布
-  自动运行并通过。
-- 三包版本对齐 0.2.3：@rayadesu/dsh-billing、@rayadesu/dsh-llm-billing、@rayadesu/dsh-client-ui-billing。
+- **已发布完成**：三个包 0.2.3 均 PUT 成功，registry `dist-tags.latest` 均为 0.2.3
+  （@rayadesu/dsh-llm-billing → @rayadesu/dsh-client-ui-billing → @rayadesu/dsh-billing）。
+  prepublishOnly（verify-packages.mjs）随发布自动运行并通过。
+- 发布方式：npm publish **显式传参** `--//registry.npmjs.org/:_authToken=<TOKEN>`（pnpm publish
+  404、NODE_AUTH_TOKEN 不生效的坑照旧）。
+- **新增两个坑（本次踩到）**：
+  1. `npm publish packages/llm-billing`（带路径参数）会被 npm 的 spec 解析当成 GitHub 仓库简写，
+     触发 `git ls-remote ssh://git@github.com/packages/llm-billing.git` 并报 "unknown git error"
+     （本机无法连 GitHub:22）。**必须 `cd` 进包目录再 `npm publish`**（根 bundle 在仓库根发布）。
+  2. `npm login` 会话 token 不具备发布权限：账户开启 2FA 时 registry 返回
+     E403 "Two-factor authentication or granular access token with bypass 2fa enabled is required"。
+     **需要 bypass-2FA 的 Granular Access Token（或旧版 Automation token）**，本次由用户提供。
+- token 由用户提供，仅用于发布命令，未写入仓库任何文件。
 
 ---
 
