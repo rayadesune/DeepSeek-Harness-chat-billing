@@ -36,22 +36,29 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 
 ## Installation
 
-> 📌 **About this repository**: this repo is the plugin's **only distribution
-> source** — the official [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
-> repository does **not** ship the billing plugin. It was briefly integrated into
-> this user's fork, which has since been reverted to the official commit
-> (`141eb6fef8`); this repo no longer depends on any fork.
+### Install (published to npm)
 
-### Installation (published to npm, one command)
+The three packages are published to npm under the `@rayadesu` scope. Install the
+bundle plus the two plugin packages in one command — the bundle declares the two
+plugin packages as peer dependencies, which pnpm does not auto-install into the
+profile, so they must be named explicitly.
 
-The three packages are published to npm under the `@rayadesu` scope. Install
-the bundle plus the two plugin packages in one command (the bundle declares the
-two plugin packages as peer dependencies, which pnpm does not auto-install into
-the profile, so they must be named explicitly):
+The `dsh` command you use depends on how dsh is installed:
 
-```bash
-dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
-```
+- **Global install** — use the global `dsh` from anywhere:
+
+  ```bash
+  dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+  ```
+
+- **Source-built dsh** (a deepseek-harness checkout) — the CLI only resolves from
+  the source directory, so run it through pnpm there (`pnpm dsh` is the
+  harness-local binary, equivalent to the global `dsh`):
+
+  ```bash
+  cd deepseek-harness
+  pnpm dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+  ```
 
 ### pnpm 11 release-age gate
 
@@ -68,7 +75,8 @@ latest version right after a publish:
   ```
 
 - Or, within the 24-hour window, install with an explicitly pinned version (an
-  explicit pin bypasses the age gate; replace `0.2.3` with the version you want):
+  explicit pin bypasses the age gate; replace `0.2.3` with the version you want;
+  from a source checkout, use `pnpm dsh …` as above):
 
   ```bash
   dsh plugin --profile web add @rayadesu/dsh-billing@0.2.3 @rayadesu/dsh-llm-billing@0.2.3 @rayadesu/dsh-client-ui-billing@0.2.3
@@ -87,14 +95,14 @@ Manual rows (only when you do not want the bundle):
 
 ### Common commands
 
-Run inside the deepseek-harness checkout (`pnpm dsh` is the harness-local CLI,
-equivalent to a global `dsh`):
+Global `dsh` is assumed; a source-built dsh uses `pnpm dsh` from the
+deepseek-harness checkout instead — the subcommands are identical.
 
 ```sh
-pnpm dsh plugin --profile web list    # list the web profile's installed plugins
-pnpm dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
-pnpm dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
-pnpm dsh plugin --profile web update  # update plugins to the latest allowed versions
+dsh plugin --profile web list    # list the web profile's installed plugins
+dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+dsh plugin --profile web update  # update plugins to the latest allowed versions
 ```
 
 ### Dependency notes

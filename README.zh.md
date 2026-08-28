@@ -36,19 +36,26 @@
 
 ## 安装
 
-> 📌 **仓库说明**：本仓库是插件的**唯一分发来源**——deepseek-harness 官方仓库
-> （[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)）
-> **不含**计费插件；插件曾短暂集成于本用户的 fork，现已回退到官方提交版本
-> （`141eb6fef8`），本仓库不再依赖任何 fork。
-
 ### 安装（已发布到 npm，一条命令）
 
 三个包已发布到 npm 的 `@rayadesu` scope。一条命令同时安装 bundle 与两个插件包
-（bundle 把两个插件包声明为 peer 依赖，而 profile 默认不自动安装 peer，所以要显式列出）：
+（bundle 把两个插件包声明为 peer 依赖，而 profile 默认不自动安装 peer，所以要显式列出）。
 
-```bash
-dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
-```
+用哪个 `dsh` 命令取决于你的 dsh 安装方式：
+
+- **全局安装** —— 任意目录直接用全局 `dsh`：
+
+  ```bash
+  dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+  ```
+
+- **源码构建的 dsh**（deepseek-harness 源码目录）—— CLI 只在源码目录里能解析，
+  所以要在这个目录里用 pnpm 跑（`pnpm dsh` 即源码内二进制，等价于全局 `dsh`）：
+
+  ```bash
+  cd deepseek-harness
+  pnpm dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+  ```
 
 ### pnpm 11 发布龄门槛
 
@@ -62,7 +69,8 @@ dsh profile 通过 pnpm 安装插件，而 pnpm 11 的供应链发布龄门槛�
   minimumReleaseAge: 0
   ```
 
-- 或者在 24 小时窗口内用**显式钉版本**安装（显式钉版本可绕开门槛，把 `0.2.3` 换成你要的版本）：
+- 或者在 24 小时窗口内用**显式钉版本**安装（显式钉版本可绕开门槛，把 `0.2.3` 换成你要的版本；
+  源码构建的 dsh 用 `pnpm dsh …`，同上）：
 
   ```bash
   dsh plugin --profile web add @rayadesu/dsh-billing@0.2.3 @rayadesu/dsh-llm-billing@0.2.3 @rayadesu/dsh-client-ui-billing@0.2.3
@@ -81,13 +89,14 @@ dsh profile 通过 pnpm 安装插件，而 pnpm 11 的供应链发布龄门槛�
 
 ### 常用命令
 
-在 deepseek-harness 仓库根目录执行（`pnpm dsh` 即仓库内 CLI，与全局 `dsh` 等价）：
+下面以全局 `dsh` 为例；源码构建的 dsh 用 `pnpm dsh` 并在 deepseek-harness 源码目录执行，
+子命令完全一致。
 
 ```sh
-pnpm dsh plugin --profile web list    # 列出 web profile 已安装的插件
-pnpm dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
-pnpm dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
-pnpm dsh plugin --profile web update  # 把插件更新到当前允许的最新版本
+dsh plugin --profile web list    # 列出 web profile 已安装的插件
+dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+dsh plugin --profile web update  # 把插件更新到当前允许的最新版本
 ```
 
 ### 依赖说明
