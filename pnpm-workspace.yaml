@@ -1,11 +1,16 @@
 packages:
-  - packages/*
+  - packages/llm-billing
+  - packages/ui-billing
 
+# typert-protocol (packages/typert-protocol) is intentionally NOT a pnpm
+# workspace member: it vendors the npm 0.1.1-rc.2 type declarations only for
+# the typert generator's TypeScript program (resolved through the tsconfig
+# `paths` alias + project references). Keeping it out of the workspace lets
+# `@deepseek-ai/dsh-typert-protocol` resolve from npm at runtime/tests, where
+# the published lib (with the real remoteMethods implementation) is required.
 # Workspace matching (linkWorkspacePackages) lets @rayadesu/dsh-llm-billing
 # resolve to the local package even though it is not on the npm registry;
 # peer auto-install then fetches the remaining @deepseek-ai/dsh-* peers
 # (published at 0.1.2-alpha.1) so the tree is self-contained at DSH boot.
 autoInstallPeers: true
 linkWorkspacePackages: true
-patchedDependencies:
-  '@deepseek-ai/dsh-client-ui-renderer@0.1.1-rc.2': patches/@deepseek-ai__dsh-client-ui-renderer@0.1.1-rc.2.patch
