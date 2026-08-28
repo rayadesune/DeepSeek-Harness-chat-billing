@@ -2,8 +2,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
-import { BalanceBadge, type BalanceBadgeProps } from '../src/client/BalanceBadge.tsx'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from '@rayadesu/dsh-llm-billing/types'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { BalanceBadge, SESSION_RANKING_LIMIT, type BalanceBadgeProps } from '../src/client/BalanceBadge.tsx'
+import { TurnCostAction, type TurnCostActionProps } from '../src/client/TurnCostAction.tsx'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(() => {
@@ -55,16 +57,26 @@ function balance(over: Partial<DeepSeekBalance> = {}): DeepSeekBalance {
   }
 }
 
+// Stable defaults: fresh functions per props() call would re-trigger the
+// badge's fetch effects on every rerender.
+const EMPTY_TODAY_SESSIONS: DeepSeekTodaySessionsSpend = { sessions: [] }
+const defaultGetTodaySessionsSpend = async (): Promise<DeepSeekTodaySessionsSpend> => EMPTY_TODAY_SESSIONS
+const defaultGetTurnSpend = async (): Promise<{ total: number }> => ({ total: 0 })
+
 function props(
   getBalance: () => Promise<DeepSeekBalance>,
   getSessionSpend: () => Promise<DeepSeekSessionSpend> = async () => SPEND,
   getTodaySpend: () => Promise<DeepSeekTodaySpend> = async () => TODAY_SPEND,
   useSession: (selector: (snapshot: { running: boolean }) => boolean) => boolean = () => false,
+  getTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend> = defaultGetTodaySessionsSpend,
+  getTurnSpend: (sessionId: SessionId, messageId: string) => Promise<{ total: number }> = defaultGetTurnSpend,
 ): BalanceBadgeProps {
   return {
     getBalance,
     getSessionSpend,
     getTodaySpend,
+    getTodaySessionsSpend,
+    getTurnSpend,
     useSession,
     sessionId: 'session-1',
     t,
@@ -315,5 +327,117 @@ describe('BalanceBadge', () => {
     render(<BalanceBadge {...props(async () => balance(), async () => trimmed)} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     expect(await screen.findByText('本会话花费：¥0.3')).toBeDefined()
+  })
+
+  it('renders the today-session ranking below the model rows, highest first, with the untitled fallback', async () => {
+    const getTodaySessionsSpend = async () => ({
+      sessions: [
+        { sessionId: 'session-a' as SessionId, title: '会话甲', total: 0.31 },
+        { sessionId: 'session-b' as SessionId, title: null, total: 0.12 },
+      ],
+    })
+    render(<BalanceBadge
+      {...props(async () => balance(), async () => SPEND, async () => TODAY_SPEND, () => false, getTodaySessionsSpend)}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await screen.findByText('今日会话花费')).toBeDefined()
+    const names = screen.getAllByText(/会话甲|未命名/)
+    expect(names[0]?.textContent).toBe('会话甲')
+    expect(names[1]?.textContent).toBe('未命名')
+    expect(screen.getByText('¥0.31')).toBeDefined()
+    expect(screen.getByText('¥0.12')).toBeDefined()
+  })
+
+  it('caps the ranking at the limit and shows the overflow hint', async () => {
+    const sessions = Array.from({ length: SESSION_RANKING_LIMIT + 3 }, (_, index) => ({
+      sessionId: `session-${index}` as SessionId,
+      title: `会话${index}`,
+      total: 1 - index / 100,
+    }))
+    const getTodaySessionsSpend = async () => ({ sessions })
+    render(<BalanceBadge
+      {...props(async () => balance(), async () => SPEND, async () => TODAY_SPEND, () => false, getTodaySessionsSpend)}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await screen.findByText('今日会话花费')).toBeDefined()
+    expect(screen.getAllByText(/^会话\d+$/)).toHaveLength(SESSION_RANKING_LIMIT)
+    expect(screen.getByText(`…还有 3 个会话`)).toBeDefined()
+  })
+
+  it('renders no ranking section when no session priced today', async () => {
+    render(<BalanceBadge {...props(async () => balance())} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await screen.findByText('API 剩余金额：¥110.00')).toBeDefined()
+    expect(screen.queryByText('今日会话花费')).toBeNull()
+  })
+
+  it('passes force to getTodaySessionsSpend only on the manual refresh, not on mount', async () => {
+    const getTodaySessionsSpend = vi.fn(async (_force?: boolean) => ({ sessions: [] }))
+    render(<BalanceBadge
+      {...props(async () => balance(), async () => SPEND, async () => TODAY_SPEND, () => false, getTodaySessionsSpend)}
+    />)
+    await act(async () => {})
+    expect(getTodaySessionsSpend.mock.calls[0]?.[0]).toBeFalsy()
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    fireEvent.click(screen.getByRole('button', { name: zh['action.refresh'] }))
+    await act(async () => {})
+    expect(getTodaySessionsSpend.mock.calls[1]?.[0]).toBe(true)
+  })
+})
+
+describe('TurnCostAction', () => {
+  const costT: TurnCostActionProps['t'] = makeTranslate(zh)
+
+  const TURN: DeepSeekTurnSpend = { total: 0.31 }
+
+  function renderCost(
+    getTurnSpend: (sessionId: SessionId, messageId: string) => Promise<DeepSeekTurnSpend>,
+    messageId = 'm1',
+  ) {
+    return render(<TurnCostAction
+      messageId={messageId}
+      sessionId={'session-1' as SessionId}
+      getTurnSpend={getTurnSpend}
+      t={costT}
+      useSession={() => false}
+    /> as TurnCostActionProps)
+  }
+
+  it('shows the cost label after the Remote settles, then memoizes the fetch', async () => {
+    const getTurnSpend = vi.fn(async () => TURN)
+    renderCost(getTurnSpend)
+    // The label word and the amount are separate spans (two tones).
+    expect(screen.queryByText('¥0.31')).toBeNull()
+    await waitFor(() => expect(screen.getByText('本轮花费')).toBeDefined())
+    expect(screen.getByText('¥0.31')).toBeDefined()
+    expect(getTurnSpend).toHaveBeenCalledWith('session-1', 'm1')
+    expect(getTurnSpend).toHaveBeenCalledTimes(1)
+    // A second mount of the same (session, message) reuses the memo.
+    renderCost(getTurnSpend)
+    await waitFor(() => expect(screen.getAllByText('¥0.31')).toHaveLength(2))
+    expect(getTurnSpend).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides when the Turn priced to zero', async () => {
+    let resolveFetch!: (value: DeepSeekTurnSpend) => void
+    const getTurnSpend = vi.fn(
+      () => new Promise<DeepSeekTurnSpend>(resolve => { resolveFetch = resolve }),
+    )
+    renderCost(getTurnSpend, 'm-zero')
+    // The component's fetch runs in a microtask after the effect commits.
+    await waitFor(() => expect(getTurnSpend).toHaveBeenCalledTimes(1))
+    await act(async () => { resolveFetch({ total: 0 }) })
+    expect(screen.queryByText(/本轮花费/)).toBeNull()
+  })
+
+  it('stays hidden when the fetch fails', async () => {
+    let rejectFetch!: (reason: Error) => void
+    const getTurnSpend = vi.fn(
+      () => new Promise<DeepSeekTurnSpend>((_, reject) => { rejectFetch = reject }),
+    )
+    renderCost(getTurnSpend, 'm-fail')
+    await waitFor(() => expect(getTurnSpend).toHaveBeenCalledTimes(1))
+    await act(async () => { rejectFetch(new Error('boom')) })
+    expect(screen.queryByText(/本轮花费/)).toBeNull()
   })
 })

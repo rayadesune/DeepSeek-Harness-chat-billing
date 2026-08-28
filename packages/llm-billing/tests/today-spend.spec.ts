@@ -372,3 +372,132 @@ describe('TodaySpendScanner projection path', () => {
     expect(inspect).toHaveBeenCalledTimes(1)
   })
 })
+
+/** One `session/title` log event (structural; the npm SessionEvent union predates it). */
+function titleEvent(title: string, seq = 0, time = 0): SessionEvent {
+  return {
+    type: 'session/title',
+    seq,
+    time,
+    data: { title, source: { kind: 'user' }, messageSeqs: [] },
+  } as unknown as SessionEvent
+}
+
+describe('TodaySpendScanner scanSessions (events path)', () => {
+  it('aggregates today\'s spend per session, folds titles, sorts descending, and omits zero rows', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          // A title event from another day still titles the row; only today's
+          // spend counts.
+          { id: 'live-a' as SessionId, events: [titleEvent('会话甲', 0, OTHER_DAY), pricedEvent(DAY_TIME, 1), pricedEvent(OTHER_DAY, 2)] },
+          { id: 'live-b' as SessionId, events: [pricedEvent(DAY_TIME, 3)] },
+          { id: 'live-zero' as SessionId, events: [pricedEvent(OTHER_DAY, 4)] },
+        ],
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions).toHaveLength(2)
+    expect(sessions[0]?.sessionId).toBe('live-a')
+    expect(sessions[0]?.title).toBe('会话甲')
+    expect(sessions[0]?.total).toBeCloseTo(13.60, 10)
+    expect(sessions[1]?.sessionId).toBe('live-b')
+    expect(sessions[1]?.title).toBeNull()
+    expect(sessions[1]?.total).toBeCloseTo(13.60, 10)
+  })
+
+  it('counts only today\'s spend for a session spanning days', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'cold-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
+        ],
+        inspect: async () => ({ meta: {}, events: [pricedEvent(OTHER_DAY, 0), pricedEvent(DAY_TIME, 1), pricedEvent(OTHER_DAY, 2)] }),
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.sessionId).toBe('cold-a')
+    expect(sessions[0]?.total).toBeCloseTo(13.60, 10)
+  })
+
+  it('reflects a renamed title once the log changes (revision gate)', async () => {
+    let events = [titleEvent('旧名'), pricedEvent(DAY_TIME, 1)]
+    let revision = SessionPersistenceRevision('r-a')
+    const inspect = vi.fn(async () => ({ meta: {}, events }))
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [{ header: { id: 'cold-a' as SessionId }, revision }],
+        inspect,
+      }),
+    }))
+    const first = await scanner.scanSessions(DAY_KEY)
+    expect(first.sessions[0]?.title).toBe('旧名')
+    // The rename commits a later session/title event and bumps the revision.
+    events = [titleEvent('旧名', 0, OTHER_DAY), pricedEvent(DAY_TIME, 1), titleEvent('新名字', 2, DAY_TIME)]
+    revision = SessionPersistenceRevision('r-b')
+    const second = await scanner.scanSessions(DAY_KEY)
+    expect(inspect).toHaveBeenCalledTimes(2)
+    expect(second.sessions[0]?.title).toBe('新名字')
+    expect(second.sessions[0]?.total).toBeCloseTo(13.60, 10)
+  })
+})
+
+describe('TodaySpendScanner scanSessions (projection path)', () => {
+  const liveState: BillingUnitState = {
+    dayKey: DAY_KEY,
+    spend: { total: 0.5, models: [] },
+  }
+  const coldState: BillingUnitState = {
+    dayKey: DAY_KEY,
+    spend: { total: 13.60, models: [] },
+  }
+
+  it('uses eager cells for live sessions and resolved cold rows, with titles folded from each log', async () => {
+    // The cache ladder misses (empty values), so the cold session resolves
+    // through inspect, which folds its title alongside the billing unit.
+    const coldSnapshot = vi.fn(async () => ({ values: {} }))
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          { id: 'live-a' as SessionId, events: [titleEvent('直播会话')] },
+          { id: 'live-b' as SessionId, events: [] },
+        ],
+      }),
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'cold-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
+        ],
+        inspect: async () => ({ meta: {}, events: [titleEvent('冷会话'), pricedEvent(DAY_TIME, 1)] }),
+      }),
+      projections: () => ({
+        stateOf: (session) => session.id === 'live-a' ? liveState : undefined,
+      }),
+      projectionCache: () => ({ coldSnapshot }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    // Sorted descending: cold-a 13.60 first, live-a 0.5 second; live-b has no cell.
+    expect(sessions.map(row => row.sessionId)).toEqual(['cold-a', 'live-a'])
+    expect(sessions[0]?.title).toBe('冷会话')
+    expect(sessions[1]?.title).toBe('直播会话')
+  })
+
+  it('reports a null title for cold sessions served from the projection cache', async () => {
+    const coldSnapshot = vi.fn(async () => ({ values: { [BILLING_UNIT_KEY]: coldState } }))
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'cold-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
+        ],
+        inspect: async () => { throw new Error('must not be read') },
+      }),
+      projections: () => ({ stateOf: () => undefined }),
+      projectionCache: () => ({ coldSnapshot }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.sessionId).toBe('cold-a')
+    expect(sessions[0]?.title).toBeNull()
+    expect(sessions[0]?.total).toBeCloseTo(13.60, 10)
+  })
+})

@@ -1,0 +1,67 @@
+/* The label sits before the copy action (flex order sorts it ahead of the
+   order-0 copy/feedback/branch/clock items); the tone follows the usage card:
+   a leading icon, the "本轮花费" word in the title tone (secondary), a dot
+   separator, and the amount in the summary tone (tertiary), 13px tabular-nums.
+   The row centers its items like the card, so the dot sits mid-line. Unlike
+   the clock, it stays visible without hover (the hover rule only targets the
+   time labels). */
+
+.cost {
+  flex: none;
+  order: -1;
+  /* The actions row is offset -6px from the footer; cancel it so the label's
+     leading icon and text line up with the usage card's own column. */
+  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  font-variant-numeric: tabular-nums;
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The card's leading box: 16px slot, 14px glyph, tertiary tone, 6px gap. */
+.leading {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(16px + var(--dsh-content-font-delta, 0px));
+  height: calc(16px + var(--dsh-content-font-delta, 0px));
+  margin-right: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.leading svg {
+  /* Full slot size: the outline money-bag reads a size smaller than the
+     solid glyphs at 14px, so it renders at the whole 16px box. */
+  width: 16px;
+  height: 16px;
+}
+
+.costLabel {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* The same dot separator the usage card uses between its title and summary:
+   2px round dot with 8px margins. */
+.separator {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-caption);
+}
+
+.costValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -19,8 +19,8 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import '@deepseek-ai/dsh-client-runtime/client'
 import '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
-import { BalanceBadge } from '../src/client/BalanceBadge.tsx'
-import type { BalanceBadgeInjected } from '../src/client/BalanceBadge.tsx'
+import { BalanceBadge, type BalanceBadgeInjected } from '../src/client/BalanceBadge.tsx'
+import { TurnCostAction } from '../src/client/TurnCostAction.tsx'
 import { apply as applyNode } from '../src/index.ts'
 import * as BillingInvariant from '../src/invariant.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
@@ -73,6 +73,15 @@ const TODAY_SPEND = {
   }],
 }
 
+const TODAY_SESSIONS = {
+  sessions: [
+    { sessionId: 'session-1' as SessionId, title: '会话甲', total: 0.31 },
+    { sessionId: 'session-2' as SessionId, title: null, total: 0.12 },
+  ],
+}
+
+const TURN_SPEND = { total: 0.31 }
+
 type BalanceResult =
   | { readonly ok: true; readonly value: typeof BALANCE }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
@@ -85,6 +94,14 @@ type TodaySpendResult =
   | { readonly ok: true; readonly value: typeof TODAY_SPEND }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
+type TodaySessionsResult =
+  | { readonly ok: true; readonly value: typeof TODAY_SESSIONS }
+  | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
+
+type TurnSpendResult =
+  | { readonly ok: true; readonly value: typeof TURN_SPEND }
+  | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
+
 /** Slot ledger reader: entry ids currently registered in the header utilities list. */
 function headerEntryIds(ctx: Context): (string | undefined)[] {
   return ctx.slots
@@ -92,13 +109,22 @@ function headerEntryIds(ctx: Context): (string | undefined)[] {
     .map(entry => entry.options.id)
 }
 
-/** Boot the browser half over a real slot tree that declares the header list. */
+/** Slot ledger reader: entry ids currently registered in the assistant-actions strip. */
+function actionsEntryIds(ctx: Context): (string | undefined)[] {
+  return ctx.slots
+    .entries('conversation.chat.assistant-actions')
+    .map(entry => entry.options.id)
+}
+
+/** Boot the browser half over a real slot tree that declares both lists. */
 async function bench(): Promise<{
   ctx: Context
   fiber: ReturnType<Context['plugin']>
   getBalance: ReturnType<typeof vi.fn>
   getSessionSpend: ReturnType<typeof vi.fn>
   getTodaySpend: ReturnType<typeof vi.fn>
+  getTodaySessionsSpend: ReturnType<typeof vi.fn>
+  getTurnSpend: ReturnType<typeof vi.fn>
 }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -106,6 +132,7 @@ async function bench(): Promise<{
     name: 'root',
     children: {
       'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
+      'conversation.chat.assistant-actions': { kind: 'list', scope: 'session' },
     },
   } as never, () => null)
   ctx.provide('sessions', {})
@@ -128,11 +155,15 @@ async function bench(): Promise<{
     .mockResolvedValue({ ok: true, value: SPEND })
   const getTodaySpend = vi.fn<() => Promise<TodaySpendResult>>()
     .mockResolvedValue({ ok: true, value: TODAY_SPEND })
-  ctx.provide('remote.billing', { getBalance, getSessionSpend, getTodaySpend })
+  const getTodaySessionsSpend = vi.fn<() => Promise<TodaySessionsResult>>()
+    .mockResolvedValue({ ok: true, value: TODAY_SESSIONS })
+  const getTurnSpend = vi.fn<(sessionId: SessionId, messageId: string) => Promise<TurnSpendResult>>()
+    .mockResolvedValue({ ok: true, value: TURN_SPEND })
+  ctx.provide('remote.billing', { getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getTurnSpend })
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, getBalance, getSessionSpend, getTodaySpend }
+  return { ctx, fiber, getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getTurnSpend }
 }
 
 describe('ui-billing browser half', () => {
@@ -184,6 +215,42 @@ describe('ui-billing browser half', () => {
     getTodaySpend.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
     await expect(injected.getTodaySpend()).rejects.toThrow('billing.getTodaySpend failed: internal: no key')
     await ctx.fiber.dispose()
+  })
+
+  it('injects a getTodaySessionsSpend face that forwards force, unwraps, and reports failures', async () => {
+    const { ctx, getTodaySessionsSpend } = await bench()
+    const entry = ctx.slots.entries('conversation.session.header.utilities')[0]!
+    const injected = (entry.inject as unknown as () => BalanceBadgeInjected)()
+    await expect(injected.getTodaySessionsSpend()).resolves.toEqual(TODAY_SESSIONS)
+    expect(getTodaySessionsSpend).toHaveBeenCalledWith(undefined)
+    await expect(injected.getTodaySessionsSpend(true)).resolves.toEqual(TODAY_SESSIONS)
+    expect(getTodaySessionsSpend).toHaveBeenLastCalledWith(true)
+    getTodaySessionsSpend.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
+    await expect(injected.getTodaySessionsSpend()).rejects
+      .toThrow('billing.getTodaySessionsSpend failed: internal: no key')
+    await ctx.fiber.dispose()
+  })
+
+  it('injects a getTurnSpend face that forwards the session and message ids and reports failures', async () => {
+    const { ctx, getTurnSpend } = await bench()
+    const entry = ctx.slots.entries('conversation.session.header.utilities')[0]!
+    const injected = (entry.inject as unknown as () => BalanceBadgeInjected)()
+    await expect(injected.getTurnSpend('session-1' as SessionId, 'm1')).resolves.toEqual(TURN_SPEND)
+    expect(getTurnSpend).toHaveBeenCalledWith('session-1', 'm1')
+    getTurnSpend.mockResolvedValueOnce({ ok: false, error: { code: 'not_found', message: 'unknown session' } })
+    await expect(injected.getTurnSpend('session-2' as SessionId, 'm2'))
+      .rejects.toThrow('billing.getTurnSpend failed: not_found: unknown session')
+    await ctx.fiber.dispose()
+  })
+
+  it('registers the per-turn cost entry in the assistant-actions strip, and teardown removes it', async () => {
+    const { ctx, fiber } = await bench()
+    expect(actionsEntryIds(ctx)).toContain('billing-turn-cost')
+    const entry = ctx.slots.entries('conversation.chat.assistant-actions')[0]!
+    expect(entry.component).toBe(TurnCostAction)
+    expect(entry.options.order).toBe(20)
+    await fiber.dispose()
+    expect(actionsEntryIds(ctx)).not.toContain('billing-turn-cost')
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {

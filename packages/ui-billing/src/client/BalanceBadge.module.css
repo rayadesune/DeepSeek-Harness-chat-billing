@@ -182,3 +182,71 @@
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+
+.ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-top: 2px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.rankingTitle {
+  padding: 6px 8px 2px;
+  /* Same tone and size as the model rows (DeepSeek-V4-Flash etc.). */
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.rankingRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 8px;
+  border-radius: 8px;
+}
+
+.rankingRow:hover {
+  background: var(--dsw-alias-fill-l2);
+}
+
+/* The rank, name, and amount all share the cost-breakdown font format
+   (缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z: 11px tertiary tabular-nums). */
+.rankingIndex {
+  flex: none;
+  width: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.rankingName {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rankingAmount {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rankingMore {
+  padding: 2px 8px 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}

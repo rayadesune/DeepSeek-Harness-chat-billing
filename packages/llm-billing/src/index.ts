@@ -31,13 +31,14 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance } from './balance.ts'
 import {
   computeSessionSpend,
+  computeTurnSpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
   mergeTodaySpend,
   resolveBilling,
 } from './billing.ts'
 import type { BillingConfig, BillingConfigModel } from './billing.ts'
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySpend } from './types.ts'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 import { billingTodaySpendDefinition } from './projection.ts'
 import { TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
 
@@ -47,6 +48,7 @@ export {
   beijingDayKey,
   computeSessionSpend,
   computeTodaySpend,
+  computeTurnSpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
   emptyTodaySpend,
@@ -68,7 +70,7 @@ export type {
 export type * from './types.ts'
 export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit } from './projection.ts'
 export type { BillingUnitState } from './projection.ts'
-export { TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
+export { foldSessionTitle, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
 export type { ScannerPersistedHeader, ScannerSession, TodaySpendScannerDeps } from './today-spend.ts'
 
 export const name = 'llm-billing'
@@ -263,8 +265,18 @@ export function apply(ctx: Context, config: Config): void {
     dayKey => scanner.scan(dayKey),
     TODAY_SPEND_CACHE_MS,
   )
+  const todaySessionsCache = new TodaySpendCache(
+    dayKey => scanner.scanSessions(dayKey),
+    TODAY_SPEND_CACHE_MS,
+  )
 
   const fetchTodaySpend = async (force = false): Promise<DeepSeekTodaySpend> => todayCache.get(force)
+  const fetchTodaySessionsSpend = async (force = false): Promise<DeepSeekTodaySessionsSpend> => todaySessionsCache.get(force)
 
-  new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchSessionSpend, fetchTodaySpend })
+  const fetchTurnSpend = async (sessionId: SessionId, messageId: string): Promise<DeepSeekTurnSpend> => {
+    const events = await sessionEvents(ctx, sessionId)
+    return computeTurnSpend(events, billing, catalog, messageId)
+  }
+
+  new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchSessionSpend, fetchTodaySpend, fetchTodaySessionsSpend, fetchTurnSpend })
 }

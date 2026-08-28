@@ -10,6 +10,7 @@ import {
   addEventContribution,
   computeSessionSpend,
   computeTodaySpend,
+  computeTurnSpend,
   emptyTodaySpend,
   isPeak,
   mergeTodaySpend,
@@ -316,5 +317,87 @@ describe('SpendAccumulator', () => {
     // Pure: neither input is mutated.
     expect(target.models).toHaveLength(1)
     expect(source.models).toHaveLength(2)
+  })
+})
+
+describe('computeTurnSpend', () => {
+  // 2026-08-20 is a Thursday: 02:00Z is 10:00 Beijing (peak); 12:00Z is 20:00
+  // Beijing (off-peak).
+  const PEAK = Date.parse('2026-08-20T02:00:00Z')
+  const OFF_PEAK = Date.parse('2026-08-20T12:00:00Z')
+  const USAGE: TokenUsage = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 500_000 }
+  const BILLING = resolveBilling(undefined)
+
+  function turnMessage(model: string, turn: number, id: string, time: number, seq: number): SessionEvent {
+    return {
+      type: 'assistant/message',
+      seq,
+      time,
+      data: {
+        turn,
+        step: 0,
+        message: {
+          id: id as never,
+          role: 'assistant',
+          content: [],
+          source: { kind: 'model', provider: 'deepseek-official', model },
+        },
+        usage: USAGE,
+      },
+    } as unknown as SessionEvent
+  }
+
+  function turnBoundary(type: 'turn/start' | 'turn/end', turn: number, seq: number, time: number): SessionEvent {
+    return {
+      type,
+      seq,
+      time,
+      data: type === 'turn/end' ? { turn, step: 0, reason: { kind: 'done' } } : { turn, step: 0 },
+    } as unknown as SessionEvent
+  }
+
+  const LOG = [
+    turnBoundary('turn/start', 0, 0, PEAK),
+    turnMessage(FLASH, 0, 'm0', PEAK, 1),
+    turnBoundary('turn/end', 0, 2, PEAK),
+    turnBoundary('turn/start', 1, 3, OFF_PEAK),
+    turnMessage(PRO, 1, 'm1', OFF_PEAK, 4),
+    turnMessage(FLASH, 1, 'm2', PEAK, 5),
+    turnBoundary('turn/end', 1, 6, OFF_PEAK),
+  ]
+
+  it('prices only the target turn\'s events, per-event peak/off-peak by its own timestamp', () => {
+    // Turn 1: Pro off-peak (hit 0.15 + miss 6.75 + output 13.50 = 20.40) plus
+    // Flash peak (hit 0.10 + miss 4.50 + output 9.00 = 13.60) → 34.00.
+    expect(computeTurnSpend(LOG, BILLING, CATALOG, 'm1').total).toBeCloseTo(34.00, 10)
+    expect(computeTurnSpend(LOG, BILLING, CATALOG, 'm2').total).toBeCloseTo(34.00, 10)
+    // Turn 0: Flash peak only → 13.60.
+    expect(computeTurnSpend(LOG, BILLING, CATALOG, 'm0').total).toBeCloseTo(13.60, 10)
+  })
+
+  it('returns zero for an unknown message id', () => {
+    expect(computeTurnSpend(LOG, BILLING, CATALOG, 'nope')).toEqual({ total: 0 })
+  })
+
+  it('returns zero when the turn has no bracketing turn/start..turn/end (compacted or orphaned)', () => {
+    const orphan = [turnMessage(FLASH, 2, 'm-orphan', PEAK, 0)]
+    expect(computeTurnSpend(orphan, BILLING, CATALOG, 'm-orphan').total).toBe(0)
+    // A turn that never ended prices everything after its turn/start (the
+    // closing message never reaches the actions row, so the client never
+    // asks, but the guard holds and the partial usage still counts).
+    const open = [
+      turnBoundary('turn/start', 0, 0, PEAK),
+      turnMessage(FLASH, 0, 'm-open', PEAK, 1),
+    ]
+    expect(computeTurnSpend(open, BILLING, CATALOG, 'm-open').total).toBeCloseTo(13.60, 10)
+  })
+
+  it('excludes models without a pricing row', () => {
+    const log = [
+      turnBoundary('turn/start', 0, 0, PEAK),
+      turnMessage('other-model', 0, 'm0', PEAK, 1),
+      turnBoundary('turn/end', 0, 2, PEAK),
+    ]
+    expect(computeTurnSpend(log, BILLING, CATALOG, 'm0').total).toBe(0)
   })
 })

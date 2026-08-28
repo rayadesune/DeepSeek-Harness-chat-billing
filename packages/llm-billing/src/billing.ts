@@ -14,7 +14,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel, DeepSeekTodaySpend } from './types.ts'
+import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 
 /** One token price point, in CNY per 1M tokens. */
 export interface DeepSeekTokenPrice {
@@ -396,6 +396,50 @@ export function computeSessionSpend(
 ): DeepSeekSessionSpend {
   const names = new Map(catalog.map(model => [model.id, model.name]))
   return priceEvents(events, billing, names)
+}
+
+/**
+ * Price one completed Turn's billed usage at the official per-model rates,
+ * identified by its closing assistant message id. The turn's events are those
+ * between its `turn/start` and `turn/end` (both matched by the message's own
+ * turn coordinate); each priced event applies the peak/off-peak table by its
+ * Beijing-time hour and weekday. A message that cannot be located, a turn
+ * without bracketing `turn/start` / `turn/end` events (for example after
+ * compaction), or a session with no priced usage prices to zero.
+ * @param events - one session's complete event log.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param catalog - model display rows, in presentation order.
+ * @param messageId - the closing assistant message's durable id.
+ * @returns the turn's total cost in CNY.
+ */
+export function computeTurnSpend(
+  events: readonly SessionEvent[],
+  billing: ResolvedBilling,
+  catalog: readonly { id: string; name: string }[],
+  messageId: string,
+): DeepSeekTurnSpend {
+  const names = new Map(catalog.map(model => [model.id, model.name]))
+  let turn: number | undefined
+  for (const event of events) {
+    if (event.type !== 'assistant/message') continue
+    if (event.data.message.id !== messageId) continue
+    turn = event.data.turn
+    break
+  }
+  if (turn === undefined) return { total: 0 }
+  const accumulator = new SpendAccumulator()
+  let active = false
+  for (const event of events) {
+    if (event.type === 'turn/start' && event.data.turn === turn) {
+      active = true
+      continue
+    }
+    if (event.type === 'turn/end' && event.data.turn === turn) break
+    if (!active) continue
+    const priced = priceEvent(event, billing, names)
+    if (priced !== undefined) accumulator.add(priced)
+  }
+  return { total: accumulator.finish().total }
 }
 
 /**

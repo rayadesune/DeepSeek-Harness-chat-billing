@@ -1,6 +1,30 @@
-# HANDOFF — billing 插件 0.2.3 已发布（全量优化 · 2026-08-28）
+# HANDOFF — billing 插件 0.3.0 已发布（README 真机截图 · 2026-08-28）
 
-## 本轮改动（0.2.3 · 全量优化，按用户审核通过的方案执行）
+## 本轮改动（0.3.0 · 文档与发布）
+
+- README 预览换成两张真实截图：`preview-overview.png`（全景：头部徽标 + 详情面板 +
+  今日会话花费排行 + 操作行里的本轮花费）与 `preview-turn-cost.png`（本轮花费行特写），
+  删除旧的 `billing-preview.png`；根 bundle `files` 补两张图（npm 页面 README 图片不 404）。
+- 三包版本 0.2.4 → 0.3.0；**清掉误入根 package.json 的 `file:` 自引用依赖**
+  （错误 workdir 的 `pnpm add` 残留，指到 %TEMP% 打包产物），lockfile 随之重生成。
+- 说明：0.2.4 的功能代码（本轮花费 + 今日会话花费排行）此前后台已发布但未补 tag/release，
+  本轮以 0.3.0 统一发布；安装示例、AGENTS.md、PLAN.md 版本号同步更新。
+
+## 发布记录（2026-08-28 · 0.3.0）
+
+- **已发布完成**：顺序 llm-billing → ui-billing → dsh-billing 均 PUT 成功，registry
+  `dist-tags.latest` 均为 0.3.0。prepublishOnly（verify-packages.mjs）随发布自动运行并通过。
+- 发布方式：`~/.npmrc` 恢复 `${NPM_TOKEN}` 环境展开（token 不落盘、不进仓库也不进命令历史），
+  `export NPM_TOKEN` 后逐个目录 `npm publish`；与 README 约定一致（0.2.3 用显式
+  `--//registry.npmjs.org/:_authToken=` 传参，同样未写入任何文件）。
+- 提交并推送 origin（中文提交信息），GitHub Release **v0.3.0** 已创建（含 tag v0.3.0），
+  正文为中文发布说明，风格对齐 v0.2.3。
+- profile 已从 npm 0.3.0 重装（替换 %TEMP% 临时 tarball 的 `file:` 依赖）——
+  **重启 `dsh web` 并硬刷新**后生效。
+
+---
+
+## 历史：0.2.3（2026-08-28 发布 · 全量优化，按用户审核通过的方案执行）
 
 **性能（热路径）**
 - `withConcurrency` 索引化：`queue.shift()` O(n²) → 共享索引 O(n)。
@@ -28,7 +52,7 @@
 - 文档：README.md / README.zh.md 数据更新机制补充增量计价说明，README.i18n.yaml blob hash
   已更新，AGENTS.md 版本号更新为 0.2.3。
 
-## 发布记录（2026-08-28 · 0.2.3）
+### 发布记录（2026-08-28 · 0.2.3）
 - **已发布完成**：三个包 0.2.3 均 PUT 成功，registry `dist-tags.latest` 均为 0.2.3
   （@rayadesu/dsh-llm-billing → @rayadesu/dsh-client-ui-billing → @rayadesu/dsh-billing）。
   prepublishOnly（verify-packages.mjs）随发布自动运行并通过。

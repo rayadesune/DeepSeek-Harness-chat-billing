@@ -25,9 +25,30 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import type { ResolvedBilling } from './billing.ts'
 import { beijingDayKey, emptyTodaySpend, mergeTodaySpend, priceEvent, SpendAccumulator } from './billing.ts'
-import type { DeepSeekTodaySpend } from './types.ts'
+import type { DeepSeekTodaySessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from './types.ts'
 import { BILLING_UNIT_KEY, foldBillingUnit, type BillingUnitState } from './projection.ts'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+
+/**
+ * Fold one session's durable display title: the latest `session/title`
+ * event's text (last-wins, matching the `title` projection), or `null` before
+ * the first title lands. The fold runs over the complete log, so an explicit
+ * user rename is picked up as soon as its event commits.
+ * @param events - one session's complete event log.
+ * @returns the session's current title, or `null` when untitled.
+ */
+export function foldSessionTitle(events: readonly SessionEvent[]): string | null {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]!
+    // `session/title` joined the SessionEvent union after the npm
+    // 0.1.1-rc.2 baseline this package builds against; read its payload
+    // through the structural escape hatch (runtime logs carry it).
+    if ((event as { type: string }).type !== 'session/title') continue
+    const data = (event as { data: { title?: unknown } }).data
+    return typeof data.title === 'string' ? data.title : null
+  }
+  return null
+}
 
 /** Structural slice of a live session the scanner reads. */
 export interface ScannerSession {
@@ -104,20 +125,22 @@ async function withConcurrency<T>(
  * coalesces concurrent misses, and a `force` bypass for the manual refresh
  * path. Cross-day invalidation is automatic (the day key changes); a failed
  * scan leaves the previous value in place and retries on the next call.
+ * @typeParam T - the cached aggregate's value shape (the spend or its
+ *   per-session breakdown).
  */
-export class TodaySpendCache {
+export class TodaySpendCache<T = DeepSeekTodaySpend> {
   private cachedDayKey: string | undefined
-  private cachedValue: DeepSeekTodaySpend | undefined
+  private cachedValue: T | undefined
   private cachedAt = 0
-  private inFlight: Promise<DeepSeekTodaySpend> | undefined
+  private inFlight: Promise<T> | undefined
 
   /**
+   * @param scan - the aggregate computation behind a miss.
    * @param ttlMs - time window in milliseconds (default 60 000).
    * @param now - clock source (injectable for tests).
-   * @param scan - the aggregate computation behind a miss.
    */
   constructor(
-    private readonly scan: (dayKey: string) => Promise<DeepSeekTodaySpend>,
+    private readonly scan: (dayKey: string) => Promise<T>,
     private readonly ttlMs = 60_000,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -128,7 +151,7 @@ export class TodaySpendCache {
    *   and the in-flight coalescing still apply to non-force callers.
    * @returns today's spend.
    */
-  get(force = false): Promise<DeepSeekTodaySpend> {
+  get(force = false): Promise<T> {
     const now = this.now()
     const dayKey = beijingDayKey(now)
     if (!force && this.cachedDayKey === dayKey && this.cachedValue !== undefined
@@ -136,7 +159,7 @@ export class TodaySpendCache {
       return Promise.resolve(this.cachedValue)
     }
     if (!force && this.inFlight !== undefined) return this.inFlight
-    const run = (async (): Promise<DeepSeekTodaySpend> => {
+    const run = (async (): Promise<T> => {
       try {
         const value = await this.scan(dayKey)
         this.cachedDayKey = dayKey
@@ -159,8 +182,8 @@ export class TodaySpendCache {
  * sessions whose logs actually changed.
  */
 export class TodaySpendScanner {
-  /** Cold sessions resolved on the projection path: id → revision + unit state. */
-  private readonly coldResolved = new Map<SessionId, { revision: SessionPersistenceRevision; value: BillingUnitState }>()
+  /** Cold sessions resolved on the projection path: id → revision + unit state + title. */
+  private readonly coldResolved = new Map<SessionId, { revision: SessionPersistenceRevision; value: BillingUnitState; title: string | null }>()
   /** Cold sessions resolved on the events path: id → revision (events were collected). */
   private lastEventsScan: Map<SessionId, SessionPersistenceRevision> | undefined
 
@@ -177,12 +200,58 @@ export class TodaySpendScanner {
     return this.scanProjections(dayKey)
   }
 
+  /**
+   * Compute today's per-session spend for one Beijing day, sorted by cost
+   * descending. Sessions with no priced usage on the day are omitted; each
+   * row carries the session's durable title folded from its log.
+   * @param dayKey - the Beijing-time calendar-day key to aggregate.
+   * @returns today's per-session rows, highest first.
+   */
+  async scanSessions(dayKey: string): Promise<DeepSeekTodaySessionsSpend> {
+    const rows = this.deps.projections?.() === undefined
+      ? await this.scanSessionsEvents(dayKey)
+      : await this.scanSessionsProjections(dayKey)
+    rows.sort((left, right) => right.total - left.total)
+    return { sessions: rows }
+  }
+
+  /**
+   * Resolve one cold session's billing unit state and display title through
+   * the projection-cache ladder (cached row first, then a detached local
+   * fold over a full inspect). A cache-served value carries no title (the
+   * ladder only stores projection values), so such rows report `title: null`
+   * until the session is inspected again.
+   * @param id - the cold session's id.
+   * @returns the resolved state and title, or `undefined` when unreadable.
+   */
+  private async resolveCold(id: SessionId): Promise<{ value: BillingUnitState; title: string | null } | undefined> {
+    const { persistence, projectionCache, unit, logger } = this.deps
+    const cache = projectionCache?.()
+    if (cache !== undefined) {
+      try {
+        const value = (await cache.coldSnapshot(id)).values[BILLING_UNIT_KEY]
+        if (value !== undefined) return { value, title: null }
+      } catch (error: unknown) {
+        logger.warn(`llm-billing: projection cold read for session ${id} failed: ${String(error)}`)
+      }
+    }
+    const persistenceService = persistence?.()
+    if (persistenceService === undefined) return undefined
+    try {
+      const inspection = await persistenceService.inspect(id)
+      return { value: foldBillingUnit(unit, inspection.events), title: foldSessionTitle(inspection.events) }
+    } catch (error: unknown) {
+      // One unreadable session must not blank the whole-day aggregate.
+      logger.warn(`llm-billing: skipping unreadable session ${id}: ${String(error)}`)
+      return undefined
+    }
+  }
+
   /** Projection path: eager cells for live sessions, revision-gated cold ladder for the rest. */
   private async scanProjections(dayKey: string): Promise<DeepSeekTodaySpend> {
-    const { sessions, persistence, projections, projectionCache, unit, logger } = this.deps
+    const { sessions, persistence, projections } = this.deps
     // Services resolve once per scan, not per session / per cold task.
     const projectionsService = projections?.()
-    const cache = projectionCache?.()
     let total = emptyTodaySpend()
     const liveIds = new Set<SessionId>()
     if (sessions !== undefined) {
@@ -211,24 +280,8 @@ export class TodaySpendScanner {
       pending.push({ id: header.id, revision })
     }
     await withConcurrency(pending, 8, async ({ id, revision }) => {
-      let value: BillingUnitState | undefined
-      if (cache !== undefined) {
-        try {
-          value = (await cache.coldSnapshot(id)).values[BILLING_UNIT_KEY]
-        } catch (error: unknown) {
-          logger.warn(`llm-billing: projection cold read for session ${id} failed: ${String(error)}`)
-        }
-      }
-      if (value === undefined) {
-        try {
-          const inspection = await persistenceService.inspect(id)
-          value = foldBillingUnit(unit, inspection.events)
-        } catch (error: unknown) {
-          // One unreadable session must not blank the whole-day aggregate.
-          logger.warn(`llm-billing: skipping unreadable session ${id}: ${String(error)}`)
-        }
-      }
-      if (value !== undefined) this.coldResolved.set(id, { revision, value })
+      const resolved = await this.resolveCold(id)
+      if (resolved !== undefined) this.coldResolved.set(id, { revision, ...resolved })
     })
     for (const { id } of pending) {
       const resolved = this.coldResolved.get(id)
@@ -295,5 +348,132 @@ export class TodaySpendScanner {
     }
     if (truncated) logger.warn(`llm-billing: today's events exceeded ${maxEvents}; result truncated`)
     return accumulator.finish()
+  }
+
+  /**
+   * Projection-path per-session scan: eager cells for live sessions (title
+   * folded from the live log, so a rename is reflected immediately),
+   * revision-gated cold ladder for the rest (title resolved on inspect,
+   * `null` when served from the projection cache).
+   * @param dayKey - the Beijing-time calendar-day key to aggregate.
+   * @returns unsorted per-session rows for the day.
+   */
+  private async scanSessionsProjections(dayKey: string): Promise<DeepSeekTodaySessionSpend[]> {
+    const { sessions, persistence, projections } = this.deps
+    const projectionsService = projections?.()
+    const rows = new Map<SessionId, DeepSeekTodaySessionSpend>()
+    const liveIds = new Set<SessionId>()
+    if (sessions !== undefined) {
+      const store = sessions()
+      if (store !== undefined) {
+        for (const session of store.list()) {
+          liveIds.add(session.id)
+          const state = projectionsService?.stateOf(session, BILLING_UNIT_KEY)
+          if (state !== undefined && state.dayKey === dayKey) {
+            rows.set(session.id, {
+              sessionId: session.id,
+              title: foldSessionTitle(session.events),
+              total: state.spend.total,
+            })
+          }
+        }
+      }
+    }
+    const persistenceService = persistence?.()
+    if (persistenceService === undefined) return [...rows.values()]
+    const snapshots = await persistenceService.listSnapshots()
+    const pending: { id: SessionId; revision: SessionPersistenceRevision }[] = []
+    for (const { header, revision } of snapshots) {
+      if (liveIds.has(header.id)) continue
+      const resolved = this.coldResolved.get(header.id)
+      if (resolved !== undefined && resolved.revision === revision) {
+        if (resolved.value.dayKey === dayKey) {
+          rows.set(header.id, { sessionId: header.id, title: resolved.title, total: resolved.value.spend.total })
+        }
+        continue
+      }
+      pending.push({ id: header.id, revision })
+    }
+    await withConcurrency(pending, 8, async ({ id, revision }) => {
+      const resolved = await this.resolveCold(id)
+      if (resolved !== undefined) this.coldResolved.set(id, { revision, ...resolved })
+    })
+    for (const { id } of pending) {
+      const resolved = this.coldResolved.get(id)
+      if (resolved !== undefined && resolved.value.dayKey === dayKey) {
+        rows.set(id, { sessionId: id, title: resolved.title, total: resolved.value.spend.total })
+      }
+    }
+    return [...rows.values()]
+  }
+
+  /**
+   * Events-path per-session scan: price today's events in a single pass,
+   * accumulating per session (per-event Beijing-day filter during collection,
+   * hard cap), gated by revisions. Titles fold from each session's complete
+   * log — a `session/title` event can predate today — so a rename is reflected
+   * as soon as the session's log is re-read.
+   * @param dayKey - the Beijing-time calendar-day key to aggregate.
+   * @returns unsorted per-session rows for the day.
+   */
+  private async scanSessionsEvents(dayKey: string): Promise<DeepSeekTodaySessionSpend[]> {
+    const { sessions, persistence, maxEvents, logger, billing, catalog } = this.deps
+    const names = new Map(catalog.map(model => [model.id, model.name]))
+    const rows = new Map<SessionId, { title: string | null; total: number }>()
+    const liveIds = new Set<SessionId>()
+    let collected = 0
+    let truncated = false
+    const collect = (id: SessionId, events: readonly SessionEvent[]): void => {
+      let row = rows.get(id)
+      if (row === undefined) {
+        row = { title: foldSessionTitle(events), total: 0 }
+        rows.set(id, row)
+      }
+      for (const event of events) {
+        if (beijingDayKey(new Date(event.time)) !== dayKey) continue
+        collected += 1
+        if (collected > maxEvents) {
+          truncated = true
+          return
+        }
+        const priced = priceEvent(event, billing, names)
+        if (priced !== undefined) row.total += priced.cost
+      }
+    }
+    if (sessions !== undefined) {
+      const store = sessions()
+      if (store !== undefined) {
+        for (const session of store.list()) {
+          liveIds.add(session.id)
+          collect(session.id, session.events)
+          if (truncated) break
+        }
+      }
+    }
+    const persistenceService = persistence?.()
+    if (!truncated && persistenceService !== undefined) {
+      const snapshots = await persistenceService.listSnapshots()
+      for (const { header, revision } of snapshots) {
+        if (liveIds.has(header.id)) continue
+        if (this.lastEventsScan?.get(header.id) === revision) continue
+        try {
+          collect(header.id, (await persistenceService.inspect(header.id)).events)
+        } catch (error: unknown) {
+          // One unreadable session must not blank the whole-day aggregate.
+          logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)
+        }
+        if (truncated) break
+      }
+      // Only a complete pass may advance the revision watermark: a truncated
+      // pass left sessions unread, and recording them would skip their events
+      // on the next scan.
+      if (!truncated) {
+        this.lastEventsScan = new Map(snapshots.map(snapshot => [snapshot.header.id, snapshot.revision]))
+      }
+    }
+    if (truncated) logger.warn(`llm-billing: today's events exceeded ${maxEvents}; result truncated`)
+    return [...rows.entries()]
+      .filter(([, row]) => row.total > 0)
+      .map(([sessionId, row]) => ({ sessionId, title: row.title, total: row.total }))
   }
 }
