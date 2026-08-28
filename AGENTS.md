@@ -11,7 +11,7 @@ deepseek-harness 官方仓库（[deepseek-ai/deepseek-harness](https://github.co
 ```
 packages/llm-billing/    宿主插件 @rayadesu/dsh-llm-billing（/user/balance 传输、峰谷计价、billing Remote）
 packages/ui-billing/     浏览器插件 @rayadesu/dsh-client-ui-billing（会话头部徽标与详情面板）
-packages/typert-protocol/ 内嵌 Typert 协议声明（@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2 的 lib/types），构建期供 typert 生成器识别装饰器
+packages/typert-protocol/ 内嵌 Typert 协议声明（@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2 的 lib/types），构建期供 typert 生成器识别装饰器；刻意不在 pnpm workspace 内，让 @deepseek-ai/dsh-typert-protocol 从 npm 解析（内嵌副本只有声明，无运行时实现）
 cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-billing 两个插件行
 ```
 
