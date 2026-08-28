@@ -273,6 +273,7 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, getTo
                 {sessionsSpend.sessions.slice(0, SESSION_RANKING_LIMIT).map((row, index) => (
                   <div key={row.sessionId} className={css.rankingRow}>
                     <span className={css.rankingIndex}>{index + 1}</span>
+                    <span className={css.rankingDot} aria-hidden>{' · '}</span>
                     <span className={css.rankingName} title={row.title ?? undefined}>
                       {row.title ?? t('stat.untitled')}
                     </span>
