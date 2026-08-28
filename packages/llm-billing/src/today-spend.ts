@@ -9,9 +9,10 @@
  *   with write-back) or, without the cache service, one detached local fold
  *   over a full `inspect`. Persisted revisions gate every cold read, so a
  *   session whose log did not change since the last resolution costs nothing.
- * - events path (plans A2/A3): collect only today's events (per-event
- *   Beijing-day filter during collection) with a hard cap, skipping sessions
- *   whose persisted revision is unchanged since the last scan.
+ * - events path (plans A2/A3): collect and price only today's events in one
+ *   pass (per-event Beijing-day filter during collection) with a hard cap,
+ *   skipping sessions whose persisted revision is unchanged since the last
+ *   scan.
  *
  * Both strategies run behind the same {@link TodaySpendCache}, so a miss
  * happens at most once per 60 seconds per process, and a manual refresh
@@ -23,7 +24,7 @@
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import type { ResolvedBilling } from './billing.ts'
-import { beijingDayKey, computeTodaySpend, emptyTodaySpend, mergeTodaySpend } from './billing.ts'
+import { beijingDayKey, emptyTodaySpend, mergeTodaySpend, priceEvent, SpendAccumulator } from './billing.ts'
 import type { DeepSeekTodaySpend } from './types.ts'
 import { BILLING_UNIT_KEY, foldBillingUnit, type BillingUnitState } from './projection.ts'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
@@ -75,17 +76,25 @@ export interface TodaySpendScannerDeps {
   catalog: readonly { id: string; name: string }[]
 }
 
-/** Bounded parallel fan-out: run `run` over `items` with at most `limit` in flight. */
+/**
+ * Bounded parallel fan-out: run `run` over `items` with at most `limit` in
+ * flight. A shared index counter hands each worker its next job, so the
+ * dispatch is O(n) overall (array `shift()` would be O(n) per pop).
+ */
 async function withConcurrency<T>(
   items: readonly T[],
   limit: number,
   run: (item: T) => Promise<void>,
 ): Promise<void> {
-  const queue = [...items]
+  const total = items.length
+  let next = 0
   await Promise.all(Array.from(
-    { length: Math.min(limit, queue.length) },
+    { length: Math.min(limit, total) },
     async () => {
-      for (let job = queue.shift(); job !== undefined; job = queue.shift()) await run(job)
+      for (let job = next; job < total; job = next) {
+        next += 1
+        await run(items[job]!)
+      }
     },
   ))
 }
@@ -171,6 +180,9 @@ export class TodaySpendScanner {
   /** Projection path: eager cells for live sessions, revision-gated cold ladder for the rest. */
   private async scanProjections(dayKey: string): Promise<DeepSeekTodaySpend> {
     const { sessions, persistence, projections, projectionCache, unit, logger } = this.deps
+    // Services resolve once per scan, not per session / per cold task.
+    const projectionsService = projections?.()
+    const cache = projectionCache?.()
     let total = emptyTodaySpend()
     const liveIds = new Set<SessionId>()
     if (sessions !== undefined) {
@@ -178,7 +190,7 @@ export class TodaySpendScanner {
       if (store !== undefined) {
         for (const session of store.list()) {
           liveIds.add(session.id)
-          const state = projections?.()?.stateOf(session, BILLING_UNIT_KEY)
+          const state = projectionsService?.stateOf(session, BILLING_UNIT_KEY)
           if (state !== undefined && state.dayKey === dayKey) {
             total = mergeTodaySpend(total, state.spend)
           }
@@ -200,7 +212,6 @@ export class TodaySpendScanner {
     }
     await withConcurrency(pending, 8, async ({ id, revision }) => {
       let value: BillingUnitState | undefined
-      const cache = projectionCache?.()
       if (cache !== undefined) {
         try {
           value = (await cache.coldSnapshot(id)).values[BILLING_UNIT_KEY]
@@ -228,25 +239,35 @@ export class TodaySpendScanner {
     return total
   }
 
-  /** Events path: collect only today's events (capped), gated by revisions. */
+  /**
+   * Events path: price today's events in a single pass (per-event Beijing-day
+   * filter during collection, hard cap), gated by revisions.
+   */
   private async scanEvents(dayKey: string): Promise<DeepSeekTodaySpend> {
     const { sessions, persistence, maxEvents, logger, billing, catalog } = this.deps
-    const events: SessionEvent[] = []
+    const names = new Map(catalog.map(model => [model.id, model.name]))
+    const accumulator = new SpendAccumulator()
     const liveIds = new Set<SessionId>()
+    let collected = 0
     let truncated = false
+    const collect = (events: readonly SessionEvent[]): void => {
+      for (const event of events) {
+        if (beijingDayKey(new Date(event.time)) !== dayKey) continue
+        collected += 1
+        if (collected > maxEvents) {
+          truncated = true
+          return
+        }
+        const priced = priceEvent(event, billing, names)
+        if (priced !== undefined) accumulator.add(priced)
+      }
+    }
     if (sessions !== undefined) {
       const store = sessions()
       if (store !== undefined) {
         for (const session of store.list()) {
           liveIds.add(session.id)
-          for (const event of session.events) {
-            if (beijingDayKey(new Date(event.time)) !== dayKey) continue
-            events.push(event)
-            if (events.length >= maxEvents) {
-              truncated = true
-              break
-            }
-          }
+          collect(session.events)
           if (truncated) break
         }
       }
@@ -258,15 +279,7 @@ export class TodaySpendScanner {
         if (liveIds.has(header.id)) continue
         if (this.lastEventsScan?.get(header.id) === revision) continue
         try {
-          const inspection = await persistenceService.inspect(header.id)
-          for (const event of inspection.events) {
-            if (beijingDayKey(new Date(event.time)) !== dayKey) continue
-            events.push(event)
-            if (events.length >= maxEvents) {
-              truncated = true
-              break
-            }
-          }
+          collect((await persistenceService.inspect(header.id)).events)
         } catch (error: unknown) {
           // One unreadable session must not blank the whole-day aggregate.
           logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)
@@ -281,9 +294,6 @@ export class TodaySpendScanner {
       }
     }
     if (truncated) logger.warn(`llm-billing: today's events exceeded ${maxEvents}; result truncated`)
-    // The reference moment is derived from the day key (UTC midnight on that
-    // date is 08:00 Beijing the same day), so the pricing re-check cannot
-    // drift from the collection filter across a Beijing-day boundary.
-    return computeTodaySpend(events, billing, catalog, new Date(`${dayKey}T00:00:00Z`))
+    return accumulator.finish()
   }
 }

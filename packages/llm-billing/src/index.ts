@@ -13,6 +13,11 @@
  * session-projection registry is composed, the plugin additionally registers
  * the `billingTodaySpend` projection unit, which folds each session's spend
  * eagerly and lets cold reads ride the projection-cache ladder.
+ *
+ * A per-session spend cache makes the badge's turn-settled recompute
+ * incremental: session logs are append-only and chronological (the same
+ * assumption the projection unit makes), so the spend is reused while the log
+ * length is unchanged, and only the appended tail is priced when it grows.
  * @module @rayadesu/dsh-llm-billing
  */
 
@@ -28,6 +33,7 @@ import {
   computeSessionSpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
+  mergeTodaySpend,
   resolveBilling,
 } from './billing.ts'
 import type { BillingConfig, BillingConfigModel } from './billing.ts'
@@ -48,6 +54,7 @@ export {
   mergeTodaySpend,
   priceEvent,
   resolveBilling,
+  SpendAccumulator,
 } from './billing.ts'
 export type {
   BillingConfig,
@@ -197,8 +204,27 @@ export function apply(ctx: Context, config: Config): void {
   const billing = resolveBilling(config.billing)
   const catalog = (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id }))
 
+  // Per-session incremental spend cache: a session log is append-only and
+  // chronological (the same assumption the projection unit makes), so a spend
+  // computed for `count` events stays valid while the log length is unchanged,
+  // and only the appended tail needs pricing when it grows. A pricing-table
+  // change does not retroactively reprice (same caveat as the projection
+  // path); the map is capped so an unbounded session-id space cannot grow it
+  // without bound.
+  const sessionSpendCache = new Map<SessionId, { count: number; spend: DeepSeekSessionSpend }>()
   const fetchSessionSpend = async (sessionId: SessionId): Promise<DeepSeekSessionSpend> => {
-    return computeSessionSpend(await sessionEvents(ctx, sessionId), billing, catalog)
+    const events = await sessionEvents(ctx, sessionId)
+    const cached = sessionSpendCache.get(sessionId)
+    if (cached !== undefined && cached.count === events.length) return cached.spend
+    if (cached !== undefined && cached.count < events.length) {
+      const spend = mergeTodaySpend(cached.spend, computeSessionSpend(events.slice(cached.count), billing, catalog))
+      sessionSpendCache.set(sessionId, { count: events.length, spend })
+      return spend
+    }
+    const spend = computeSessionSpend(events, billing, catalog)
+    if (sessionSpendCache.size >= 1024) sessionSpendCache.clear()
+    sessionSpendCache.set(sessionId, { count: events.length, spend })
+    return spend
   }
 
   // Plan C: register the per-session spend projection unit on the projection

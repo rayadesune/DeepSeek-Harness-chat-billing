@@ -283,3 +283,73 @@ describe('apply / today spend', () => {
     await ctx.fiber.dispose()
   })
 })
+
+describe('apply / session spend cache', () => {
+  /** One today-priced flash event: now falls on today's Beijing calendar day. */
+  function pricedEvent(index: number): SessionEvent {
+    return {
+      type: 'assistant/message',
+      seq: index,
+      time: Date.now(),
+      data: {
+        turn: 0,
+        step: index,
+        message: {
+          id: `m${index}` as never,
+          role: 'assistant',
+          content: [],
+          source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        },
+        usage: { inputTokens: 100, outputTokens: 100, cacheReadTokens: 100, cacheWriteTokens: 50 },
+      },
+    } as unknown as SessionEvent
+  }
+
+  it('serves the same cached spend while the log length is unchanged', async () => {
+    const ctx = new Context()
+    const events = [pricedEvent(0)]
+    ctx.provide('sessionPersistence', {
+      listSnapshots: async () => [],
+      inspect: async () => ({ meta: {}, events }),
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const first = await gateway.getSessionSpend('session-cache' as SessionId)
+    const second = await gateway.getSessionSpend('session-cache' as SessionId)
+    // The cache returns the same resolved value — no re-pricing happened.
+    expect(second).toBe(first)
+    await ctx.fiber.dispose()
+  })
+
+  it('prices only the appended tail when the log grows', async () => {
+    const ctx = new Context()
+    const events = [pricedEvent(0)]
+    ctx.provide('sessionPersistence', {
+      listSnapshots: async () => [],
+      inspect: async () => ({ meta: {}, events }),
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const first = await gateway.getSessionSpend('session-cache' as SessionId)
+    events.push(pricedEvent(1))
+    const second = await gateway.getSessionSpend('session-cache' as SessionId)
+    expect(second.total).toBeCloseTo(first.total * 2, 10)
+    expect(second).not.toBe(first)
+    await ctx.fiber.dispose()
+  })
+
+  it('computes a fresh spend for a session it has never priced', async () => {
+    const ctx = new Context()
+    ctx.provide('sessionPersistence', {
+      listSnapshots: async () => [],
+      inspect: async () => ({ meta: {}, events: [pricedEvent(0)] }),
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const a = await gateway.getSessionSpend('session-a' as SessionId)
+    const b = await gateway.getSessionSpend('session-b' as SessionId)
+    expect(b.total).toBeCloseTo(a.total, 10)
+    expect(b).not.toBe(a)
+    await ctx.fiber.dispose()
+  })
+})

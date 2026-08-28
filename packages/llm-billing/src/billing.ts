@@ -4,11 +4,12 @@
  * Remote gateway stays transport-free and the whole spend is testable without
  * a key.
  *
- * The per-event pricing lives in {@link priceEvent}, the one shared fold
- * primitive: the events-scan paths ({@link computeSessionSpend},
- * {@link computeTodaySpend}) and the session-projection unit
- * (`billingTodaySpend` in projection.ts) all fold the same contribution, so a
- * pricing-table change cannot drift one path from the others.
+ * The per-event pricing lives in {@link priceEvent} and the fold in the
+ * {@link SpendAccumulator}: the events-scan paths ({@link computeSessionSpend},
+ * {@link computeTodaySpend}), the session-projection unit (`billingTodaySpend`
+ * in projection.ts), and the scanner's single-pass events path all price
+ * through the same primitives, so a pricing-table change cannot drift one path
+ * from the others.
  * @module @rayadesu/dsh-llm-billing/billing
  */
 
@@ -120,22 +121,40 @@ export function resolveBilling(config: BillingConfig | undefined): ResolvedBilli
   return { peakHours, models }
 }
 
-/** The Beijing (Asia/Shanghai, UTC+8, no DST) hour of a timestamp. */
-function beijingHour(now: Date): number {
-  return new Date(now.getTime() + 8 * 3_600_000).getUTCHours()
+/** One shifted-timestamp view of a Beijing (UTC+8, no DST) instant. */
+interface BeijingParts {
+  /** Beijing hour, `0`–`23`. */
+  hour: number
+  /** Beijing weekday as `getUTCDay()`: `0` is Sunday, `6` is Saturday. */
+  weekday: number
+  /** Beijing calendar-day key (`YYYY-MM-DD`). */
+  dayKey: string
 }
 
 /**
- * The Beijing (Asia/Shanghai, UTC+8, no DST) weekday of a timestamp, as
- * `getUTCDay()`: `0` is Sunday, `6` is Saturday.
+ * Derive the Beijing hour, weekday, and calendar-day key of one timestamp from
+ * a single shifted `Date` — every timezone-sensitive read shares this one
+ * implementation, so the pieces cannot drift apart.
+ * @param time - epoch milliseconds.
  */
-function beijingWeekday(now: Date): number {
-  return new Date(now.getTime() + 8 * 3_600_000).getUTCDay()
+function beijingParts(time: number): BeijingParts {
+  const shifted = new Date(time + 8 * 3_600_000)
+  return {
+    hour: shifted.getUTCHours(),
+    weekday: shifted.getUTCDay(),
+    dayKey: shifted.toISOString().slice(0, 10),
+  }
 }
 
 /** The Beijing (Asia/Shanghai, UTC+8, no DST) calendar-day key of a timestamp. */
 export function beijingDayKey(now: Date): string {
-  return new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10)
+  return beijingParts(now.getTime()).dayKey
+}
+
+/** Whether a Beijing (hour, weekday) pair falls inside any peak-hour window. */
+function isPeakParts(billing: ResolvedBilling, hour: number, weekday: number): boolean {
+  if (weekday === 0 || weekday === 6) return false
+  return billing.peakHours.some(({ start, end }) => hour >= start && hour < end)
 }
 
 /**
@@ -147,10 +166,8 @@ export function beijingDayKey(now: Date): string {
  * @returns true during a weekday peak hour.
  */
 export function isPeak(billing: ResolvedBilling, now: Date): boolean {
-  const weekday = beijingWeekday(now)
-  if (weekday === 0 || weekday === 6) return false
-  const hour = beijingHour(now)
-  return billing.peakHours.some(({ start, end }) => hour >= start && hour < end)
+  const { hour, weekday } = beijingParts(now.getTime())
+  return isPeakParts(billing, hour, weekday)
 }
 
 /**
@@ -210,8 +227,8 @@ export function priceEvent(
   const model = event.data.message.source.model
   const pricing = billing.models.get(model)
   if (pricing === undefined) return undefined
-  const time = new Date(event.time)
-  const peak = isPeak(billing, time)
+  const { hour, weekday, dayKey } = beijingParts(event.time)
+  const peak = isPeakParts(billing, hour, weekday)
   const price = peak ? pricing.peak : pricing.offPeak
   const hit = reported.cacheReadTokens ?? 0
   const miss = reported.inputTokens + (reported.cacheWriteTokens ?? 0)
@@ -221,7 +238,7 @@ export function priceEvent(
   const outputCost = (output * price.output) / 1_000_000
   const cost = hitCost + missCost + outputCost
   return {
-    dayKey: beijingDayKey(time),
+    dayKey,
     model,
     displayName: names.get(model) ?? model,
     cost,
@@ -258,6 +275,49 @@ function contributionModel(priced: BillingEventContribution): DeepSeekSessionSpe
   }
 }
 
+/** Sum two model rows of the same model (pure). */
+function mergeModelRows(left: DeepSeekSessionSpendModel, right: DeepSeekSessionSpendModel): DeepSeekSessionSpendModel {
+  return {
+    model: left.model,
+    displayName: left.displayName,
+    cost: left.cost + right.cost,
+    peakCost: left.peakCost + right.peakCost,
+    offPeakCost: left.offPeakCost + right.offPeakCost,
+    cacheHitInputTokens: left.cacheHitInputTokens + right.cacheHitInputTokens,
+    cacheMissInputTokens: left.cacheMissInputTokens + right.cacheMissInputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    cacheHitInputCost: left.cacheHitInputCost + right.cacheHitInputCost,
+    cacheMissInputCost: left.cacheMissInputCost + right.cacheMissInputCost,
+    outputCost: left.outputCost + right.outputCost,
+  }
+}
+
+/**
+ * Mutable model-row accumulator behind every spend fold. Rows keep first-seen
+ * model order — the same shape a pure `addEventContribution` chain produces —
+ * so the single-pass scan path and the pure public paths cannot diverge. One
+ * `Map` lookup per contribution instead of a per-event array copy: the huge
+ * event-log folds allocate one row object per model, not one intermediate
+ * array per event.
+ */
+export class SpendAccumulator {
+  private readonly rows = new Map<string, DeepSeekSessionSpendModel>()
+  private total = 0
+
+  /** Add one priced contribution. */
+  add(priced: BillingEventContribution): void {
+    const row = contributionModel(priced)
+    const existing = this.rows.get(priced.model)
+    this.rows.set(priced.model, existing === undefined ? row : mergeModelRows(existing, row))
+    this.total += priced.cost
+  }
+
+  /** The folded spend; the accumulator stays usable afterwards. */
+  finish(): DeepSeekTodaySpend {
+    return { total: this.total, models: [...this.rows.values()] }
+  }
+}
+
 /**
  * Merge one priced event's contribution into an accumulator spend (pure:
  * returns a new spend, never mutates its input).
@@ -269,21 +329,9 @@ export function addEventContribution(
   spend: DeepSeekTodaySpend,
   priced: BillingEventContribution,
 ): DeepSeekTodaySpend {
-  const rows = spend.models.map(row => row.model === priced.model
-    ? {
-        ...row,
-        cost: row.cost + priced.cost,
-        peakCost: row.peakCost + priced.peakCost,
-        offPeakCost: row.offPeakCost + priced.offPeakCost,
-        cacheHitInputTokens: row.cacheHitInputTokens + priced.cacheHitInputTokens,
-        cacheMissInputTokens: row.cacheMissInputTokens + priced.cacheMissInputTokens,
-        outputTokens: row.outputTokens + priced.outputTokens,
-        cacheHitInputCost: row.cacheHitInputCost + priced.cacheHitInputCost,
-        cacheMissInputCost: row.cacheMissInputCost + priced.cacheMissInputCost,
-        outputCost: row.outputCost + priced.outputCost,
-      }
-    : row)
-  if (!rows.some(row => row.model === priced.model)) rows.push(contributionModel(priced))
+  const row = contributionModel(priced)
+  const rows = spend.models.map(existing => existing.model === priced.model ? mergeModelRows(existing, row) : existing)
+  if (!rows.some(existing => existing.model === priced.model)) rows.push(row)
   return { total: spend.total + priced.cost, models: rows }
 }
 
@@ -295,24 +343,13 @@ export function addEventContribution(
  * @returns the summed spend.
  */
 export function mergeTodaySpend(target: DeepSeekTodaySpend, source: DeepSeekTodaySpend): DeepSeekTodaySpend {
-  let merged = target
+  const rows = new Map<string, DeepSeekSessionSpendModel>()
+  for (const row of target.models) rows.set(row.model, row)
   for (const row of source.models) {
-    merged = addEventContribution(merged, {
-      dayKey: '',
-      model: row.model,
-      displayName: row.displayName,
-      cost: row.cost,
-      peakCost: row.peakCost,
-      offPeakCost: row.offPeakCost,
-      cacheHitInputTokens: row.cacheHitInputTokens,
-      cacheMissInputTokens: row.cacheMissInputTokens,
-      outputTokens: row.outputTokens,
-      cacheHitInputCost: row.cacheHitInputCost,
-      cacheMissInputCost: row.cacheMissInputCost,
-      outputCost: row.outputCost,
-    })
+    const existing = rows.get(row.model)
+    rows.set(row.model, existing === undefined ? row : mergeModelRows(existing, row))
   }
-  return merged
+  return { total: target.total + source.total, models: [...rows.values()] }
 }
 
 /**
@@ -326,22 +363,23 @@ export function mergeTodaySpend(target: DeepSeekTodaySpend, source: DeepSeekToda
  * published table prices only the two V4 rows).
  * @param events - the events to price.
  * @param billing - resolved pricing with peak-hour windows.
- * @param catalog - model display rows, in presentation order.
+ * @param names - model id → display label.
+ * @param dayKey - when provided, only events on this Beijing calendar day contribute.
  * @returns the total cost plus one row per priced model.
  */
 function priceEvents(
   events: readonly SessionEvent[],
   billing: ResolvedBilling,
-  catalog: readonly { id: string; name: string }[],
-): DeepSeekSessionSpend {
-  const names = new Map(catalog.map(model => [model.id, model.name]))
-  let spend: DeepSeekSessionSpend = { total: 0, models: [] }
+  names: ReadonlyMap<string, string>,
+  dayKey?: string,
+): DeepSeekTodaySpend {
+  const accumulator = new SpendAccumulator()
   for (const event of events) {
     const priced = priceEvent(event, billing, names)
-    if (priced === undefined) continue
-    spend = addEventContribution(spend, priced)
+    if (priced === undefined || (dayKey !== undefined && priced.dayKey !== dayKey)) continue
+    accumulator.add(priced)
   }
-  return spend
+  return accumulator.finish()
 }
 
 /**
@@ -356,7 +394,8 @@ export function computeSessionSpend(
   billing: ResolvedBilling,
   catalog: readonly { id: string; name: string }[],
 ): DeepSeekSessionSpend {
-  return priceEvents(events, billing, catalog)
+  const names = new Map(catalog.map(model => [model.id, model.name]))
+  return priceEvents(events, billing, names)
 }
 
 /**
@@ -377,11 +416,5 @@ export function computeTodaySpend(
 ): DeepSeekTodaySpend {
   const day = beijingDayKey(now)
   const names = new Map(catalog.map(model => [model.id, model.name]))
-  let spend: DeepSeekTodaySpend = emptyTodaySpend()
-  for (const event of events) {
-    const priced = priceEvent(event, billing, names)
-    if (priced === undefined || priced.dayKey !== day) continue
-    spend = addEventContribution(spend, priced)
-  }
-  return spend
+  return priceEvents(events, billing, names, day)
 }

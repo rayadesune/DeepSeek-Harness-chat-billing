@@ -9,7 +9,7 @@ import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import { describe, expect, it, vi } from 'vitest'
-import { resolveBilling } from '../src/billing.ts'
+import { computeTodaySpend, resolveBilling } from '../src/billing.ts'
 import { billingTodaySpendDefinition, BILLING_UNIT_KEY, type BillingUnitState } from '../src/projection.ts'
 import { TodaySpendCache, TodaySpendScanner, type TodaySpendScannerDeps } from '../src/today-spend.ts'
 
@@ -225,6 +225,42 @@ describe('TodaySpendScanner events path', () => {
     const spend = await scanner.scan(DAY_KEY)
     expect(spend.total).toBeGreaterThan(0)
     expect(warn).toHaveBeenCalled()
+  })
+
+  it('prices the same spend as computeTodaySpend on the same log (single-pass parity)', async () => {
+    const events = [pricedEvent(DAY_TIME, 0), pricedEvent(OTHER_DAY, 1), pricedEvent(DAY_TIME, 2)]
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'cold-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
+        ],
+        inspect: async () => ({ meta: {}, events }),
+      }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    const reference = computeTodaySpend(events, BILLING, CATALOG, new Date(`${DAY_KEY}T00:00:00Z`))
+    expect(spend).toEqual(reference)
+  })
+
+  it('resolves many pending cold sessions with bounded concurrency', async () => {
+    const ids = Array.from({ length: 40 }, (_, index) => `cold-${index}` as SessionId)
+    let inFlight = 0
+    let peak = 0
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => ids.map(id => ({ header: { id }, revision: SessionPersistenceRevision(`r-${id}`) })),
+        inspect: async () => {
+          inFlight += 1
+          peak = Math.max(peak, inFlight)
+          await new Promise(resolve => setTimeout(resolve, 1))
+          inFlight -= 1
+          return { meta: {}, events: [pricedEvent(DAY_TIME)] }
+        },
+      }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    expect(peak).toBeLessThanOrEqual(8)
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(40_000_000)
   })
 })
 

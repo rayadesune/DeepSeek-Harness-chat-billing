@@ -7,11 +7,17 @@ import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import {
+  addEventContribution,
   computeSessionSpend,
   computeTodaySpend,
+  emptyTodaySpend,
   isPeak,
+  mergeTodaySpend,
+  priceEvent,
   resolveBilling,
+  SpendAccumulator,
 } from '../src/billing.ts'
+import type { BillingEventContribution, DeepSeekTodaySpend } from '../src/billing.ts'
 
 function assistantMessage(model: string, usage: TokenUsage, time = 0): SessionEvent {
   return {
@@ -237,5 +243,78 @@ describe('computeTodaySpend', () => {
     const spend = computeTodaySpend([], resolveBilling(undefined), CATALOG)
     expect(spend.total).toBe(0)
     expect(spend.models).toEqual([])
+  })
+})
+
+describe('SpendAccumulator', () => {
+  // 2026-08-20 is a Thursday: 02:00Z is 10:00 Beijing (peak), 12:00Z is 20:00
+  // Beijing (off-peak); 16:30Z is the next Beijing day.
+  const PEAK = Date.parse('2026-08-20T02:00:00Z')
+  const OFF_PEAK = Date.parse('2026-08-20T12:00:00Z')
+  const NEXT_DAY = Date.parse('2026-08-20T16:30:00Z')
+  const USAGE: TokenUsage = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 500_000 }
+
+  it('folds to the same spend as the pure addEventContribution chain on a mixed log', () => {
+    const billing = resolveBilling(undefined)
+    const events = [
+      assistantMessage(FLASH, USAGE, PEAK),
+      assistantMessage(PRO, USAGE, OFF_PEAK),
+      assistantMessage(FLASH, USAGE, NEXT_DAY),
+      assistantMessage('other-model', USAGE, PEAK),
+      assistantMessage(PRO, USAGE, PEAK),
+    ]
+    const names = new Map(CATALOG.map(model => [model.id, model.name]))
+    const accumulator = new SpendAccumulator()
+    let expected = emptyTodaySpend()
+    for (const event of events) {
+      const priced = priceEvent(event, billing, names)
+      if (priced !== undefined) {
+        accumulator.add(priced)
+        expected = addEventContribution(expected, priced)
+      }
+    }
+    expect(accumulator.finish()).toEqual(expected)
+  })
+
+  it('keeps first-seen model order like the pure chain', () => {
+    const billing = resolveBilling(undefined)
+    const names = new Map(CATALOG.map(model => [model.id, model.name]))
+    const priced = (model: string, time: number): BillingEventContribution | undefined =>
+      priceEvent(assistantMessage(model, USAGE, time), billing, names)
+    const accumulator = new SpendAccumulator()
+    const flash = priced(FLASH, PEAK)!
+    const pro = priced(PRO, OFF_PEAK)!
+    const flashAgain = priced(FLASH, PEAK)!
+    accumulator.add(flash)
+    accumulator.add(pro)
+    accumulator.add(flashAgain)
+    const rows = accumulator.finish().models.map(row => row.model)
+    expect(rows).toEqual([FLASH, PRO])
+  })
+
+  it('mergeTodaySpend sums rows and appends new models in source order', () => {
+    const row = (model: string, cost: number): DeepSeekTodaySpend['models'][number] => ({
+      model,
+      displayName: model,
+      cost,
+      peakCost: cost,
+      offPeakCost: 0,
+      cacheHitInputTokens: 0,
+      cacheMissInputTokens: 0,
+      outputTokens: 0,
+      cacheHitInputCost: 0,
+      cacheMissInputCost: 0,
+      outputCost: 0,
+    })
+    const target: DeepSeekTodaySpend = { total: 1, models: [row(FLASH, 1)] }
+    const source: DeepSeekTodaySpend = { total: 2.5, models: [row(FLASH, 2), row(PRO, 0.5)] }
+    const merged = mergeTodaySpend(target, source)
+    expect(merged.total).toBeCloseTo(3.5, 10)
+    expect(merged.models.map(model => model.model)).toEqual([FLASH, PRO])
+    expect(merged.models[0]?.cost).toBeCloseTo(3, 10)
+    expect(merged.models[1]?.cost).toBeCloseTo(0.5, 10)
+    // Pure: neither input is mutated.
+    expect(target.models).toHaveLength(1)
+    expect(source.models).toHaveLength(2)
   })
 })
