@@ -25,6 +25,10 @@ A real session: the session-header badge, the detail panel (remaining amount, th
 
 <img width="1200" alt="Billing plugin overview: session header badge, detail panel with per-model rows and today's session ranking, and the turn-cost row" src="preview-overview.png" />
 
+Close-up of the detail panel — the `API 剩余金额` figure, `本会话花费` next to `今日共花费`, the per-model breakdown (`缓存命中 · 未命中输入 · 输出`), and the today session-spend ranking:
+
+<img width="640" alt="Detail panel close-up: API remaining amount, this session's spend next to today's all-session spend, per-model rows and today's session ranking" src="preview-detail.png" />
+
 Close-up of the turn-cost row — money-bag icon, `本轮花费` label and the `¥` amount, in front of the copy control:
 
 <img width="640" alt="Turn-cost row close-up: money-bag icon, 本轮花费 label and ¥ amount before the copy control" src="preview-turn-cost.png" />
