@@ -105,7 +105,13 @@ dsh plugin --profile web list    # 列出 web profile 已安装的插件
 dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
 dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
 dsh plugin --profile web update  # 把插件更新到当前允许的最新版本
+pnpm dsh plugin --profile web update --latest  # 源码构建的 dsh：把所有插件强制更新到最新发布版本
 ```
+
+`update` 遵循 profile `package.json` 里的版本区间，只在该插件声明的 semver 范围内升级。
+加上 `--latest`（pnpm `update` 的选项）则忽略这些区间，把所有插件直接升到最新发布的版本——
+用于在版本可解析后立刻拿到新发布。源码构建的 dsh 要在 deepseek-harness 目录里用
+`pnpm dsh …` 执行，和 `add` 一样。
 
 ### 依赖说明
 

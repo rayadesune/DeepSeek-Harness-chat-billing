@@ -111,7 +111,15 @@ dsh plugin --profile web list    # list the web profile's installed plugins
 dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
 dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
 dsh plugin --profile web update  # update plugins to the latest allowed versions
+pnpm dsh plugin --profile web update --latest  # from a source-built dsh: force every plugin to its newest published version
 ```
+
+`update` respects the version ranges in the profile's `package.json`, so it
+stays within the semver range each plugin declares. Adding `--latest` (a pnpm
+`update` flag) instead ignores those ranges and upgrades every plugin to its
+newest published version — the way to pick up a fresh release immediately once
+it is resolvable. From a source-built dsh checkout you run it as
+`pnpm dsh …` in the deepseek-harness directory, exactly as with `add`.
 
 ### Dependency notes
 
