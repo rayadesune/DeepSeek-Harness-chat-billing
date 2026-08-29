@@ -47,7 +47,7 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
 - **密钥不进仓库**：`DEEPSEEK_API_KEY` 等一律由用户环境或凭据 seam 提供，仓库不含真实值。
 - **README 双语**：每个 README 遵循 DSH 结构 `README.md`(EN) + `README.zh.md`(ZH) +
   `README.i18n.yaml`（记录两文件 git blob hash，改动后需更新）。
-- **版本对齐**：根 bundle 与两个包统一版本号（当前 0.3.3），`pnpm-lock.yaml` 随依赖变更更新。
+- **版本对齐**：根 bundle 与两个包统一版本号（当前 0.3.4），`pnpm-lock.yaml` 随依赖变更更新。
 - **文本规范**：LF 换行、文件末尾一个换行（`.editorconfig`/`.gitattributes` 已声明）。
 
 ## 常用命令
