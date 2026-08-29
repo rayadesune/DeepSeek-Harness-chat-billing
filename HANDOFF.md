@@ -1,4 +1,48 @@
-# HANDOFF — billing 插件 0.3.0 已发布（README 真机截图 · 2026-08-28）
+# HANDOFF — billing 插件 0.3.3（分叉会话不重复计费 · 2026-08-29）
+
+## 本轮改动（0.3.3 · 分叉计费修复）
+
+- **问题**：从会话 A「分叉会话」得到 B，B 的日志以 A 的已完成前缀**逐字节副本**开头
+  （相同消息 id / 时间戳 / usage）。旧插件把每个带 usage 的 `assistant/message` 按所在日志计价，
+  继承前缀在每个副本会话里再计一次——B 的会话花费包含继承历史，今日花费=父+子重复。
+  「本轮花费」不受影响（turn 括号内计价且不参与汇总）。
+- **修复**：所有计费路径只对会话的**自有事件**计费，边界 = 持久化 `SessionHeader.seedLength`
+  （`seq < seedLength` 视为来源会话已计费，跳过；普通会话/冷恢复无 seedLength → 0 全量计费）：
+  - `billing.ts`：新增 `forkBoundaryOf(header)`（`seedLength ?? 0`）；`computeSessionSpend` /
+    `priceEvents` 增加可选 `startSeq`。
+  - `index.ts`：`fetchSessionSpend` 只计自有事件；增量缓存改按**自有事件条数**
+    （tail = `events.slice(seedLength + cached.count)`，边界不可变）。
+  - `today-spend.ts`：事件路径 `collect` 按会话跳过继承前缀；投影路径对 `seedLength>0` 的会话
+    **绕过 eager cell**，用 `ownBillingState`（单元 fold 语义 + 增量缓存）折自有事件；冷会话
+    跳过投影缓存阶梯（缓存行覆盖了继承前缀），按 `inspect().meta` 边界本地折叠；
+    `scanSessions` 排行同样处理。
+  - `projection.ts`：新增 `foldOwnBilling`（带边界的 detached 折叠）。
+  - **为什么用 `header.seedLength` 而非日志里的 `session/end-seed`**：fork 与**冷恢复**都会追加
+    end-seed（恢复标记还会持久化），一个日志可含多个标记且无法区分；孙代 fork 的日志还夹着中间代
+    标记；`seedLength` 是 fork 时写入、恢复时从**持久化 header** 还原的原始边界，唯一可靠。
+- **测试**：+14 用例（billing / projection / today-spend 事件+投影×live+冷×汇总+排行 / apply 层
+  会话花费与增量尾随）；全套 **124 用例全绿**；`build` / `verify` 全绿。
+- **文档**：llm-billing README 双语补「Forked sessions / 分叉会话」；ui-billing README 双语徽标
+  说明补分叉语义；两份 `README.i18n.yaml` blob hash 已重算。
+- **版本**：三包统一 **0.3.3**（bundle peerDeps `^0.3.3`）。注意：**0.3.2 已于 2026-08-28 16:02
+  发布**（徽标详情样式调整，不含本修复，`tag v0.3.2`），故修复顺延为 0.3.3。
+
+## 状态（2026-08-29）
+
+- **已提交并推送**：`b64aa8c`（rebase 于远端 `8e00a08` 之上；远端 4 条提交——v0.3.2 发布与截图
+  文档——**全部保留**，冲突仅版本号与 ui-billing README / lockfile，逐一合并后 lockfile 重新生成）。
+- **未上传 npm**（按用户要求）。将来发布须带 bypass-2FA token，顺序 llm-billing → ui-billing →
+  dsh-billing（坑见下文）；0.3.2 已在 registry，0.3.3 发布不会冲突。
+- **本地测试安装已完成**：`%DSH_HOME%\local-tarballs\` 下三个 0.3.3 tarball（`npm pack` 产物），
+  经 `dsh plugin --profile web add <三个 tgz>` 装入 `web` profile（package.json 现为 `file:` 引用
+  0.3.3；安装后的 lib 已确认含 `forkBoundaryOf` / `ownBillingState` / `foldOwnBilling`）。
+- **用户待办**：**重启 `dsh web`**（当前进程仍加载旧插件），然后验证——分叉新会话刚生成时
+  本会话花费应显示 ¥0；聊几句后只算分叉后新交流；今日共花费不再含继承前缀。
+  dsh CLI 在 harness 仓库：`node <harness>\apps\cli\lib\bin.js …` 或 `pnpm --dir <harness> dsh`。
+
+---
+
+## 历史：0.3.0（2026-08-28 发布 · 文档与发布）
 
 ## 本轮改动（0.3.0 · 文档与发布）
 
