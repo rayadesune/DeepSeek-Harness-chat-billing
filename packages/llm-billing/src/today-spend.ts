@@ -18,15 +18,25 @@
  * happens at most once per 60 seconds per process, and a manual refresh
  * (`force`) bypasses the time window but keeps the revision caches — an
  * unchanged log provably cannot change the aggregate.
+ *
+ * Forked sessions never double-count: a fork child's log opens with a
+ * verbatim copy of its source session's events (`header.seedLength` of them),
+ * so the scanner prices only the child's OWN events (`seq >= seedLength`) on
+ * every path — the projection path bypasses the eager cell for a seeded
+ * session and folds its own events instead (the cell covers the inherited
+ * prefix too), and the cold ladder skips the projection cache for a seeded
+ * session (its cached row predates the boundary and covers inherited events).
+ * The boundary is the durable session header, so a resumed fork child keeps
+ * its original boundary and an unseeded session stays at 0.
  * @module @rayadesu/dsh-llm-billing/today-spend
  */
 
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import type { ResolvedBilling } from './billing.ts'
-import { beijingDayKey, emptyTodaySpend, mergeTodaySpend, priceEvent, SpendAccumulator } from './billing.ts'
+import { beijingDayKey, emptyTodaySpend, forkBoundaryOf, mergeTodaySpend, priceEvent, SpendAccumulator } from './billing.ts'
 import type { DeepSeekTodaySessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from './types.ts'
-import { BILLING_UNIT_KEY, foldBillingUnit, type BillingUnitState } from './projection.ts'
+import { BILLING_UNIT_KEY, foldOwnBilling, type BillingUnitState } from './projection.ts'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 
 /**
@@ -54,11 +64,15 @@ export function foldSessionTitle(events: readonly SessionEvent[]): string | null
 export interface ScannerSession {
   readonly id: SessionId
   readonly events: readonly SessionEvent[]
+  /** Durable header slice; `seedLength` marks a fork child's inherited prefix. */
+  readonly header?: { readonly seedLength?: number }
 }
 
-/** Structural slice of a listed persisted session. */
+/** Structural slice of a listed persisted session (the snapshot header is a full SessionHeader). */
 export interface ScannerPersistedHeader {
   readonly id: SessionId
+  /** Durable fork boundary carried by the snapshot header; absent for an unseeded session. */
+  readonly seedLength?: number
 }
 
 /** Structural slices of the optional services the scanner reads through. */
@@ -68,7 +82,7 @@ export interface TodaySpendScannerDeps {
   /** Resolves the persistence backend at scan time (absent without persistence). */
   persistence?: () => {
     listSnapshots(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
-    inspect(id: SessionId): Promise<{ events: readonly SessionEvent[] }>
+    inspect(id: SessionId): Promise<{ meta: { seedLength?: number }; events: readonly SessionEvent[] }>
   } | undefined
   /** Resolves the session-projection registry at scan time (absent → events path). */
   projections?: () => {
@@ -186,6 +200,8 @@ export class TodaySpendScanner {
   private readonly coldResolved = new Map<SessionId, { revision: SessionPersistenceRevision; value: BillingUnitState; title: string | null }>()
   /** Cold sessions resolved on the events path: id → revision (events were collected). */
   private lastEventsScan: Map<SessionId, SessionPersistenceRevision> | undefined
+  /** Live fork children priced on the projection path: id → own-events count + folded state. */
+  private readonly ownStates = new Map<SessionId, { count: number; state: BillingUnitState }>()
 
   constructor(private readonly deps: TodaySpendScannerDeps) {}
 
@@ -220,31 +236,64 @@ export class TodaySpendScanner {
    * the projection-cache ladder (cached row first, then a detached local
    * fold over a full inspect). A cache-served value carries no title (the
    * ladder only stores projection values), so such rows report `title: null`
-   * until the session is inspected again.
+   * until the session is inspected again. A SEEDED session (fork child)
+   * skips the ladder entirely: its cached row was folded over the inherited
+   * prefix too, so it always detaches through inspect with the durable
+   * boundary applied to the local fold.
    * @param id - the cold session's id.
+   * @param seedLength - the durable inherited-prefix boundary (0 for unseeded).
    * @returns the resolved state and title, or `undefined` when unreadable.
    */
-  private async resolveCold(id: SessionId): Promise<{ value: BillingUnitState; title: string | null } | undefined> {
+  private async resolveCold(id: SessionId, seedLength: number): Promise<{ value: BillingUnitState; title: string | null } | undefined> {
     const { persistence, projectionCache, unit, logger } = this.deps
-    const cache = projectionCache?.()
-    if (cache !== undefined) {
-      try {
-        const value = (await cache.coldSnapshot(id)).values[BILLING_UNIT_KEY]
-        if (value !== undefined) return { value, title: null }
-      } catch (error: unknown) {
-        logger.warn(`llm-billing: projection cold read for session ${id} failed: ${String(error)}`)
-      }
-    }
     const persistenceService = persistence?.()
     if (persistenceService === undefined) return undefined
+    if (seedLength <= 0) {
+      const cache = projectionCache?.()
+      if (cache !== undefined) {
+        try {
+          const value = (await cache.coldSnapshot(id)).values[BILLING_UNIT_KEY]
+          if (value !== undefined) return { value, title: null }
+        } catch (error: unknown) {
+          logger.warn(`llm-billing: projection cold read for session ${id} failed: ${String(error)}`)
+        }
+      }
+    }
     try {
       const inspection = await persistenceService.inspect(id)
-      return { value: foldBillingUnit(unit, inspection.events), title: foldSessionTitle(inspection.events) }
+      return { value: foldOwnBilling(unit, inspection.events, seedLength), title: foldSessionTitle(inspection.events) }
     } catch (error: unknown) {
       // One unreadable session must not blank the whole-day aggregate.
       logger.warn(`llm-billing: skipping unreadable session ${id}: ${String(error)}`)
       return undefined
     }
+  }
+
+  /**
+   * Fold one fork child's OWN events (its log minus the inherited prefix)
+   * with the billing unit, incrementally: the fold is reused while the log
+   * length is unchanged and only the new tail is applied when it grows.
+   * @param id - the session id (the own-state cache key).
+   * @param events - the session's complete log.
+   * @param seedLength - the inherited-prefix boundary.
+   * @returns the unit state over the session's own events.
+   */
+  private ownBillingState(id: SessionId, events: readonly SessionEvent[], seedLength: number): BillingUnitState {
+    const cached = this.ownStates.get(id)
+    const ownCount = events.length - seedLength
+    if (cached !== undefined && cached.count === ownCount) return cached.state
+    let state: BillingUnitState
+    if (cached !== undefined && cached.count < ownCount) {
+      state = cached.state
+      for (const event of events) {
+        if (event.seq < seedLength + cached.count) continue
+        state = this.deps.unit.apply(state, event)
+      }
+    } else {
+      state = foldOwnBilling(this.deps.unit, events, seedLength)
+    }
+    this.ownStates.set(id, { count: ownCount, state })
+    return state
   }
 
   /** Projection path: eager cells for live sessions, revision-gated cold ladder for the rest. */
@@ -259,7 +308,12 @@ export class TodaySpendScanner {
       if (store !== undefined) {
         for (const session of store.list()) {
           liveIds.add(session.id)
-          const state = projectionsService?.stateOf(session, BILLING_UNIT_KEY)
+          const seedLength = forkBoundaryOf(session.header)
+          // A fork child's eager cell covers its inherited prefix too; price
+          // its own events directly instead.
+          const state = seedLength > 0
+            ? this.ownBillingState(session.id, session.events, seedLength)
+            : projectionsService?.stateOf(session, BILLING_UNIT_KEY)
           if (state !== undefined && state.dayKey === dayKey) {
             total = mergeTodaySpend(total, state.spend)
           }
@@ -269,18 +323,19 @@ export class TodaySpendScanner {
     const persistenceService = persistence?.()
     if (persistenceService === undefined) return total
     const snapshots = await persistenceService.listSnapshots()
-    const pending: { id: SessionId; revision: SessionPersistenceRevision }[] = []
+    const pending: { id: SessionId; revision: SessionPersistenceRevision; seedLength: number }[] = []
     for (const { header, revision } of snapshots) {
       if (liveIds.has(header.id)) continue
+      const seedLength = forkBoundaryOf(header)
       const resolved = this.coldResolved.get(header.id)
       if (resolved !== undefined && resolved.revision === revision) {
         if (resolved.value.dayKey === dayKey) total = mergeTodaySpend(total, resolved.value.spend)
         continue
       }
-      pending.push({ id: header.id, revision })
+      pending.push({ id: header.id, revision, seedLength })
     }
-    await withConcurrency(pending, 8, async ({ id, revision }) => {
-      const resolved = await this.resolveCold(id)
+    await withConcurrency(pending, 8, async ({ id, revision, seedLength }) => {
+      const resolved = await this.resolveCold(id, seedLength)
       if (resolved !== undefined) this.coldResolved.set(id, { revision, ...resolved })
     })
     for (const { id } of pending) {
@@ -294,7 +349,9 @@ export class TodaySpendScanner {
 
   /**
    * Events path: price today's events in a single pass (per-event Beijing-day
-   * filter during collection, hard cap), gated by revisions.
+   * filter during collection, hard cap), gated by revisions. A fork child's
+   * inherited prefix (`seq < seedLength`) is skipped, so each model output is
+   * priced only in its source session.
    */
   private async scanEvents(dayKey: string): Promise<DeepSeekTodaySpend> {
     const { sessions, persistence, maxEvents, logger, billing, catalog } = this.deps
@@ -303,8 +360,9 @@ export class TodaySpendScanner {
     const liveIds = new Set<SessionId>()
     let collected = 0
     let truncated = false
-    const collect = (events: readonly SessionEvent[]): void => {
+    const collect = (events: readonly SessionEvent[], seedLength: number): void => {
       for (const event of events) {
+        if (event.seq < seedLength) continue
         if (beijingDayKey(new Date(event.time)) !== dayKey) continue
         collected += 1
         if (collected > maxEvents) {
@@ -320,7 +378,7 @@ export class TodaySpendScanner {
       if (store !== undefined) {
         for (const session of store.list()) {
           liveIds.add(session.id)
-          collect(session.events)
+          collect(session.events, forkBoundaryOf(session.header))
           if (truncated) break
         }
       }
@@ -332,7 +390,8 @@ export class TodaySpendScanner {
         if (liveIds.has(header.id)) continue
         if (this.lastEventsScan?.get(header.id) === revision) continue
         try {
-          collect((await persistenceService.inspect(header.id)).events)
+          const inspection = await persistenceService.inspect(header.id)
+          collect(inspection.events, forkBoundaryOf(inspection.meta))
         } catch (error: unknown) {
           // One unreadable session must not blank the whole-day aggregate.
           logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)
@@ -354,7 +413,8 @@ export class TodaySpendScanner {
    * Projection-path per-session scan: eager cells for live sessions (title
    * folded from the live log, so a rename is reflected immediately),
    * revision-gated cold ladder for the rest (title resolved on inspect,
-   * `null` when served from the projection cache).
+   * `null` when served from the projection cache). A fork child's row prices
+   * its OWN events only (the cell covers the inherited prefix too).
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
    * @returns unsorted per-session rows for the day.
    */
@@ -368,7 +428,10 @@ export class TodaySpendScanner {
       if (store !== undefined) {
         for (const session of store.list()) {
           liveIds.add(session.id)
-          const state = projectionsService?.stateOf(session, BILLING_UNIT_KEY)
+          const seedLength = forkBoundaryOf(session.header)
+          const state = seedLength > 0
+            ? this.ownBillingState(session.id, session.events, seedLength)
+            : projectionsService?.stateOf(session, BILLING_UNIT_KEY)
           if (state !== undefined && state.dayKey === dayKey) {
             rows.set(session.id, {
               sessionId: session.id,
@@ -382,9 +445,10 @@ export class TodaySpendScanner {
     const persistenceService = persistence?.()
     if (persistenceService === undefined) return [...rows.values()]
     const snapshots = await persistenceService.listSnapshots()
-    const pending: { id: SessionId; revision: SessionPersistenceRevision }[] = []
+    const pending: { id: SessionId; revision: SessionPersistenceRevision; seedLength: number }[] = []
     for (const { header, revision } of snapshots) {
       if (liveIds.has(header.id)) continue
+      const seedLength = forkBoundaryOf(header)
       const resolved = this.coldResolved.get(header.id)
       if (resolved !== undefined && resolved.revision === revision) {
         if (resolved.value.dayKey === dayKey) {
@@ -392,10 +456,10 @@ export class TodaySpendScanner {
         }
         continue
       }
-      pending.push({ id: header.id, revision })
+      pending.push({ id: header.id, revision, seedLength })
     }
-    await withConcurrency(pending, 8, async ({ id, revision }) => {
-      const resolved = await this.resolveCold(id)
+    await withConcurrency(pending, 8, async ({ id, revision, seedLength }) => {
+      const resolved = await this.resolveCold(id, seedLength)
       if (resolved !== undefined) this.coldResolved.set(id, { revision, ...resolved })
     })
     for (const { id } of pending) {
@@ -410,9 +474,11 @@ export class TodaySpendScanner {
   /**
    * Events-path per-session scan: price today's events in a single pass,
    * accumulating per session (per-event Beijing-day filter during collection,
-   * hard cap), gated by revisions. Titles fold from each session's complete
-   * log — a `session/title` event can predate today — so a rename is reflected
-   * as soon as the session's log is re-read.
+   * hard cap), gated by revisions. A fork child's inherited prefix
+   * (`seq < seedLength`) is skipped, so each row is the session's OWN spend.
+   * Titles fold from each session's complete log — a `session/title` event
+   * can predate today — so a rename is reflected as soon as the session's log
+   * is re-read.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
    * @returns unsorted per-session rows for the day.
    */
@@ -423,13 +489,14 @@ export class TodaySpendScanner {
     const liveIds = new Set<SessionId>()
     let collected = 0
     let truncated = false
-    const collect = (id: SessionId, events: readonly SessionEvent[]): void => {
+    const collect = (id: SessionId, events: readonly SessionEvent[], seedLength: number): void => {
       let row = rows.get(id)
       if (row === undefined) {
         row = { title: foldSessionTitle(events), total: 0 }
         rows.set(id, row)
       }
       for (const event of events) {
+        if (event.seq < seedLength) continue
         if (beijingDayKey(new Date(event.time)) !== dayKey) continue
         collected += 1
         if (collected > maxEvents) {
@@ -445,7 +512,7 @@ export class TodaySpendScanner {
       if (store !== undefined) {
         for (const session of store.list()) {
           liveIds.add(session.id)
-          collect(session.id, session.events)
+          collect(session.id, session.events, forkBoundaryOf(session.header))
           if (truncated) break
         }
       }
@@ -457,7 +524,8 @@ export class TodaySpendScanner {
         if (liveIds.has(header.id)) continue
         if (this.lastEventsScan?.get(header.id) === revision) continue
         try {
-          collect(header.id, (await persistenceService.inspect(header.id)).events)
+          const inspection = await persistenceService.inspect(header.id)
+          collect(header.id, inspection.events, forkBoundaryOf(inspection.meta))
         } catch (error: unknown) {
           // One unreadable session must not blank the whole-day aggregate.
           logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)

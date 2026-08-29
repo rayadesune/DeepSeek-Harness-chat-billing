@@ -34,6 +34,7 @@ import {
   computeTurnSpend,
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
+  forkBoundaryOf,
   mergeTodaySpend,
   resolveBilling,
 } from './billing.ts'
@@ -52,6 +53,7 @@ export {
   DEFAULT_MODEL_PRICING,
   DEFAULT_PEAK_HOURS,
   emptyTodaySpend,
+  forkBoundaryOf,
   isPeak,
   mergeTodaySpend,
   priceEvent,
@@ -68,7 +70,7 @@ export type {
   ResolvedBilling,
 } from './billing.ts'
 export type * from './types.ts'
-export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit } from './projection.ts'
+export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit, foldOwnBilling } from './projection.ts'
 export type { BillingUnitState } from './projection.ts'
 export { foldSessionTitle, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
 export type { ScannerPersistedHeader, ScannerSession, TodaySpendScannerDeps } from './today-spend.ts'
@@ -146,23 +148,31 @@ export const TODAY_SPEND_CACHE_MS = 60_000
 /** Hard cap on today's events collected by the events scan path. */
 export const TODAY_SPEND_MAX_EVENTS = 200_000
 
+/** One session read: the event log plus the durable inherited-prefix boundary. */
+interface SessionEventsRead {
+  readonly events: readonly SessionEvent[]
+  /** Inherited-prefix length (fork seed length); 0 for an unseeded session. */
+  readonly seedLength: number
+}
+
 /**
- * Read one session's event log: the live SessionStore first, then the
- * persistence backend for a flushed session (inspected directly by id — no
- * header listing).
+ * Read one session's event log and durable seed boundary: the live
+ * SessionStore first, then the persistence backend for a flushed session
+ * (inspected directly by id — no header listing).
  * @param ctx - plugin context carrying the SessionStore and optional persistence.
  * @param sessionId - the session to read.
- * @returns the session's complete event log.
+ * @returns the session's complete event log plus its inherited-prefix boundary.
  * @throws {@link LlmError} with code `NOT_FOUND` when the session is unknown.
  */
-async function sessionEvents(ctx: Context, sessionId: SessionId): Promise<readonly SessionEvent[]> {
+async function sessionEvents(ctx: Context, sessionId: SessionId): Promise<SessionEventsRead> {
   const sessions = ctx.get('sessions')
   const live = sessions?.get(sessionId)
-  if (live !== undefined) return live.events
+  if (live !== undefined) return { events: live.events, seedLength: forkBoundaryOf(live.header) }
   const persistence = ctx.get('sessionPersistence')
   if (persistence !== undefined) {
     try {
-      return (await persistence.inspect(sessionId)).events
+      const inspection = await persistence.inspect(sessionId)
+      return { events: inspection.events, seedLength: forkBoundaryOf(inspection.meta) }
     } catch (error: unknown) {
       throw new LlmError(`llm-billing: session ${sessionId} not found`, 'NOT_FOUND', { cause: error })
     }
@@ -208,24 +218,26 @@ export function apply(ctx: Context, config: Config): void {
 
   // Per-session incremental spend cache: a session log is append-only and
   // chronological (the same assumption the projection unit makes), so a spend
-  // computed for `count` events stays valid while the log length is unchanged,
-  // and only the appended tail needs pricing when it grows. A pricing-table
-  // change does not retroactively reprice (same caveat as the projection
-  // path); the map is capped so an unbounded session-id space cannot grow it
-  // without bound.
+  // computed for `count` EVENTS OF THE SESSION'S OWN WORK (the log minus its
+  // inherited fork prefix) stays valid while the log length is unchanged, and
+  // only the appended tail needs pricing when it grows. A forked child's
+  // inherited prefix (`seq < seedLength`) is priced only in its source
+  // session; the map is capped so an unbounded session-id space cannot grow
+  // it without bound.
   const sessionSpendCache = new Map<SessionId, { count: number; spend: DeepSeekSessionSpend }>()
   const fetchSessionSpend = async (sessionId: SessionId): Promise<DeepSeekSessionSpend> => {
-    const events = await sessionEvents(ctx, sessionId)
+    const { events, seedLength } = await sessionEvents(ctx, sessionId)
+    const ownCount = events.length - seedLength
     const cached = sessionSpendCache.get(sessionId)
-    if (cached !== undefined && cached.count === events.length) return cached.spend
-    if (cached !== undefined && cached.count < events.length) {
-      const spend = mergeTodaySpend(cached.spend, computeSessionSpend(events.slice(cached.count), billing, catalog))
-      sessionSpendCache.set(sessionId, { count: events.length, spend })
+    if (cached !== undefined && cached.count === ownCount) return cached.spend
+    if (cached !== undefined && cached.count < ownCount) {
+      const spend = mergeTodaySpend(cached.spend, computeSessionSpend(events.slice(seedLength + cached.count), billing, catalog))
+      sessionSpendCache.set(sessionId, { count: ownCount, spend })
       return spend
     }
-    const spend = computeSessionSpend(events, billing, catalog)
+    const spend = computeSessionSpend(events, billing, catalog, seedLength)
     if (sessionSpendCache.size >= 1024) sessionSpendCache.clear()
-    sessionSpendCache.set(sessionId, { count: events.length, spend })
+    sessionSpendCache.set(sessionId, { count: ownCount, spend })
     return spend
   }
 
@@ -274,7 +286,7 @@ export function apply(ctx: Context, config: Config): void {
   const fetchTodaySessionsSpend = async (force = false): Promise<DeepSeekTodaySessionsSpend> => todaySessionsCache.get(force)
 
   const fetchTurnSpend = async (sessionId: SessionId, messageId: string): Promise<DeepSeekTurnSpend> => {
-    const events = await sessionEvents(ctx, sessionId)
+    const { events } = await sessionEvents(ctx, sessionId)
     return computeTurnSpend(events, billing, catalog, messageId)
   }
 

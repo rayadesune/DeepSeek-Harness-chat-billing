@@ -29,6 +29,10 @@ After the first resolution per process, steady-state reads cost only the session
 
 Note: the projection path prices a session's history once, at the rates in effect when its events were folded — changing `billing.models` re-prices only events folded after the change (the events path re-prices the whole log).
 
+## Forked sessions
+
+A forked session (DSH's "fork" of a conversation) opens its log with a verbatim copy of its source session's events. Without special handling, the same model outputs would be billed once per copy: the child's session spend would include the inherited prefix, and today's spend would count it a second time alongside the parent's. The plugin prices only a session's OWN events — the durable `header.seedLength` is the fork boundary, and every event with `seq < seedLength` is treated as already billed in the source session. Fork children are therefore billed from their first new exchange onward (a freshly forked session prices to zero), today's spend counts each model output exactly once, and the same lineage-safe rule covers multi-generation forks and subagent forks (spawned with `context: 'fork'`). The boundary is the persisted header value, so a resumed fork child keeps its original boundary, while a session created without a seed — ordinary sessions and cold resumes included — carries no boundary and is billed in full.
+
 ## Configuration
 
 | Field | Default | Meaning |

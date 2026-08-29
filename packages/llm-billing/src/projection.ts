@@ -130,3 +130,28 @@ export function foldBillingUnit(
   for (const event of events) state = unit.apply(state, event)
   return state
 }
+
+/**
+ * Fold a unit from init over one session's OWN events only: the complete log
+ * minus its inherited fork prefix (`seq < seedLength`). A forked child's
+ * prefix is a verbatim copy of events already billed in its source session,
+ * so the detached cold recipe must skip it, or the same model output is
+ * priced once per copy.
+ * @param unit - the billing unit's fold halves.
+ * @param events - the session's complete event log (in seq order).
+ * @param seedLength - the durable inherited-prefix boundary
+ *   ({@link forkBoundaryOf}); 0 for an unseeded session.
+ * @returns the unit state folded over the session's own events.
+ */
+export function foldOwnBilling(
+  unit: Pick<ProjectionDefinition<'billingTodaySpend', BillingUnitState>, 'init' | 'apply'>,
+  events: readonly SessionEvent[],
+  seedLength = 0,
+): BillingUnitState {
+  let state = unit.init()
+  for (const event of events) {
+    if (event.seq < seedLength) continue
+    state = unit.apply(state, event)
+  }
+  return state
+}

@@ -352,4 +352,37 @@ describe('apply / session spend cache', () => {
     expect(b).not.toBe(a)
     await ctx.fiber.dispose()
   })
+
+  it('bills a forked child session from its own events only', async () => {
+    const ctx = new Context()
+    ctx.provide('sessionPersistence', {
+      listSnapshots: async () => [],
+      inspect: async () => ({
+        meta: { seedLength: 2 },
+        events: [pricedEvent(0), pricedEvent(1), pricedEvent(2)],
+      }),
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const spend = await gateway.getSessionSpend('session-fork' as SessionId)
+    // One own event instead of three: the two inherited copies are skipped.
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(100)
+    await ctx.fiber.dispose()
+  })
+
+  it('prices only the appended own tail for a growing fork child', async () => {
+    const ctx = new Context()
+    const events = [pricedEvent(0), pricedEvent(1), pricedEvent(2)]
+    ctx.provide('sessionPersistence', {
+      listSnapshots: async () => [],
+      inspect: async () => ({ meta: { seedLength: 2 }, events }),
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const first = await gateway.getSessionSpend('session-fork' as SessionId)
+    events.push(pricedEvent(3))
+    const second = await gateway.getSessionSpend('session-fork' as SessionId)
+    expect(second.total).toBeCloseTo(first.total * 2, 10)
+    await ctx.fiber.dispose()
+  })
 })
