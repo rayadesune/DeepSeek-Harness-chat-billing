@@ -151,6 +151,23 @@ export function beijingDayKey(now: Date): string {
   return beijingParts(now.getTime()).dayKey
 }
 
+/**
+ * The durable inherited-prefix boundary of one session: its header's
+ * `seedLength`, or 0 for a session created without a seed. A forked session
+ * (or any seeded replay) carries the number of events it inherited verbatim
+ * from its source session in its header; every event with `seq < seedLength`
+ * is a copy of an event already billed in that source session, so pricing
+ * must skip them or the same model output is counted once per copy.
+ * The value is the PERSISTED header field (not the in-memory constructor
+ * seed length), so a resumed fork child keeps its original boundary and a
+ * resume of an unseeded session stays at 0.
+ * @param header - the session's durable header, when available.
+ * @returns the inherited-prefix length; 0 for an unseeded session.
+ */
+export function forkBoundaryOf(header: { readonly seedLength?: number } | undefined): number {
+  return header?.seedLength ?? 0
+}
+
 /** Whether a Beijing (hour, weekday) pair falls inside any peak-hour window. */
 function isPeakParts(billing: ResolvedBilling, hour: number, weekday: number): boolean {
   if (weekday === 0 || weekday === 6) return false
@@ -365,6 +382,8 @@ export function mergeTodaySpend(target: DeepSeekTodaySpend, source: DeepSeekToda
  * @param billing - resolved pricing with peak-hour windows.
  * @param names - model id → display label.
  * @param dayKey - when provided, only events on this Beijing calendar day contribute.
+ * @param startSeq - when provided, only events with `seq >= startSeq` contribute
+ *   (a forked session's inherited prefix, `seq < startSeq`, is skipped).
  * @returns the total cost plus one row per priced model.
  */
 function priceEvents(
@@ -372,9 +391,11 @@ function priceEvents(
   billing: ResolvedBilling,
   names: ReadonlyMap<string, string>,
   dayKey?: string,
+  startSeq = 0,
 ): DeepSeekTodaySpend {
   const accumulator = new SpendAccumulator()
   for (const event of events) {
+    if (event.seq < startSeq) continue
     const priced = priceEvent(event, billing, names)
     if (priced === undefined || (dayKey !== undefined && priced.dayKey !== dayKey)) continue
     accumulator.add(priced)
@@ -387,15 +408,20 @@ function priceEvents(
  * @param events - one session's complete event log.
  * @param billing - resolved pricing with peak-hour windows.
  * @param catalog - model display rows, in presentation order.
+ * @param startSeq - when provided, only events with `seq >= startSeq`
+ *   contribute: a forked session's inherited prefix (see {@link forkBoundaryOf})
+ *   is skipped, so each model output is billed only in the session that
+ *   produced it.
  * @returns the session's total cost plus one row per priced model.
  */
 export function computeSessionSpend(
   events: readonly SessionEvent[],
   billing: ResolvedBilling,
   catalog: readonly { id: string; name: string }[],
+  startSeq = 0,
 ): DeepSeekSessionSpend {
   const names = new Map(catalog.map(model => [model.id, model.name]))
-  return priceEvents(events, billing, names)
+  return priceEvents(events, billing, names, undefined, startSeq)
 }
 
 /**

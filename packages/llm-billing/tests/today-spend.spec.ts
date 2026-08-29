@@ -242,6 +242,43 @@ describe('TodaySpendScanner events path', () => {
     expect(spend).toEqual(reference)
   })
 
+  it('skips a live fork child\'s inherited prefix and prices its own events once', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          { id: 'parent' as SessionId, events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1)] },
+          {
+            id: 'child' as SessionId,
+            events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2)],
+            header: { seedLength: 2 },
+          },
+        ],
+      }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    // The parent's two events plus the child's own one — the two copied
+    // events are skipped instead of billed a second time.
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(3_000_000)
+  })
+
+  it('skips a cold fork child\'s inherited prefix (snapshot header seedLength)', async () => {
+    const inspect = vi.fn(async () => ({
+      meta: { seedLength: 2 },
+      events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2)],
+    }))
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({ list: () => [{ id: 'parent' as SessionId, events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1)] }] }),
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'child' as SessionId, seedLength: 2 }, revision: SessionPersistenceRevision('r-child') },
+        ],
+        inspect,
+      }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(3_000_000)
+  })
+
   it('resolves many pending cold sessions with bounded concurrency', async () => {
     const ids = Array.from({ length: 40 }, (_, index) => `cold-${index}` as SessionId)
     let inFlight = 0
@@ -351,6 +388,55 @@ describe('TodaySpendScanner projection path', () => {
     expect(inspect).toHaveBeenCalledTimes(1)
   })
 
+  it('bypasses the eager cell for a live fork child and prices its own events', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          { id: 'parent' as SessionId, events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1)] },
+          {
+            id: 'child' as SessionId,
+            events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2)],
+            header: { seedLength: 2 },
+          },
+        ],
+      }),
+      projections: () => ({
+        stateOf: (session) => session.id === 'child'
+          // The child's eager cell would cover its inherited prefix too.
+          ? { dayKey: DAY_KEY, spend: { total: 999, models: [] } }
+          : { dayKey: DAY_KEY, spend: { total: 27.20, models: [] } },
+      }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    // Parent's cell (two events) plus the child's own event, not the junk cell.
+    expect(spend.total).toBeCloseTo(27.20 + 13.60, 10)
+  })
+
+  it('resolves a cold fork child through inspect, skipping the projection cache', async () => {
+    const coldSnapshot = vi.fn(async () => ({
+      values: { [BILLING_UNIT_KEY]: { dayKey: DAY_KEY, spend: { total: 555, models: [] } } },
+    }))
+    const inspect = vi.fn(async () => ({
+      meta: { seedLength: 2 },
+      events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2)],
+    }))
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'child' as SessionId, seedLength: 2 }, revision: SessionPersistenceRevision('r-child') },
+        ],
+        inspect,
+      }),
+      projections: () => ({ stateOf: () => undefined }),
+      projectionCache: () => ({ coldSnapshot }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    // The seeded session never rides the cached row: it folds its own events.
+    expect(coldSnapshot).not.toHaveBeenCalled()
+    expect(inspect).toHaveBeenCalledTimes(1)
+    expect(spend.total).toBeCloseTo(13.60, 10)
+  })
+
   it('falls back to the local fold when the cache ladder read fails', async () => {
     const coldSnapshot = vi.fn(async () => { throw new Error('cache row poisoned') })
     const warn = vi.fn()
@@ -421,6 +507,24 @@ describe('TodaySpendScanner scanSessions (events path)', () => {
     expect(sessions[0]?.total).toBeCloseTo(13.60, 10)
   })
 
+  it('reports a fork child row from its own spend only', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          { id: 'parent' as SessionId, events: [titleEvent('父会话', 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2)] },
+          {
+            id: 'child' as SessionId,
+            events: [titleEvent('父会话', 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2), pricedEvent(DAY_TIME, 3)],
+            header: { seedLength: 3 },
+          },
+        ],
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions.find(row => row.sessionId === 'parent')?.total).toBeCloseTo(27.20, 10)
+    expect(sessions.find(row => row.sessionId === 'child')?.total).toBeCloseTo(13.60, 10)
+  })
+
   it('reflects a renamed title once the log changes (revision gate)', async () => {
     let events = [titleEvent('旧名'), pricedEvent(DAY_TIME, 1)]
     let revision = SessionPersistenceRevision('r-a')
@@ -480,6 +584,30 @@ describe('TodaySpendScanner scanSessions (projection path)', () => {
     expect(sessions.map(row => row.sessionId)).toEqual(['cold-a', 'live-a'])
     expect(sessions[0]?.title).toBe('冷会话')
     expect(sessions[1]?.title).toBe('直播会话')
+  })
+
+  it('reports a fork child row from its own-events fold on the projection path', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          { id: 'parent' as SessionId, events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1)] },
+          {
+            id: 'child' as SessionId,
+            events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2)],
+            header: { seedLength: 2 },
+          },
+        ],
+      }),
+      projections: () => ({
+        stateOf: (session) => session.id === 'child'
+          // The child's eager cell would cover its inherited prefix too.
+          ? { dayKey: DAY_KEY, spend: { total: 999, models: [] } }
+          : { dayKey: DAY_KEY, spend: { total: 27.20, models: [] } },
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions.find(row => row.sessionId === 'parent')?.total).toBeCloseTo(27.20, 10)
+    expect(sessions.find(row => row.sessionId === 'child')?.total).toBeCloseTo(13.60, 10)
   })
 
   it('reports a null title for cold sessions served from the projection cache', async () => {

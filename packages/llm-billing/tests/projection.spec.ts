@@ -11,7 +11,7 @@ import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import { computeTodaySpend, resolveBilling } from '../src/billing.ts'
-import { billingTodaySpendDefinition, BILLING_UNIT_KEY, foldBillingUnit } from '../src/projection.ts'
+import { billingTodaySpendDefinition, BILLING_UNIT_KEY, foldBillingUnit, foldOwnBilling } from '../src/projection.ts'
 
 function assistantMessage(model: string, usage: TokenUsage, time: number, seq = 0): SessionEvent {
   return {
@@ -119,5 +119,37 @@ describe('billingTodaySpend unit', () => {
     expect(parsed).toEqual(state)
     const viewed = unit.wire!.viewSchema.parse(unit.wire!.view(parsed))
     expect(viewed).toEqual(state)
+  })
+})
+
+describe('foldOwnBilling', () => {
+  const unit = billingTodaySpendDefinition(resolveBilling(undefined), CATALOG)
+
+  it('skips the inherited prefix and folds only the session\'s own events', () => {
+    const state = foldOwnBilling(unit, [
+      assistantMessage(FLASH, USAGE, DAY1_PEAK, 0),
+      assistantMessage(FLASH, USAGE, DAY1_OFF, 1),
+      assistantMessage(FLASH, USAGE, DAY1_OFF, 2),
+    ], 2)
+    expect(state.dayKey).toBe('2026-08-20')
+    // Only the own off-peak event survives; the inherited peak/off pair is skipped.
+    expect(state.spend.total).toBeCloseTo(6.80, 10)
+  })
+
+  it('equals foldBillingUnit over the sliced own-events log', () => {
+    const events = [
+      assistantMessage(FLASH, USAGE, DAY1_PEAK, 0),
+      assistantMessage(FLASH, USAGE, DAY1_OFF, 1),
+      assistantMessage(FLASH, USAGE, DAY1_OFF, 2),
+    ]
+    expect(foldOwnBilling(unit, events, 2)).toEqual(foldBillingUnit(unit, events.slice(2)))
+  })
+
+  it('defaults to a zero boundary — no event is skipped', () => {
+    const events = [
+      assistantMessage(FLASH, USAGE, DAY1_PEAK, 0),
+      assistantMessage(FLASH, USAGE, DAY1_OFF, 1),
+    ]
+    expect(foldOwnBilling(unit, events)).toEqual(foldBillingUnit(unit, events))
   })
 })

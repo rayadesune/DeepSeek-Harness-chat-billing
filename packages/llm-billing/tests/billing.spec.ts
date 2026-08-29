@@ -12,6 +12,7 @@ import {
   computeTodaySpend,
   computeTurnSpend,
   emptyTodaySpend,
+  forkBoundaryOf,
   isPeak,
   mergeTodaySpend,
   priceEvent,
@@ -20,10 +21,10 @@ import {
 } from '../src/billing.ts'
 import type { BillingEventContribution, DeepSeekTodaySpend } from '../src/billing.ts'
 
-function assistantMessage(model: string, usage: TokenUsage, time = 0): SessionEvent {
+function assistantMessage(model: string, usage: TokenUsage, time = 0, seq = 0): SessionEvent {
   return {
     type: 'assistant/message',
-    seq: 0,
+    seq,
     time,
     data: {
       turn: 0,
@@ -95,6 +96,18 @@ describe('isPeak', () => {
     expect(isPeak(billing, new Date('2026-08-23T02:00:00Z'))).toBe(false)
     // Weekend hours outside the windows are off-peak too.
     expect(isPeak(billing, new Date('2026-08-22T12:00:00Z'))).toBe(false)
+  })
+})
+
+describe('forkBoundaryOf', () => {
+  it('returns 0 for a missing header or an unseeded session', () => {
+    expect(forkBoundaryOf(undefined)).toBe(0)
+    expect(forkBoundaryOf({})).toBe(0)
+    expect(forkBoundaryOf({ seedLength: undefined })).toBe(0)
+  })
+
+  it('returns the durable inherited-prefix length when the header carries seedLength', () => {
+    expect(forkBoundaryOf({ seedLength: 7 })).toBe(7)
   })
 })
 
@@ -176,6 +189,17 @@ describe('computeSessionSpend', () => {
     )
     expect(spend.total).toBe(0)
     expect(spend.models).toEqual([])
+  })
+
+  it('prices only events at or after startSeq, matching the sliced log (fork boundary)', () => {
+    const events = [
+      assistantMessage(FLASH, USAGE, PEAK, 0),
+      assistantMessage(FLASH, USAGE, PEAK, 1),
+      assistantMessage(FLASH, USAGE, OFF_PEAK, 2),
+    ]
+    const spend = computeSessionSpend(events, resolveBilling(undefined), CATALOG, 2)
+    expect(spend.total).toBeCloseTo(6.80, 10)
+    expect(spend).toEqual(computeSessionSpend([events[2]!], resolveBilling(undefined), CATALOG))
   })
 })
 
