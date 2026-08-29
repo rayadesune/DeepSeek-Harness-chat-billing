@@ -1,3 +1,17 @@
+# HANDOFF — billing 插件 0.3.4（发布 · 2026-08-29）
+
+## 发布记录（2026-08-29 · 0.3.4）
+
+- **已发布完成**：顺序 llm-billing → ui-billing → dsh-billing 均 PUT 成功，registry
+  `dist-tags.latest` 均为 0.3.4（0.3.3 的本地 tarball 安装验证通过后发布）。
+- 版本号 0.3.3 → 0.3.4（三包统一，bundle peerDeps 与 ui-billing peer/dev 同步 `^0.3.4`），
+  lockfile 随 `pnpm install` 重生成；README 无版本引用，i18n hash 未变。
+- 发布方式：`npm publish --//registry.npmjs.org/:_authToken=<TOKEN>`（用户提供 token，
+  仅内联传参，未写入任何文件），prepublishOnly（verify-packages.mjs）自动运行并通过。
+- 本机 web profile 仍为 local-tarballs 的 `file:` 引用（0.3.3）；如需换回 npm 版本：
+  `dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
+  后重启 `dsh web`。
+
 # HANDOFF — billing 插件 0.3.3（分叉会话不重复计费 · 2026-08-29）
 
 ## 本轮改动（0.3.3 · 分叉计费修复）
