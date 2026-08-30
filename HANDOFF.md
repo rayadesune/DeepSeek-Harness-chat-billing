@@ -1,3 +1,76 @@
+# HANDOFF — billing 插件 0.3.5（行尾静态「¥金额」· 2026-08-29 方案已定，待实施）
+
+## 需求（用户审核通过的最终版）
+
+- **背景**：DSH 0.1.2-alpha.2 把本轮 token 用量（🗄用量 / ⏱耗时 pills）重排到分支按钮之后
+  （`MessageIconActions` 的 `usageAction` prop，硬编码非 slot）；插件的「本轮花费」目前注册在
+  `conversation.chat.assistant-actions`（渲染在 copy ↔ branch 之间），靠 CSS `order:-1` 显示在 copy 前。
+- **目标**：改成**行尾静态文本** `¥金额`——位于 **时钟之后（整行最后一格）**；不可点击、
+  不弹卡片、无图标、无「花费」文字；字体样式**逐项复刻 DSH 时钟文本**（`.timeEnd`）。
+- **已确认决策**（与用户逐轮敲定，勿再更改）：
+  1. **不改 DSH 源码**（用户不懂 DSH 源码、明确选纯 CSS 路线；DSH 侧不动 = 无重建 DSH 需求）。
+  2. 位置实现只用一条 CSS：`.cost { order: 1 }`（视觉排到所有 order-0 兄弟之后 = 时钟后 / 行末）。
+     **不需要 `:global` 规则**（上一版给时钟 `order:2` 的结构选择器已废弃——目标改为"时钟之后"
+     后，纯 order 排序即自然命中，且 `:last-child` 脆弱性消除）。
+  3. 「未缓存输入 / 缓存读取 / 输出」**分项计价卡**方案废弃；host（llm-billing）
+     **零改动**——只需总额，`DeepSeekTurnSpend` 保持 `{ total }`。
+  4. 不做「点击展开卡片」：不新增 `@deepseek-ai/dsh-client-ui-primitives` peer 依赖。
+  5. 零花费 / 抓取失败仍隐藏；`cachedTurnCost`（session+message 键控）保留。
+
+## 实现清单（待执行，均为插件仓库内）
+
+1. `packages/ui-billing/src/client/TurnCostAction.tsx`：重写为单个
+   `<span data-turn-cost>¥{formatSpend(total)}</span>` —— 删掉按钮语义 / aria / 锚定 / portal；
+   保留 `formatSpend`（¥ + 4 位小数去尾零：`¥0.0123` / `¥8.5`）与缓存逻辑。
+2. `packages/ui-billing/src/client/TurnCostAction.module.css`：重写为 `.timeEnd` 复刻 +
+   `order: 1`：`font-size: var(--dsh-content-font-size-secondary, 13px)`、
+   `line-height: calc(24px + var(--dsh-content-font-delta, 0px))`、
+   `color: var(--dsw-alias-label-tertiary)`、`white-space: nowrap`；删除旧的 `order:-1`、
+   `margin-left: 6px`、图标 / 分隔线 / 卡片皮肤；沿用「zero 不发标」约定
+   （组件内部 `cost === null || cost.total <= 0` 返回 null，CSS 无需 display 分支）。
+3. `packages/ui-billing/src/client/locales.ts`：删除不再使用的 `turnCost.label`（zh/en 同步删，
+   `BillingKey` 自动收缩）。
+4. `packages/ui-billing/src/client/index.ts`：注册仍走 `conversation.chat.assistant-actions`
+   （同 slot 名，wiring 不变），只更新注释说明「视觉靠 order:1 排到行末、DOM 仍在 copy↔branch 之间」。
+5. 测试：新增/更新 TurnCostAction 断言——渲染 `¥金额`、`data-turn-cost`、零花费隐藏、
+   失败隐藏；`DeepSeekTurnSpend` fixture 形状不变（host 零改动）。
+6. 版本 0.3.4 → **0.3.5**：根 `package.json` + `packages/llm-billing/package.json` +
+   `packages/ui-billing/package.json`（bundle peerDeps `^0.3.5`、ui-billing peer/dev 同步）。
+7. 文档：AGENTS.md 版本号同步 0.3.5；README（EN/ZH）按 AGENTS.md 更新本轮行为描述，
+   `README.i18n.yaml` blob hash 重算。
+8. `pnpm run build` + `pnpm run test` + `pnpm run verify` 全绿后，
+   npm 顺序发布 llm-billing → ui-billing → dsh-billing（沿用 0.3.4 的 bypass-2FA token 流程；
+   若用户只要求本地，则 `npm pack` 三包 → `dsh plugin --profile web add <三个 tgz>`）。
+
+## 技术背景（执行者必读）
+
+- `MessageIconActions` 渲染序（`packages/.../ui-chat/src/client/chat/MessageIconActions.tsx`）：
+  `copy → {extraActions}（assistant-actions 槽，插件在此）→ branch → {usageAction}（🗄⏱ 硬编码）→ clock`；
+  容器 `display:flex; gap:8px`，除插件外全部兄弟默认 `order:0`（已验证 ui-message-feedback 与
+  TurnUsagePanel 的 CSS 均无 order）。
+- **DOM 与视觉分离的机理**：`order` 只改渲染位置不改 DOM 树；Tab/读屏跟随 DOM。
+  本方案因目标元素是**纯文本 span（不可聚焦）**，Tab 焦点流 = copy → 分支 → 🗄 → ⏱ → 时钟
+  （与视觉顺序一致），无焦点缺陷；仅屏幕阅读器朗读次序中金额出现在「复制」之后，影响可忽略
+  （已与用户确认接受）。
+- DSH 用量卡三行口径（已查证）：未缓存输入 = `uncachedInputTokens`（不含写入；DeepSeek API
+  根本没有独立缓存写入桶，`cacheWriteTokens` 是给 Anthropic 类 provider 预留的可选字段，
+  DeepSeek 适配器 `mapUsage` 从不填它）→ 所以费用天然只有三桶，行和 = 总额恒等，无需分项。
+- 主题变量：`.timeEnd` 用的都是 `--dsh-*` / `--dsw-*` 变量，逐字复刻即可，勿写死值；
+  行内 `gap: 8px` 已把金额与时钟间距拉开，无需额外 margin；行整体 `margin-left:-6px` 偏移
+  只影响行首，与行尾文本无关。
+- hover 显隐：`[data-actions-reveal='hover'] .actions` 行级 opacity 规则，金额与时钟同进退，
+  无需单独处理。
+
+## 验证清单
+
+1. 视觉：金额位于时钟之后、行末；13px secondary / tertiary / nowrap 与时钟文本一致；
+   无图标、无「花费」字样；hover/focus-within 展示行为与时钟相同。
+2. 行为：点击无反应（非按钮）；零花费与 Remote 失败时整格消失；
+   长金额（如 ¥123.4567）在窄视口不破坏行布局（nowrap + 行末弹性，必要时随行裁切）。
+3. 全套单测 / build / verify 全绿；`dsh web` 刷新或重装 profile 后生效。
+
+---
+
 # HANDOFF — billing 插件 0.3.4（发布 · 2026-08-29）
 
 ## 发布记录（2026-08-29 · 0.3.4）
