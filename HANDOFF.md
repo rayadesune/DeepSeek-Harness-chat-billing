@@ -38,6 +38,11 @@
   经 `dsh plugin --profile web add <三个 tgz>` 装入 web profile（package.json 现为 `file:` 引用
   0.3.5）；安装后的 `lib/client.js` 已确认含 `order:1` 的 `.cost` 规则与 `data-turn-cost`，
   且无「本轮花费」文字残留。
+- **间距修正（方案 A，用户审核后实施）**：`.cost` 增加 `margin-left: 8px`——金额↔时钟可见
+  间距从 8px 提为 16px，与 ⏱耗时→时钟（pill 右内边距 8px + 行 gap 8px = 16px）一致；
+  8px 是 DSH pill `padding: 6px 8px` 的镜像，注释已写明由来。重装坑：pnpm 对同名同版本
+  tarball 视为未变（`dsh plugin add` 提示 Already up to date），**必须先 `dsh plugin --profile
+  web remove @rayadesu/dsh-client-ui-billing` 再 add** 才能刷新安装产物；build/test(125)/verify 全绿。
 - **用户待办**：**重启 `dsh web`**（当前进程仍加载旧插件）并硬刷新，然后验证——金额位于
   时钟之后的行末、13px secondary / tertiary / nowrap 与时钟一致、无图标 / 无「花费」字样、
   点击无反应（非按钮）、零花费与 Remote 失败时整格消失、窄视口长金额不破行。

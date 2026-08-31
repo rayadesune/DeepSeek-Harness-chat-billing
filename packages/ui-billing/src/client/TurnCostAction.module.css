@@ -3,13 +3,19 @@
    so while the DOM stays between copy and branch (the assistant-actions
    slot), the amount visually lands after the clock at the line end. The
    typography replicates the clock's `.timeEnd` tier verbatim so the two read
-   as one trailing meta line; the row's 8px flex gap spaces the amount from
-   the clock, so no extra margin is needed. The amount is not interactive and
-   carries no icon or label; hiding is handled by the component (zero or
-   failed fetches render nothing), so no display rules are needed here. */
+   as one trailing meta line. The 8px left margin mirrors the stat pills'
+   own 8px right padding: a pill's label leaves 8px before its box edge, so
+   ⏱耗时 → clock reads 8px (padding) + 8px (row gap) = 16px of visible
+   whitespace, and this margin gives clock → amount the same 16px rhythm.
+   (The 8px is a mirror of DSH's pill padding, not a tuning knob — if the
+   pill geometry changes upstream, adjust it here too.) The amount is not
+   interactive and carries no icon or label; hiding is handled by the
+   component (zero or failed fetches render nothing), so no display rules
+   are needed here. */
 
 .cost {
   order: 1;
+  margin-left: 8px;
   font-size: var(--dsh-content-font-size-secondary, 13px);
   line-height: calc(24px + var(--dsh-content-font-delta, 0px));
   color: var(--dsw-alias-label-tertiary);
