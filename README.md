@@ -29,7 +29,7 @@ Close-up of the detail panel — the `API 剩余金额` figure, `本会话花费
 
 <img width="640" alt="Detail panel close-up: API remaining amount, this session's spend next to today's all-session spend, per-model rows and today's session ranking" src="preview-detail.png" />
 
-Close-up of the turn-cost amount — the static `¥` amount at the end of the actions row, after the clock (screenshot from before the 0.3.5 redesign):
+Close-up of the turn-cost amount — the static `¥` amount at the end of the actions row, after the clock:
 
 <img width="640" alt="Turn-cost amount close-up: the static ¥ amount at the end of the actions row, after the clock" src="preview-turn-cost.png" />
 
