@@ -67,6 +67,16 @@
 - host 零改动成立的前提：DeepSeek API 没有独立缓存写入桶（`cacheWriteTokens` 是给
   Anthropic 类 provider 预留的可选字段），费用天然只有三桶，行和 = 总额恒等。
 
+## 发布记录（2026-08-29 · 0.3.5）
+
+- **已发布完成**：顺序 llm-billing → ui-billing → dsh-billing 均发布成功（token 内联传参，
+  未写入任何文件；prepublishOnly 自动运行并通过），registry `dist-tags.latest` 均为 0.3.5。
+- 已推送 origin/main（17d0fe7 功能 + e3d14ea 间距修正）与 tag v0.3.5；GitHub Release
+  **v0.3.5** 已创建（中文发布说明，https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.5）。
+- 本机 web profile 仍为 local-tarballs 的 `file:` 引用 0.3.5（视觉效果已验）；如需换 npm
+  版本：`dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
+  后重启 `dsh web`（pnpm 11 发布龄门槛注意 README 的 `minimumReleaseAge: 0` / 显式钉版本）。
+
 ---
 
 # HANDOFF — billing 插件 0.3.4（发布 · 2026-08-29）
