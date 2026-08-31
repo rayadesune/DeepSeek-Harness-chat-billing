@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows your **DeepSeek account balance**, **this session's (this conversation's) billed spend**, and **today's total spend across all sessions** directly in the web session header; each completed turn also shows its **turn cost** in the message actions row, and the detail panel ends with a **today session-spend ranking**.
+A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows your **DeepSeek account balance**, **this session's (this conversation's) billed spend**, and **today's total spend across all sessions** directly in the web session header; each completed turn also shows its **turn cost** as a static amount at the end of the message actions row, and the detail panel ends with a **today session-spend ranking**.
 
 > The balance is the real `GET /user/balance` figure; the session, turn, and today spends price each message's billed tokens at the official peak/off-peak rates and are estimates, not billing promises.
 
@@ -10,7 +10,7 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 
 - **Session-header badge** — two lines: remaining balance (`剩余额度：¥X`) and this conversation's billed spend (`本轮对话花费：¥X`).
 - **Detail panel** — the remaining amount, this session's spend (`本会话花费`) with today's all-session spend beside it (`今日共花费`), one priced row per model (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), plus a manual refresh action and a spend disclaimer. The panel ends with a **today session-spend ranking**: sessions sorted by today's spend, highest first (names come from the log's Chinese titles and follow renames automatically; at most the top 10 rows, with a "…N more sessions" hint).
-- **Turn cost row** — each completed turn's closing message shows `本轮花费 ¥X` at the **front** of the actions row (before the copy control): the "本轮花费" word in the usage-card title tone and the amount in the summary tone, **always visible** (not hover-revealed like the clock text); turns without DeepSeek usage (zero cost) or failed loads stay hidden.
+- **Turn cost amount** — each completed turn's closing message shows a plain static `¥X` at the **end** of the actions row, after the clock: non-interactive (no icon, no "cost" word, no card), its typography replicates the clock text (13px secondary tier, tertiary tone, nowrap), and it is **always visible** (not hover-revealed like the clock text — the row's own hover reveal shows both together); turns without DeepSeek usage (zero cost) or failed loads stay hidden.
 - **Failures and empty states** — a session or day without priced usage shows "no usage recorded" instead of a fabricated figure; a missing key, rejected credential, or transport error renders a muted "Balance unavailable" whose tooltip carries the Remote's own error message.
 
 ## Data update mechanics
@@ -21,7 +21,7 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 
 ## Preview
 
-A real session: the session-header badge, the detail panel (remaining amount, this session's spend next to today's all-session spend, per-model breakdown, and the today session-spend ranking), plus the turn-cost row in the message actions row:
+A real session: the session-header badge, the detail panel (remaining amount, this session's spend next to today's all-session spend, per-model breakdown, and the today session-spend ranking), plus the turn-cost amount at the end of the message actions row:
 
 <img width="1200" alt="Billing plugin overview: session header badge, detail panel with per-model rows and today's session ranking, and the turn-cost row" src="preview-overview.png" />
 
@@ -29,9 +29,9 @@ Close-up of the detail panel — the `API 剩余金额` figure, `本会话花费
 
 <img width="640" alt="Detail panel close-up: API remaining amount, this session's spend next to today's all-session spend, per-model rows and today's session ranking" src="preview-detail.png" />
 
-Close-up of the turn-cost row — money-bag icon, `本轮花费` label and the `¥` amount, in front of the copy control:
+Close-up of the turn-cost amount — the static `¥` amount at the end of the actions row, after the clock (screenshot from before the 0.3.5 redesign):
 
-<img width="640" alt="Turn-cost row close-up: money-bag icon, 本轮花费 label and ¥ amount before the copy control" src="preview-turn-cost.png" />
+<img width="640" alt="Turn-cost amount close-up: the static ¥ amount at the end of the actions row, after the clock" src="preview-turn-cost.png" />
 
 
 ## Package layout
@@ -39,7 +39,7 @@ Close-up of the turn-cost row — money-bag icon, `本轮花费` label and the `
 | Package | Side | Role |
 | --- | --- | --- |
 | [`packages/llm-billing`](packages/llm-billing) — `@rayadesu/dsh-llm-billing` | Host | Owns the `/user/balance` transport and the peak/off-peak pricing table. Exposes the `billing` Remote (`getBalance`, `getSessionSpend`, `getTodaySpend`, `getTodaySessionsSpend`, `getTurnSpend`). |
-| [`packages/ui-billing`](packages/ui-billing) — `@rayadesu/dsh-client-ui-billing` | Browser | Mounts the `billing` Remote itself and contributes the session-header badge and detail panel, plus the turn-cost row in the message actions strip. |
+| [`packages/ui-billing`](packages/ui-billing) — `@rayadesu/dsh-client-ui-billing` | Browser | Mounts the `billing` Remote itself and contributes the session-header badge and detail panel, plus the static turn-cost amount at the end of the message actions strip. |
 
 ## Prerequisites
 

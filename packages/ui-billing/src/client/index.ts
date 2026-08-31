@@ -78,10 +78,14 @@ export async function apply(ctx: ClientContext): Promise<void> {
     }, BalanceBadge),
   )
 
-  // The per-turn cost label rides ui-chat's assistant-actions list slot (the
+  // The per-turn cost amount rides ui-chat's assistant-actions list slot (the
   // same strip ui-message-feedback uses), so it coexists with every other
   // entry; the actions row renders once per completed Turn, for its closing
-  // assistant message.
+  // assistant message. The DOM therefore stays between copy and branch — the
+  // label's own CSS `order: 1` sorts it visually after every order-0 sibling
+  // (copy, branch, usage pills, clock), landing at the line end.
+  // The amount is a plain static span: no interaction, no icon, no label
+  // text, so the entry needs no aria or portal behavior.
   const turnCostInjected: TurnCostActionInjected = {
     getTurnSpend: injected.getTurnSpend,
   }

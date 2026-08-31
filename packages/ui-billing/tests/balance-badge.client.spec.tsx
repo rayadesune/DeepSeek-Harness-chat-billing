@@ -403,19 +403,32 @@ describe('TurnCostAction', () => {
     /> as TurnCostActionProps)
   }
 
-  it('shows the cost label after the Remote settles, then memoizes the fetch', async () => {
+  it('renders one plain ¥-amount span after the Remote settles, then memoizes the fetch', async () => {
     const getTurnSpend = vi.fn(async () => TURN)
     renderCost(getTurnSpend)
-    // The label word and the amount are separate spans (two tones).
+    // Nothing renders until the Remote settles.
     expect(screen.queryByText('¥0.31')).toBeNull()
-    await waitFor(() => expect(screen.getByText('本轮花费')).toBeDefined())
-    expect(screen.getByText('¥0.31')).toBeDefined()
+    await waitFor(() => expect(screen.getByText('¥0.31')).toBeDefined())
+    // The amount is a single non-interactive span: no button, no icon, and
+    // no label word (the same session/message pair rendered twice below).
+    const amount = screen.getByText('¥0.31')
+    expect(amount.tagName).toBe('SPAN')
+    expect(amount.getAttribute('data-turn-cost')).not.toBeNull()
+    expect(amount.querySelector('svg')).toBeNull()
+    expect(screen.queryByText(/本轮花费|This turn/)).toBeNull()
     expect(getTurnSpend).toHaveBeenCalledWith('session-1', 'm1')
     expect(getTurnSpend).toHaveBeenCalledTimes(1)
     // A second mount of the same (session, message) reuses the memo.
     renderCost(getTurnSpend)
     await waitFor(() => expect(screen.getAllByText('¥0.31')).toHaveLength(2))
     expect(getTurnSpend).toHaveBeenCalledTimes(1)
+  })
+
+  it('trims trailing zeros to four decimals at most', async () => {
+    const getTurnSpend = vi.fn(async () => ({ total: 8.5 } as DeepSeekTurnSpend))
+    renderCost(getTurnSpend, 'm-format')
+    await waitFor(() => expect(screen.getByText('¥8.5')).toBeDefined())
+    expect(screen.queryByText('¥8.5000')).toBeNull()
   })
 
   it('hides when the Turn priced to zero', async () => {
@@ -427,7 +440,7 @@ describe('TurnCostAction', () => {
     // The component's fetch runs in a microtask after the effect commits.
     await waitFor(() => expect(getTurnSpend).toHaveBeenCalledTimes(1))
     await act(async () => { resolveFetch({ total: 0 }) })
-    expect(screen.queryByText(/本轮花费/)).toBeNull()
+    expect(screen.queryByText(/^¥/)).toBeNull()
   })
 
   it('stays hidden when the fetch fails', async () => {
@@ -438,6 +451,6 @@ describe('TurnCostAction', () => {
     renderCost(getTurnSpend, 'm-fail')
     await waitFor(() => expect(getTurnSpend).toHaveBeenCalledTimes(1))
     await act(async () => { rejectFetch(new Error('boom')) })
-    expect(screen.queryByText(/本轮花费/)).toBeNull()
+    expect(screen.queryByText(/^¥/)).toBeNull()
   })
 })
