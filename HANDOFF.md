@@ -33,7 +33,8 @@
 - 文档：README EN/ZH 本轮行为描述更新（行尾静态金额、时钟之后、复刻 `.timeEnd`、无图标
   无标签、与时钟同受行级悬停显隐）；`README.i18n.yaml` blob hash 已重算
   （README.md `3f7f9c4…` / README.zh.md `96f2085…`）。**截图未更新**（用户确认暂不更新，
-  `preview-turn-cost.png` 仍为旧样式，README 标注「0.3.5 改版前」）。
+  `preview-turn-cost.png` 仍为旧样式，README 标注「0.3.5 改版前」；发布后用户提供了行尾
+  新样式的实际截图，README 已同步更新为新图并去掉「改版前」标注）。
 - **本地安装已完成**：`npm pack` 三包 0.3.5 → `%DSH_HOME%\local-tarballs\rayadesu-dsh-*-0.3.5.tgz`，
   经 `dsh plugin --profile web add <三个 tgz>` 装入 web profile（package.json 现为 `file:` 引用
   0.3.5）；安装后的 `lib/client.js` 已确认含 `order:1` 的 `.cost` 规则与 `data-turn-cost`，
