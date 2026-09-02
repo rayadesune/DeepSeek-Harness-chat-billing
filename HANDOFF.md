@@ -65,8 +65,9 @@
   New Features/Improvements/Chores）+ `h3 id="cn-v<ver>"` 锚点 + 逐条 `@作者`（英文
   `by @作者`）+ `Full Changelog` compare 链接（v0.1.0 用 commits 链接）；修复了 v0.3.6
   正文被 PowerShell 内联转义破坏（反引号丢失、`` `e `` → ESC 等控制字符）的问题。
-- **新增发布 skill**：`.dsh/skills/dsh-release/SKILL.md`（本工作区自动发现）——完整
-  发布流程与 DSH release 模板、`--notes-file` 防转义坑、npm 顺序发布与 tarball 重装坑。
+- **新增发布 skill**：`.agents/skills/dsh-release/SKILL.md`（共享 agent 约定目录，
+  项目根 rank 200；`.dsh/skills` 为 DSH 专属、rank 100——按用户偏好采用 `.agents`）——
+  完整发布流程与 DSH release 模板、`--notes-file` 防转义坑、npm 顺序发布与 tarball 重装坑。
 
 ---
 
