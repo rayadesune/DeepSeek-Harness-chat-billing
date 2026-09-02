@@ -68,6 +68,10 @@
 - **新增发布 skill**：`.agents/skills/dsh-release/SKILL.md`（共享 agent 约定目录，
   项目根 rank 200；`.dsh/skills` 为 DSH 专属、rank 100——按用户偏好采用 `.agents`）——
   完整发布流程与 DSH release 模板、`--notes-file` 防转义坑、npm 顺序发布与 tarball 重装坑。
+  **两阶段流程（2026-09-02 定稿）**：阶段 A = 改代码 → 本地 pack 安装（不 bump 版本，
+  沿用当前版本 tgz，先 remove 再 add）→ 交给用户重启 dsh web 验证；用户没发话绝不提交/
+  推送/发布。阶段 B = 用户明确说「发布」时：bump 三包版本 → test/build/verify → 中文提交
+  推送 → npm 顺序发布 → tag + DSH 格式 Release → HANDOFF 发布记录。
 
 ---
 
