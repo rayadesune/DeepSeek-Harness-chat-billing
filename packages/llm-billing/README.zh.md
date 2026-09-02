@@ -31,7 +31,11 @@
 
 ## 分叉会话
 
-分叉会话（DSH 的「分叉会话」）的日志以来源会话事件的逐字节副本开头。若不特殊处理，同一批模型输出会按副本数重复计费：子会话的会话花费会包含继承前缀，今日花费也会在父会话之外再计一次。插件只对会话的**自有事件**计费——持久的 `header.seedLength` 即分叉边界，凡是 `seq < seedLength` 的事件都视为已在来源会话计费。因此分叉子会话从分叉后的第一次新交流开始计费（刚分叉的会话花费为零），今日花费对每个模型输出只计一次，同一血缘规则同样覆盖多代分叉与 subagent 分叉（`context: 'fork'` 生成）。边界取自已持久化的 header 值，所以恢复后的分叉子会话保持原边界；而创建时没有 seed 的会话——包括普通会话与冷恢复——不带边界，正常全额计费。
+分叉会话（DSH 的「分叉会话」）的日志以来源会话事件的逐字节副本开头。若不特殊处理，同一批模型输出会按副本数重复计费：子会话的会话花费会包含继承前缀，今日花费也会在父会话之外再计一次。插件只对会话的**自有事件**计费——分叉边界取自已持久化的会话状态（≤ 0.1.1-rc.2 运行时为 `header.seedLength`；0.1.2-alpha.4+ 运行时为 `Session.inheritedEventCount` / `inspect().inheritedEventCount`，两者都以结构方式读取），凡是 `seq < 边界` 的事件都视为已在来源会话计费。因此分叉子会话从分叉后的第一次新交流开始计费（刚分叉的会话花费为零），今日花费对每个模型输出只计一次，同一血缘规则同样覆盖多代分叉与 subagent 分叉（`context: 'fork'` 生成）。边界取自已持久化的值，所以恢复后的分叉子会话保持原边界；而创建时没有 seed 的会话——包括普通会话与冷恢复——不带边界，正常全额计费。
+
+## 运行时兼容性
+
+0.1.2-alpha.4 起，DSH 把 live `Session` 的日志读取表面从 `Session.events` 改为 `Session.snapshotEvents()`（无参 = 当前全量日志）与 `Session.ownEvents()`，并把 `SessionHeader.seedLength` 移至 `Session.inheritedEventCount`（持久化侧 `inspect()` 的结果在 `meta` 之外携带该值，`listSnapshots()` 的 header 只剩布尔 `isSeeded`）。插件的所有日志读取都走结构适配器 `liveSessionEvents` / `forkBoundaryOf` / `isSeededSession`，同时接受 ≤ 0.1.1-rc.2 与 0.1.2-alpha.4+ 两种形状——npm 发布基线（`^0.1.1-rc.2`）与超前于它的 monorepo 运行时代码均无需改动即可工作。遇到两种形状都没有的未知运行时表面时，插件会显式失败而不是静默按零花费计价。
 
 ## 配置
 

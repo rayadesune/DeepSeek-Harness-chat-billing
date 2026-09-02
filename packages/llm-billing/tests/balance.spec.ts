@@ -385,4 +385,57 @@ describe('apply / session spend cache', () => {
     expect(second.total).toBeCloseTo(first.total * 2, 10)
     await ctx.fiber.dispose()
   })
+
+  it('reads a 0.1.2-alpha.4+ live session through snapshotEvents instead of Session.events', async () => {
+    const ctx = new Context()
+    // The newer Session exposes no `events` property; only snapshotEvents.
+    ctx.provide('sessions', {
+      get: () => ({
+        id: 'session-live',
+        snapshotEvents: () => [pricedEvent(0), pricedEvent(1)],
+        inheritedEventCount: 0,
+      }),
+    } as never)
+    ctx.provide('sessionPersistence', { listSnapshots: async () => [], inspect: async () => { throw new Error('must not be read') } } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const spend = await gateway.getSessionSpend('session-live' as SessionId)
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(200)
+    await ctx.fiber.dispose()
+  })
+
+  it('bills a 0.1.2-alpha.4+ live fork child from its own events only (inheritedEventCount)', async () => {
+    const ctx = new Context()
+    ctx.provide('sessions', {
+      get: () => ({
+        id: 'session-new-fork',
+        snapshotEvents: () => [pricedEvent(0), pricedEvent(1), pricedEvent(2)],
+        inheritedEventCount: 2,
+      }),
+    } as never)
+    ctx.provide('sessionPersistence', { listSnapshots: async () => [], inspect: async () => { throw new Error('must not be read') } } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const spend = await gateway.getSessionSpend('session-new-fork' as SessionId)
+    // One own event instead of three: the two inherited copies are skipped.
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(100)
+    await ctx.fiber.dispose()
+  })
+
+  it('aggregates today\'s spend for a 0.1.2-alpha.4+ live session on the events path', async () => {
+    const ctx = new Context()
+    ctx.provide('sessions', {
+      list: () => [{
+        id: 'session-new-live',
+        snapshotEvents: () => [pricedEvent(0), pricedEvent(1)],
+        inheritedEventCount: 0,
+      }],
+    } as never)
+    ctx.provide('sessionPersistence', { listSnapshots: async () => [], inspect: async () => { throw new Error('must not be read') } } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const spend = await gateway.getTodaySpend()
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(200)
+    await ctx.fiber.dispose()
+  })
 })
