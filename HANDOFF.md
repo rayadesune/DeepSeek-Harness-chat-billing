@@ -61,17 +61,21 @@
   如需换 npm 版本：`dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
   后重启 `dsh web`。
 - **Release 格式统一（2026-09-02）**：全部 8 个 GitHub Release（v0.1.0 → v0.3.6）改为
-  DSH 官方格式——裸版本号标题 + 中文/English 双语双段（新增功能/体验优化/其他变更 ↔
-  New Features/Improvements/Chores）+ `h3 id="cn-v<ver>"` 锚点 + 逐条 `@作者`（英文
-  `by @作者`）+ `Full Changelog` compare 链接（v0.1.0 用 commits 链接）；修复了 v0.3.6
-  正文被 PowerShell 内联转义破坏（反引号丢失、`` `e `` → ESC 等控制字符）的问题。
+  DSH 官方格式——裸版本号标题 + 中文/English 双语双段 + `h3 id="cn-v<ver>"` 锚点 +
+  逐条 `@作者`（英文 `by @作者`）+ `Full Changelog` compare 链接（v0.1.0 用 commits 链接）；
+  修复了 v0.3.6 正文被 PowerShell 内联转义破坏（反引号丢失、`` `e `` → ESC 等控制字符）的问题。
+  **分组词汇核对（2026-09-02）**：逐一核对了 DSH 官方全部 8 个 release——分组为四类
+  「新增功能/体验优化/问题修复/其他变更 ↔ New Features/Improvements/Bug Fixes/Chores」，
+  顺序固定、只写有内容的分组（无「无/None」占位）；v0.2.1/v0.3.5/v0.3.6 已按四组重新归类。
 - **新增发布 skill**：`.agents/skills/dsh-release/SKILL.md`（共享 agent 约定目录，
   项目根 rank 200；`.dsh/skills` 为 DSH 专属、rank 100——按用户偏好采用 `.agents`）——
-  完整发布流程与 DSH release 模板、`--notes-file` 防转义坑、npm 顺序发布与 tarball 重装坑。
-  **两阶段流程（2026-09-02 定稿）**：阶段 A = 改代码 → 本地 pack 安装（不 bump 版本，
-  沿用当前版本 tgz，先 remove 再 add）→ 交给用户重启 dsh web 验证；用户没发话绝不提交/
-  推送/发布。阶段 B = 用户明确说「发布」时：bump 三包版本 → test/build/verify → 中文提交
-  推送 → npm 顺序发布 → tag + DSH 格式 Release → HANDOFF 发布记录。
+  完整发布流程与 DSH release 模板（四组 + 省略规则）、`--notes-file` 防转义坑、npm 顺序
+  发布与 tarball 重装坑。
+  **两阶段流程（2026-09-02 定稿，二次修订）**：阶段 A = 改代码 → test/build →
+  **直接本地提交（不推送）** → 本地 pack 安装（不 bump 版本，沿用当前版本 tgz，
+  先 remove 再 add）→ 交给用户重启 dsh web 验证；用户没发话绝不推送/发布。
+  阶段 B = 用户明确说「发布」时：bump 三包版本 → test/build/verify → 版本提交 +
+  **推送全部本地提交** → npm 顺序发布 → tag + DSH 格式 Release → HANDOFF 发布记录。
 
 ---
 
