@@ -60,6 +60,13 @@
 - 本机 web profile 仍为 local-tarballs 的 `file:` 引用 0.3.6（本地验证用）；
   如需换 npm 版本：`dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
   后重启 `dsh web`。
+- **Release 格式统一（2026-09-02）**：全部 8 个 GitHub Release（v0.1.0 → v0.3.6）改为
+  DSH 官方格式——裸版本号标题 + 中文/English 双语双段（新增功能/体验优化/其他变更 ↔
+  New Features/Improvements/Chores）+ `h3 id="cn-v<ver>"` 锚点 + 逐条 `@作者`（英文
+  `by @作者`）+ `Full Changelog` compare 链接（v0.1.0 用 commits 链接）；修复了 v0.3.6
+  正文被 PowerShell 内联转义破坏（反引号丢失、`` `e `` → ESC 等控制字符）的问题。
+- **新增发布 skill**：`.dsh/skills/dsh-release/SKILL.md`（本工作区自动发现）——完整
+  发布流程与 DSH release 模板、`--notes-file` 防转义坑、npm 顺序发布与 tarball 重装坑。
 
 ---
 
