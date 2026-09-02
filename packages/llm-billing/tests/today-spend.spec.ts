@@ -279,6 +279,73 @@ describe('TodaySpendScanner events path', () => {
     expect(spend.models[0]?.cacheHitInputTokens).toBe(3_000_000)
   })
 
+  it('rejects a 0.1.2-alpha.4+ live session without snapshotEvents instead of silently skipping it', async () => {
+    // The newer Session exposes no `events` anymore; without the snapshot
+    // reader the scanner must fail loudly rather than report zero spend.
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({ list: () => [{ id: 'new-shape' as SessionId }] }),
+    }))
+    await expect(scanner.scan(DAY_KEY)).rejects.toThrow(/snapshotEvents/)
+  })
+
+  it('reads a 0.1.2-alpha.4+ live session through snapshotEvents', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [{
+          id: 'live' as SessionId,
+          snapshotEvents: () => [pricedEvent(DAY_TIME, 0), pricedEvent(OTHER_DAY, 1)],
+          inheritedEventCount: 0,
+          header: { isSeeded: false },
+        }],
+      }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(1_000_000)
+  })
+
+  it('skips a 0.1.2-alpha.4+ live fork child\'s inherited prefix (inheritedEventCount)', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          { id: 'parent' as SessionId, snapshotEvents: () => [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1)], inheritedEventCount: 0 },
+          {
+            id: 'child' as SessionId,
+            snapshotEvents: () => [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2)],
+            inheritedEventCount: 2,
+            header: { isSeeded: true },
+          },
+        ],
+      }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(3_000_000)
+  })
+
+  it('skips a 0.1.2-alpha.4+ cold fork child via inspect.inheritedEventCount (isSeeded snapshot, ladder skipped)', async () => {
+    const coldSnapshot = vi.fn(async () => ({ values: {} }))
+    const inspect = vi.fn(async () => ({
+      meta: { isSeeded: true },
+      inheritedEventCount: 2,
+      events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2)],
+    }))
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({ list: () => [{ id: 'parent' as SessionId, events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1)] }] }),
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'child' as SessionId, isSeeded: true }, revision: SessionPersistenceRevision('r-child') },
+        ],
+        inspect,
+      }),
+      projectionCache: () => ({ coldSnapshot }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    // 0.1.2-alpha.4 snapshots no longer carry the cut; the seeded flag must
+    // still bypass the ladder (its row covers inherited events) and the
+    // detached fold must use the inspect result's inherited count.
+    expect(coldSnapshot).not.toHaveBeenCalled()
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(3_000_000)
+  })
+
   it('resolves many pending cold sessions with bounded concurrency', async () => {
     const ids = Array.from({ length: 40 }, (_, index) => `cold-${index}` as SessionId)
     let inFlight = 0

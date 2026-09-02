@@ -152,20 +152,55 @@ export function beijingDayKey(now: Date): string {
 }
 
 /**
- * The durable inherited-prefix boundary of one session: its header's
- * `seedLength`, or 0 for a session created without a seed. A forked session
- * (or any seeded replay) carries the number of events it inherited verbatim
- * from its source session in its header; every event with `seq < seedLength`
- * is a copy of an event already billed in that source session, so pricing
- * must skip them or the same model output is counted once per copy.
- * The value is the PERSISTED header field (not the in-memory constructor
- * seed length), so a resumed fork child keeps its original boundary and a
- * resume of an unseeded session stays at 0.
- * @param header - the session's durable header, when available.
+ * Structural source of a session's durable inherited-prefix boundary. The
+ * field moved between DSH runtimes:
+ *
+ * - since 0.1.2-alpha.4, `SessionHeader.seedLength` was removed (the header
+ *   now carries only `isSeeded`: boolean) and the exact cut moved to
+ *   `Session.inheritedEventCount` / `SessionInspection.inheritedEventCount`;
+ * - at and before the 0.1.1-rc.2 npm baseline, the cut lived on the durable
+ *   header as `seedLength` (optional; absent for an unseeded session) and on
+ *   the persistence `inspect` result as `meta.seedLength`.
+ *
+ * The reader accepts any of the three shapes and prefers the newer,
+ * exact-count field, so the same plugin code prices correctly on both
+ * families of runtime.
+ */
+export interface ForkBoundarySource {
+  /** 0.1.2-alpha.4+: `Session.inheritedEventCount` / `SessionInspection.inheritedEventCount`. */
+  readonly inheritedEventCount?: number
+  /** 0.1.1-rc.2 and earlier: `SessionHeader.seedLength`. */
+  readonly seedLength?: number
+  /** ≤ 0.1.1-rc.2: the header slice of a `Session` (its `header.seedLength`). */
+  readonly header?: { readonly seedLength?: number }
+  /** ≤ 0.1.1-rc.2: the `meta` of a persistence `inspect` result (its `seedLength`). */
+  readonly meta?: { readonly seedLength?: number }
+}
+
+/**
+ * The durable inherited-prefix boundary of one session: the number of leading
+ * events it inherited verbatim from its fork source, 0 for a session created
+ * without a seed. A forked session (or any seeded replay) carries that count
+ * in its session state; every event with `seq < seedLength` is a copy of an
+ * event already billed in that source session, so pricing must skip them or
+ * the same model output is counted once per copy. Accepts the durable field
+ * of both DSH runtime families (see {@link ForkBoundarySource}).
+ * @param source - the session, inspection result, header slice, or durable
+ *   header carrying the boundary; `undefined` reads as 0.
  * @returns the inherited-prefix length; 0 for an unseeded session.
  */
-export function forkBoundaryOf(header: { readonly seedLength?: number } | undefined): number {
-  return header?.seedLength ?? 0
+export function forkBoundaryOf(source: ForkBoundarySource | undefined): number {
+  if (source === undefined) return 0
+  const inherited = source.inheritedEventCount
+  if (inherited !== undefined && Number.isSafeInteger(inherited)) return inherited
+  return source.header?.seedLength ?? source.meta?.seedLength ?? source.seedLength ?? 0
+}
+
+/** Whether a durable header marks a fork-inherited (seeded) session across both runtime families. */
+export function isSeededSession(header: { readonly seedLength?: number; readonly isSeeded?: boolean } | undefined): boolean {
+  if (header === undefined) return false
+  if (header.isSeeded === true) return true
+  return (header.seedLength ?? 0) > 0
 }
 
 /** Whether a Beijing (hour, weekday) pair falls inside any peak-hour window. */

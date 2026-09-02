@@ -14,6 +14,7 @@ import {
   emptyTodaySpend,
   forkBoundaryOf,
   isPeak,
+  isSeededSession,
   mergeTodaySpend,
   priceEvent,
   resolveBilling,
@@ -104,10 +105,38 @@ describe('forkBoundaryOf', () => {
     expect(forkBoundaryOf(undefined)).toBe(0)
     expect(forkBoundaryOf({})).toBe(0)
     expect(forkBoundaryOf({ seedLength: undefined })).toBe(0)
+    expect(forkBoundaryOf({ inheritedEventCount: 0 })).toBe(0)
   })
 
   it('returns the durable inherited-prefix length when the header carries seedLength', () => {
     expect(forkBoundaryOf({ seedLength: 7 })).toBe(7)
+  })
+
+  it('reads the boundary from every runtime family shape', () => {
+    // 0.1.2-alpha.4+ Session / SessionInspection: the exact cut is a top-level field.
+    expect(forkBoundaryOf({ inheritedEventCount: 3 })).toBe(3)
+    // ≤ 0.1.1-rc.2 Session: the cut lived on the durable header.
+    expect(forkBoundaryOf({ header: { seedLength: 4 } })).toBe(4)
+    // ≤ 0.1.1-rc.2 persistence inspect: the cut lived on meta.
+    expect(forkBoundaryOf({ meta: { seedLength: 5 } })).toBe(5)
+  })
+
+  it('prefers the newer inherited count over legacy header fields', () => {
+    expect(forkBoundaryOf({ inheritedEventCount: 9, header: { seedLength: 2 }, meta: { seedLength: 3 }, seedLength: 4 }))
+      .toBe(9)
+  })
+})
+
+describe('isSeededSession', () => {
+  it('recognizes a seeded session on both runtime families', () => {
+    // 0.1.2-alpha.4+ snapshot header: boolean only.
+    expect(isSeededSession({ isSeeded: true })).toBe(true)
+    expect(isSeededSession({ isSeeded: false })).toBe(false)
+    // ≤ 0.1.1-rc.2 snapshot header: nonzero seedLength marked the fork cut.
+    expect(isSeededSession({ seedLength: 2 })).toBe(true)
+    expect(isSeededSession({ seedLength: 0 })).toBe(false)
+    expect(isSeededSession({})).toBe(false)
+    expect(isSeededSession(undefined)).toBe(false)
   })
 })
 

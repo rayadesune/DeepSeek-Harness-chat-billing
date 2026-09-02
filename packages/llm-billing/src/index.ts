@@ -41,7 +41,7 @@ import {
 import type { BillingConfig, BillingConfigModel } from './billing.ts'
 import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 import { billingTodaySpendDefinition } from './projection.ts'
-import { TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
+import { liveSessionEvents, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
 
 export { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from './balance.ts'
 export {
@@ -55,6 +55,7 @@ export {
   emptyTodaySpend,
   forkBoundaryOf,
   isPeak,
+  isSeededSession,
   mergeTodaySpend,
   priceEvent,
   resolveBilling,
@@ -72,7 +73,7 @@ export type {
 export type * from './types.ts'
 export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit, foldOwnBilling } from './projection.ts'
 export type { BillingUnitState } from './projection.ts'
-export { foldSessionTitle, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
+export { foldSessionTitle, liveSessionEvents, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
 export type { ScannerPersistedHeader, ScannerSession, TodaySpendScannerDeps } from './today-spend.ts'
 
 export const name = 'llm-billing'
@@ -158,7 +159,10 @@ interface SessionEventsRead {
 /**
  * Read one session's event log and durable seed boundary: the live
  * SessionStore first, then the persistence backend for a flushed session
- * (inspected directly by id — no header listing).
+ * (inspected directly by id — no header listing). The live-session surface
+ * is read structurally across both DSH runtime families — `Session.events`
+ * (≤ 0.1.1-rc.2) or `Session.snapshotEvents()` + `Session.inheritedEventCount`
+ * (0.1.2-alpha.4+) — via {@link liveSessionEvents} / {@link forkBoundaryOf}.
  * @param ctx - plugin context carrying the SessionStore and optional persistence.
  * @param sessionId - the session to read.
  * @returns the session's complete event log plus its inherited-prefix boundary.
@@ -167,12 +171,14 @@ interface SessionEventsRead {
 async function sessionEvents(ctx: Context, sessionId: SessionId): Promise<SessionEventsRead> {
   const sessions = ctx.get('sessions')
   const live = sessions?.get(sessionId)
-  if (live !== undefined) return { events: live.events, seedLength: forkBoundaryOf(live.header) }
+  if (live !== undefined) {
+    return { events: liveSessionEvents(live), seedLength: forkBoundaryOf(live) }
+  }
   const persistence = ctx.get('sessionPersistence')
   if (persistence !== undefined) {
     try {
       const inspection = await persistence.inspect(sessionId)
-      return { events: inspection.events, seedLength: forkBoundaryOf(inspection.meta) }
+      return { events: inspection.events, seedLength: forkBoundaryOf(inspection) }
     } catch (error: unknown) {
       throw new LlmError(`llm-billing: session ${sessionId} not found`, 'NOT_FOUND', { cause: error })
     }

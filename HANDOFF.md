@@ -1,3 +1,56 @@
+# HANDOFF — billing 插件 0.3.6（适配 DSH 0.1.2-alpha.4 会话日志表面 · 2026-09-02 已实施 + 本地安装）
+
+## 问题与根因
+
+- **现象**：DSH 更新到 0.1.2-alpha.4 后，徽标的「本轮会话」与「今日会话」不再显示
+  （余额仍正常）。
+- **根因**：0.1.2-alpha.4 移除了 live `Session` 的 `events` getter 与
+  `SessionHeader.seedLength`（后者在内存 header 上直接被校验拒绝）：
+  1. `Session.events` → `Session.snapshotEvents()` / `ownEvents()`；
+  2. `header.seedLength` → `Session.inheritedEventCount`（持久化 `inspect()` 结果在
+     `meta` 之外携带；`listSnapshots()` 的 header 只剩布尔 `isSeeded`）。
+  插件 0.3.5 按 npm 基线 `^0.1.1-rc.2` 编译、读取旧形状，运行时：
+  - `getSessionSpend`：`live.events` 为 `undefined` → `events.length` TypeError → 「本轮」失败；
+  - `getTodaySessionsSpend`：`foldSessionTitle(session.events)` → 同样 TypeError
+    （`scanSessionsProjections` 的 `session.events` 访问）→ 「今日会话」排行失败；
+  - `getTodaySpend` 聚合在投影路径下仍可算（live 会话经 `stateOf`，未触碰 `.events`），
+    但分叉边界恒为 0（`forkBoundaryOf` 读不到 `seedLength`）→ 分叉重复计费回归。
+- 已用复现脚本在 0.1.2-alpha.4 运行时（cordis + SessionStore + SessionProjectionRegistry +
+  真实会话日志解码）确认：`getSessionSpend` / `scanSessions` 抛
+  `Cannot read properties of undefined (reading 'length')`；投影聚合正常；会话事件形状
+  （`assistant/message` + `usage` + `message.source.model`）未变。
+
+## 修复（0.3.6 · 双运行时形状兼容）
+
+- `billing.ts`：`forkBoundaryOf` 泛化为结构读取（`inheritedEventCount` 优先，回退
+  `header.seedLength` / `meta.seedLength` / `seedLength`），新增 `isSeededSession`
+  （`isSeeded === true` 或旧头部 `seedLength > 0`）。
+- `today-spend.ts`：`ScannerSession` / `ScannerPersistedHeader` 取双形状；新增
+  `liveSessionEvents`（`events` 优先，否则 `snapshotEvents()`，两者皆无显式抛错——
+  未知运行时表面不静默按零计费）；四个扫描路径全部改走
+  `liveSessionEvents(session)` + `forkBoundaryOf(session)`；冷会话改用
+  `isSeededSession(快照 header)` 决定是否跳过投影缓存阶梯，精确边界由
+  `inspect()` 的结果（`inheritedEventCount` 或 `meta.seedLength`）提供。
+- `index.ts`：`sessionEvents` 读 live 会话走 `liveSessionEvents(live)` +
+  `forkBoundaryOf(live)`；持久化侧 `forkBoundaryOf(inspection)`。
+- 投影路径对分叉子会话的行为不变（绕过 eager cell、折自有事件）；事件路径与冷阶梯
+  语义不变，只是边界来源换成双形状。
+- 测试：+10 用例（`forkBoundaryOf` 三形状与优先级、`isSeededSession`、事件路径
+  新形状 live/冷分叉/阶梯跳过、apply 层新形状会话花费/今日聚合）；
+  **全套 135 用例全绿**；`build` / `verify` 全绿。
+- 文档：llm-billing README 双语补「Runtime compatibility / 运行时兼容性」并更新
+  分叉会话边界描述；`README.i18n.yaml` blob hash 已重算；AGENTS.md 版本号同步 0.3.6。
+- 版本：三包统一 **0.3.6**（bundle peerDeps 与 ui-billing peer/dev 同步 `^0.3.6`），
+  lockfile 随 `pnpm install` 重生成。
+- **本地安装已完成**：`npm pack` 三包 0.3.6 → `%DSH_HOME%\local-tarballs\`，
+  经 `dsh plugin --profile web remove`（三个 @rayadesu 包）后 `add` 装入 web profile
+  （package.json 现为三个 `file:` 0.3.6 引用；安装后的 `lib/index.js` 已确认含
+  `snapshotEvents` / `inheritedEventCount` / `liveSessionEvents`）。
+- **用户待办**：重启 `dsh web` 并硬刷新，验证「本轮会话」金额、「今日会话」排行与
+  「本轮花费」（每条消息的行尾 ¥金额）恢复显示；分叉会话今日花费不再含继承前缀。
+
+---
+
 # HANDOFF — billing 插件 0.3.5（行尾静态「¥金额」· 2026-08-29 已实施 + 本地安装）
 
 ## 方案（用户审核通过的最终版，已按此实施）
