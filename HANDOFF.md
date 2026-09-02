@@ -49,6 +49,18 @@
 - **用户待办**：重启 `dsh web` 并硬刷新，验证「本轮会话」金额、「今日会话」排行与
   「本轮花费」（每条消息的行尾 ¥金额）恢复显示；分叉会话今日花费不再含继承前缀。
 
+## 发布记录（2026-09-02 · 0.3.6）
+
+- **已发布完成**：提交 `76285b1`（中文提交信息）已推送 origin/main；tag `v0.3.6` 已推送；
+  GitHub Release **v0.3.6** 已创建（中文发布说明，
+  https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.6）。
+- **npm 三包均发布成功**：顺序 llm-billing → ui-billing → dsh-billing，registry
+  `dist-tags.latest` 均为 0.3.6（token 由用户提供，仅内联传参，未写入任何文件；
+  prepublishOnly 自动运行并通过）。
+- 本机 web profile 仍为 local-tarballs 的 `file:` 引用 0.3.6（本地验证用）；
+  如需换 npm 版本：`dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
+  后重启 `dsh web`。
+
 ---
 
 # HANDOFF — billing 插件 0.3.5（行尾静态「¥金额」· 2026-08-29 已实施 + 本地安装）
