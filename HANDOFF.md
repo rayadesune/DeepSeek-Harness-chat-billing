@@ -1,5 +1,17 @@
 # HANDOFF — billing 插件适配 DSH 0.1.2-alpha.5 基线（persistence handle 面 + 客户端栈重构 · 2026-09-03 检查并修复）
 
+## 发布记录
+
+### 2026-09-08 · v0.3.7
+
+* 提交：`898f24f`（fix: 适配 DSH 0.1.2-alpha.5 兼容性问题）+ `a645ede`（release: v0.3.7）
+* tag：`v0.3.7` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.7
+* npm dist-tags.latest：
+  - `@rayadesu/dsh-billing` → 0.3.7
+  - `@rayadesu/dsh-llm-billing` → 0.3.7
+  - `@rayadesu/dsh-client-ui-billing` → 0.3.7
+* 发布内容：DSH 0.1.2-alpha.5 兼容性修复（handle-based persistence seam 双运行时探测、客户端栈重构适配、React 去重、typert 清单修正）
+
 ## 问题与根因
 
 - **现象**：用户 DSH（checkout master，`49a606bc5b` = 0.1.2-alpha.5 版号 + 38 个后发布提交）更新后，
