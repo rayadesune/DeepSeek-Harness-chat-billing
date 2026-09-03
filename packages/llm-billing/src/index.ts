@@ -96,6 +96,8 @@ const DEFAULT_MODELS: BillingModel[] = [
   { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
   { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
   { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp' },
+  { id: 'mimo-v2.5-pro', name: 'MiMo-V2.5-Pro' },
+  { id: 'mimo-v2.5', name: 'MiMo-V2.5' },
 ]
 
 /**

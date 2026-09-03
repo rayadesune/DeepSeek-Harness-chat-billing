@@ -92,6 +92,17 @@ export const DEFAULT_MODEL_PRICING: BillingConfigModel[] = [
     peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
     offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
   },
+  // MiMo-V2.5 series (Xiaomi): flat rate, no peak/off-peak distinction.
+  {
+    model: 'mimo-v2.5-pro',
+    peak: { cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 },
+    offPeak: { cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 },
+  },
+  {
+    model: 'mimo-v2.5',
+    peak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
+    offPeak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
+  },
 ]
 
 /** Resolved billing configuration: a pricing table plus peak-hour windows. */
