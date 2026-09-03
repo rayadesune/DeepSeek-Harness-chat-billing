@@ -43,9 +43,13 @@ function assistantMessage(model: string, usage: TokenUsage, time = 0, seq = 0): 
 
 const FLASH = 'deepseek-v4-flash'
 const PRO = 'deepseek-v4-pro'
+const MIMO_PRO = 'mimo-v2.5-pro'
+const MIMO = 'mimo-v2.5'
 const CATALOG = [
   { id: FLASH, name: 'DeepSeek-V4-Flash' },
   { id: PRO, name: 'DeepSeek-V4-Pro' },
+  { id: MIMO_PRO, name: 'MiMo-V2.5-Pro' },
+  { id: MIMO, name: 'MiMo-V2.5' },
 ]
 
 describe('resolveBilling', () => {
@@ -59,6 +63,15 @@ describe('resolveBilling', () => {
       .toEqual({ cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 })
     expect(billing.models.get('deepseek-v4-flash-vision-exp')?.offPeak)
       .toEqual({ cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 })
+    // MiMo-V2.5 series: flat rate (peak === offPeak).
+    expect(billing.models.get(MIMO_PRO)?.peak)
+      .toEqual({ cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 })
+    expect(billing.models.get(MIMO_PRO)?.offPeak)
+      .toEqual({ cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 })
+    expect(billing.models.get(MIMO)?.peak)
+      .toEqual({ cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 })
+    expect(billing.models.get(MIMO)?.offPeak)
+      .toEqual({ cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 })
   })
 
   it('overrides a model when an explicit row is supplied', () => {
@@ -452,5 +465,48 @@ describe('computeTurnSpend', () => {
       turnBoundary('turn/end', 0, 2, PEAK),
     ]
     expect(computeTurnSpend(log, BILLING, CATALOG, 'm0').total).toBe(0)
+  })
+})
+
+describe('MiMo-V2.5 flat-rate billing', () => {
+  // MiMo uses flat rate (peak === offPeak), so peak and off-peak produce the
+  // same cost regardless of Beijing-time hour and weekday.
+  const PEAK = Date.parse('2026-08-20T02:00:00Z')   // 10:00 Beijing, weekday
+  const OFF_PEAK = Date.parse('2026-08-20T12:00:00Z') // 20:00 Beijing, weekday
+  const WEEKEND = Date.parse('2026-08-22T02:00:00Z')  // Saturday 10:00 Beijing
+  const USAGE: TokenUsage = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 500_000 }
+
+  it('prices mimo-v2.5-pro at the flat rate (peak === offPeak)', () => {
+    // mimo-v2.5-pro: hit 0.025, miss 3.0, output 6.0 CNY/M.
+    // 1M hit → 0.025, 1.5M miss → 4.5, 1M output → 6.0 → total 10.525
+    const billing = resolveBilling(undefined)
+    const spend = computeSessionSpend([assistantMessage(MIMO_PRO, USAGE, PEAK)], billing, CATALOG)
+    expect(spend.total).toBeCloseTo(10.525, 10)
+    expect(spend.models).toHaveLength(1)
+    expect(spend.models[0]?.displayName).toBe('MiMo-V2.5-Pro')
+  })
+
+  it('prices mimo-v2.5 at the flat rate', () => {
+    // mimo-v2.5: hit 0.02, miss 1.0, output 2.0 CNY/M.
+    // 1M hit → 0.02, 1.5M miss → 1.5, 1M output → 2.0 → total 3.52
+    const billing = resolveBilling(undefined)
+    const spend = computeSessionSpend([assistantMessage(MIMO, USAGE, PEAK)], billing, CATALOG)
+    expect(spend.total).toBeCloseTo(3.52, 10)
+    expect(spend.models).toHaveLength(1)
+    expect(spend.models[0]?.displayName).toBe('MiMo-V2.5')
+  })
+
+  it('charges the same rate at off-peak hours (flat rate)', () => {
+    const billing = resolveBilling(undefined)
+    const peakSpend = computeSessionSpend([assistantMessage(MIMO_PRO, USAGE, PEAK)], billing, CATALOG)
+    const offPeakSpend = computeSessionSpend([assistantMessage(MIMO_PRO, USAGE, OFF_PEAK)], billing, CATALOG)
+    expect(peakSpend.total).toBeCloseTo(offPeakSpend.total, 10)
+  })
+
+  it('charges the same rate on weekends (flat rate)', () => {
+    const billing = resolveBilling(undefined)
+    const peakSpend = computeSessionSpend([assistantMessage(MIMO, USAGE, PEAK)], billing, CATALOG)
+    const weekendSpend = computeSessionSpend([assistantMessage(MIMO, USAGE, WEEKEND)], billing, CATALOG)
+    expect(peakSpend.total).toBeCloseTo(weekendSpend.total, 10)
   })
 })
