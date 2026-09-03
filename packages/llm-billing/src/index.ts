@@ -41,7 +41,8 @@ import {
 import type { BillingConfig, BillingConfigModel } from './billing.ts'
 import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 import { billingTodaySpendDefinition } from './projection.ts'
-import { liveSessionEvents, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
+import { liveSessionEvents, persistenceInspect, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
+import type { ScannerPersistence } from './today-spend.ts'
 
 export { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from './balance.ts'
 export {
@@ -72,9 +73,9 @@ export type {
 } from './billing.ts'
 export type * from './types.ts'
 export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit, foldOwnBilling } from './projection.ts'
-export type { BillingUnitState } from './projection.ts'
-export { foldSessionTitle, liveSessionEvents, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
-export type { ScannerPersistedHeader, ScannerSession, TodaySpendScannerDeps } from './today-spend.ts'
+export type { BillingUnitFold, BillingUnitState } from './projection.ts'
+export { foldSessionTitle, liveSessionEvents, persistenceInspect, persistenceListSnapshots, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
+export type { ScannerPersistedHeader, ScannerPersistence, ScannerPersistenceHandle, ScannerPersistenceLegacy, ScannerPersistedRead, ScannerSession, TodaySpendScannerDeps } from './today-spend.ts'
 
 export const name = 'llm-billing'
 
@@ -174,11 +175,10 @@ async function sessionEvents(ctx: Context, sessionId: SessionId): Promise<Sessio
   if (live !== undefined) {
     return { events: liveSessionEvents(live), seedLength: forkBoundaryOf(live) }
   }
-  const persistence = ctx.get('sessionPersistence')
+  const persistence = ctx.get('sessionPersistence') as ScannerPersistence | undefined
   if (persistence !== undefined) {
     try {
-      const inspection = await persistence.inspect(sessionId)
-      return { events: inspection.events, seedLength: forkBoundaryOf(inspection) }
+      return await persistenceInspect(persistence, sessionId)
     } catch (error: unknown) {
       throw new LlmError(`llm-billing: session ${sessionId} not found`, 'NOT_FOUND', { cause: error })
     }

@@ -11,12 +11,12 @@ import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // The published client faces are DSH ModuleLoader bundles. The setup shim
 // (tests/module-loader.setup.ts) executes their factories and records the
-// exports under window.__DSH_BUNDLE_EXPORTS__; importing test-runtime first
-// registers the dsh-client-runtime bundle that the locale bundle requires.
+// exports under window.__DSH_BUNDLE_EXPORTS__; importing the renderer bundle
+// first registers the ui-renderer SlotRegistry that the locale bundle binds.
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
-import type {} from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import '@deepseek-ai/dsh-client-runtime/client'
+import '@deepseek-ai/dsh-client-ui-renderer/client'
 import '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { BalanceBadge, type BalanceBadgeInjected } from '../src/client/BalanceBadge.tsx'
@@ -26,11 +26,11 @@ import * as BillingInvariant from '../src/invariant.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
 // Faces captured from the shimmed ModuleLoader registrations. SlotRegistry
-// lives in the dsh-client-runtime bundle (the renderer bundle only ships the
-// renderer faces); the locale plugin ships in the dsh-client-locale bundle.
+// lives in the ui-renderer bundle (the renderer registry over the pure
+// ui-slots core); the locale plugin ships in the dsh-client-locale bundle.
 const bundleExports = window.__DSH_BUNDLE_EXPORTS__!
-const { SlotRegistry } = bundleExports['@deepseek-ai/dsh-client-runtime'] as
-  typeof import('@deepseek-ai/dsh-client-runtime/client')
+const { SlotRegistry } = bundleExports['@deepseek-ai/dsh-client-ui-renderer'] as
+  typeof import('@deepseek-ai/dsh-client-ui-renderer/client')
 const { apply: applyLocale, inject: localeInject } = bundleExports['@deepseek-ai/dsh-client-locale'] as
   typeof import('@deepseek-ai/dsh-client-locale/client')
 

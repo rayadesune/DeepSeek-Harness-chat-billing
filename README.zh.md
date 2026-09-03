@@ -121,9 +121,23 @@ dsh plugin --profile web update --latest  # 忽略声明的版本区间，把所
 
 两个插件包把它们依赖的 DeepSeek Harness 包（`@deepseek-ai/cordis`、
 `@deepseek-ai/dsh-credentials`、`@deepseek-ai/dsh-session` 以及客户端运行时包）
-声明为 `peerDependencies`（`^0.1.1-rc.2`）。dsh profile 默认不自动安装 peer，所以
+声明为 `peerDependencies`（`^0.1.2-alpha.5`）。dsh profile 默认不自动安装 peer，所以
 这些由 dsh 安装本身通过 `profiles/node_modules` 回退提供，而不是从 registry 拉取——
 无需额外安装，安装机也不需要 registry token。
+
+插件按 0.1.2-alpha.5 发布线构建，同时兼容读取两代 DSH 运行时：live `Session` 日志面
+（0.1.1-rc.2 及以前为 `Session.events` + `header.seedLength`，0.1.2-alpha.4 起为
+`snapshotEvents()` + `inheritedEventCount`），以及持久化服务面（0.1.1-rc.2 及以前为
+`inspect`/`listSnapshots`，0.1.2-alpha.5 的 handle 化改造后为
+`open`+`SessionHandle`/`list`——即含该重构的 checkout master）。投影单元的 `init`
+按新签名声明（带元数据参数），同时保持旧的无参调用方式可用。
+
+浏览器半测通过 module-loader shim 跑已发布的 client bundle；由于 0.1.2-alpha.5
+客户端栈把运行时从 `dsh-client-runtime`（已删除）拆进 `dsh-client-store`、
+`dsh-client-ui-session`、`dsh-client-ui-chat` 与 renderer 持有的 `SlotRegistry`，
+测试底座在回退 require 后会复查已注册的 bundle 导出，并用 resolve alias 固定
+react 副本。`assistant-actions` slot 行从 ui-conversation 移到了 ui-chat，
+插件客户端侧也引入了 ui-chat 的类型合并。
 
 ### 配置你的 DeepSeek API key
 
@@ -160,7 +174,7 @@ host 面会从源码重新生成 `lib/typert.host.js` 与 `lib/typert.remote-cli
 的 name 不一致，`verify` 会在发布前直接失败。
 
 typert 生成器只认工作区内已注册协议包里的 `Remote`/`TypertRemoteService` 声明，所以
-`packages/typert-protocol` 内嵌了 npm 上 `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2` 的
+`packages/typert-protocol` 内嵌了 npm 上 `@deepseek-ai/dsh-typert-protocol@0.1.2-alpha.5` 的
 声明文件；dsh 依赖线升级时，从安装包重新刷新它。
 
 发布（bundle 与两个插件包统一版本号；`prepublishOnly` 会自动跑 `verify` 门禁）。

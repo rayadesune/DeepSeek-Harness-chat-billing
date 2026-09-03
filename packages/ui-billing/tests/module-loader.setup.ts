@@ -59,7 +59,15 @@ if (typeof window !== 'undefined') {
           ? specifier.slice(0, -'/client'.length)
           : specifier
         if (bundleId in bundleExports) return bundleExports[bundleId]
-        return requireFromUiBilling(specifier)
+        // The specifier may name a bundle that has not been imported yet:
+        // requiring its package /client entry executes its ModuleLoader
+        // registration, which this shim runs synchronously and records under
+        // the package id — recheck the table before returning the raw module
+        // (a Node require of a bundle file yields an empty exports object,
+        // because the factory's exports live in the registration table).
+        const resolved = requireFromUiBilling(specifier)
+        if (bundleId in bundleExports) return bundleExports[bundleId]
+        return resolved
       }
       bundleExports[registration.id] = registration.factory(requireFn)
     },

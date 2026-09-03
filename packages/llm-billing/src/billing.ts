@@ -172,9 +172,9 @@ export interface ForkBoundarySource {
   /** 0.1.1-rc.2 and earlier: `SessionHeader.seedLength`. */
   readonly seedLength?: number
   /** ≤ 0.1.1-rc.2: the header slice of a `Session` (its `header.seedLength`). */
-  readonly header?: { readonly seedLength?: number }
+  readonly header?: { readonly seedLength?: number; readonly isSeeded?: boolean }
   /** ≤ 0.1.1-rc.2: the `meta` of a persistence `inspect` result (its `seedLength`). */
-  readonly meta?: { readonly seedLength?: number }
+  readonly meta?: { readonly seedLength?: number; readonly isSeeded?: boolean }
 }
 
 /**

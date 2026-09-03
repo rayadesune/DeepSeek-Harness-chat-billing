@@ -1,3 +1,65 @@
+# HANDOFF — billing 插件适配 DSH 0.1.2-alpha.5 基线（persistence handle 面 + 客户端栈重构 · 2026-09-03 检查并修复）
+
+## 问题与根因
+
+- **现象**：用户 DSH（checkout master，`49a606bc5b` = 0.1.2-alpha.5 版号 + 38 个后发布提交）更新后，
+  插件 0.3.6 按 `^0.1.1-rc.2` 基线编译，存在两类运行时断点：
+- **根因 1（致命，宿主侧）**：`refactor(session-persistence)!: handle-based seam`（在 alpha.5 发布之后、
+  当前 master 已含）把 `SessionPersistence` 的服务面从 `inspect(id)` / `listSnapshots()`
+  换成 `stat(id)` / `list()` / `open(id, 'read')` + `SessionHandle.read()`。插件在
+  `sessionEvents`（`getSessionSpend`/`getTurnSpend` 冷读）与 `TodaySpendScanner` 全部四个
+  扫描路径上直接调用 `inspect` / `listSnapshots` → 新运行时下 `TypeError: not a function`。
+- **根因 2（客户端）**：客户端栈重构把运行时 bundle（`dsh-client-runtime`，已删除）拆成
+  `dsh-client-store` / `dsh-client-ui-session` / `dsh-client-ui-chat` + renderer 自持的
+  `SlotRegistry`；`conversation.chat.assistant-actions` slot 行从 ui-conversation 移到 ui-chat；
+  `SlotCore.register` 类型面（`init` 元数据参数等）收紧。旧测试底座（module-loader shim 直接回退
+  Node require）在跨 bundle require 时拿到空 `module.exports`；本地 fixture renderer 源码为旧版。
+
+## 修复（双运行时形状兼容，与既有 Session 双面同一设计）
+
+- `today-spend.ts`：`ScannerPersistence` 双面（legacy `inspect`/`listSnapshots` vs handle
+  `open`+`read`/`list`），新增 `persistenceListSnapshots` / `persistenceInspect`
+  （handle 读取后必定 `close`，读失败也 close）；`ScannerSession` /
+  `ScannerPersistenceHandle` 的签名改为方法语法保持对真实类的双侧可赋值（branded
+  `SessionLogOffset` 参数）；`TodaySpendScannerDeps.persistence` 收窄为 `ScannerPersistence`。
+- `index.ts`：`sessionEvents` 改走 `persistenceInspect`。
+- `billing.ts`：`ForkBoundarySource.header/meta` 扩成 `{ seedLength?, isSeeded? }`（HEAD
+  `SessionHeader` 无 `seedLength` 时仍可弱类型匹配）。
+- `projection.ts`：`BillingUnitFold`（`init(...metadata: never[])` 兼容 0.1.1-rc.2 无参与
+  0.1.2-alpha.5+ 带 header/inheritedEventCount 两种声明），`foldBillingUnit` /
+  `foldOwnBilling` 改用它。
+- `ui-billing`：客户端类型合并补 `@deepseek-ai/dsh-client-ui-chat/client`（assistant-actions
+  行来源）；测试底座升级：module-loader shim 在 fallback require 后复查已注册 bundle 导出；
+  test-runtime 依赖闭包补齐 `dsh-client-store` / `dsh-api-gateway` / `dsh-client-ui-chat`；
+  vitest 用 resolve alias 把 react/react-dom/use-sync-external-store 钉到本仓库副本
+  （checkout 链接包会解析出 DSH 自己的 react 副本，hooks 双引擎崩溃）；
+  renderer fixture 同步到 HEAD（bind.ts / bindings.tsx / scoped-slots.tsx；删 session-provider.tsx）。
+- **基线提升**：全部 `@deepseek-ai/dsh-*` dev+peer 依赖 `^0.1.1-rc.2` → `^0.1.2-alpha.5`；
+  内嵌 `packages/typert-protocol` 声明同步到 npm 0.1.2-alpha.5（新增 remote-error.ts）。
+- 测试：+4 用例（handle 家族事件路径/分叉边界/读失败仍 close/投影阶梯），
+  **全套 139 用例全绿**（npm 0.1.2-alpha.5 基线复验 + checkout HEAD link 复验双通过）；
+  `build` / `verify` 全绿。
+
+## 关键文件清单
+- 修改：packages/llm-billing/src/{today-spend.ts,index.ts,billing.ts,projection.ts}、
+  packages/llm-billing/tests/today-spend.spec.ts、
+  packages/ui-billing/src/client/index.ts、packages/ui-billing/tests/{module-loader.setup.ts,browser-plugin.client.spec.ts}、
+  packages/ui-billing/tests/fixtures/renderer-src/client/{bind.ts,bindings.tsx,scoped-slots.tsx}（同步 HEAD；删除 session-provider.tsx）、
+  vitest.config.ts、tsconfig.base.json（无净变更）、package.json、packages/{llm-billing,ui-billing}/package.json、
+  packages/typert-protocol/{package.json,src/index.ts,src/types.ts,src/remote-error.ts}、
+  pnpm-workspace.yaml、AGENTS.md、README{,.zh}.md、packages/llm-billing/README{,.zh}.md、README.i18n.yaml×2、pnpm-lock.yaml、HANDOFF.md
+
+## 剩余步骤（用户自行执行，可选）
+1. 打包本地 tarball 并重装验证：`pack` 三个包 → `.dsh/local-tarballs` → `dsh plugin --profile web update --latest`（或先 remove 再 add），重启 `pnpm dsh web` 核对徽标与详情面板。
+2. 验证分叉会话（fork 后今日花费不双计）与冷恢复会话（旧会话今日花费可读）。
+
+## 注意事项
+- npm 发布线 `0.1.2-alpha.5`（alpha dist-tag）的 persistence 仍是旧服务面
+  （`inspect`/`listSnapshots`）；handle 化只在 checkout master（版本号仍 0.1.2-alpha.5）。
+  双面实现让同一产物同时服务两代，宿主按其自身能力调用。
+- 客户端测试依赖 `dsh-client-test-runtime` 的 bundle 闭包；npm 包的 `files` 不含
+  renderer `src/*`，fixture 副本必须与对应 DSH 版本的 renderer 源文件一致。
+
 # HANDOFF — billing 插件 0.3.6（适配 DSH 0.1.2-alpha.4 会话日志表面 · 2026-09-02 已实施 + 本地安装）
 
 ## 问题与根因

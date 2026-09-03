@@ -44,8 +44,7 @@ import type { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persis
 import type { ResolvedBilling } from './billing.ts'
 import { beijingDayKey, emptyTodaySpend, forkBoundaryOf, isSeededSession, mergeTodaySpend, priceEvent, SpendAccumulator } from './billing.ts'
 import type { DeepSeekTodaySessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from './types.ts'
-import { BILLING_UNIT_KEY, foldOwnBilling, type BillingUnitState } from './projection.ts'
-import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import { BILLING_UNIT_KEY, foldOwnBilling, type BillingUnitFold, type BillingUnitState } from './projection.ts'
 
 /**
  * Fold one session's durable display title: the latest `session/title`
@@ -79,7 +78,7 @@ export interface ScannerSession {
   /** ≤ 0.1.1-rc.2: the full event log snapshot. */
   readonly events?: readonly SessionEvent[]
   /** 0.1.2-alpha.4+: materialize an immutable log snapshot; no args = the full current log. */
-  readonly snapshotEvents?: (fromSeq?: number, toSeqExclusive?: number) => readonly SessionEvent[]
+  snapshotEvents?(fromSeq?: number, toSeqExclusive?: number): readonly SessionEvent[]
   /** 0.1.2-alpha.4+: the durable inherited-prefix length (0 for an unseeded session). */
   readonly inheritedEventCount?: number
   /** Durable header slice: `seedLength` (older runtime) or `isSeeded` (newer runtime). */
@@ -108,20 +107,88 @@ export interface ScannerPersistedHeader {
   readonly isSeeded?: boolean
 }
 
+/** One stored-session read: the full event log plus the durable inherited boundary. */
+export interface ScannerPersistedRead {
+  readonly events: readonly SessionEvent[]
+  /** Inherited-prefix length (fork seed length); 0 for an unseeded session. */
+  readonly seedLength: number
+}
+
+/** ≤ 0.1.1-rc.2 persistence slice: service-level `inspect` / `listSnapshots`. */
+export interface ScannerPersistenceLegacy {
+  listSnapshots(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
+  inspect(id: SessionId): Promise<{
+    meta?: { readonly seedLength?: number; readonly isSeeded?: boolean }
+    /** 0.1.2-alpha.4+: the exact inherited cut travels beside, not inside, the header. */
+    inheritedEventCount?: number
+    events: readonly SessionEvent[]
+  }>
+}
+
+/** 0.1.2-alpha.5+ handle-based persistence slice: service-level `list` / `open` + `SessionHandle`. */
+export interface ScannerPersistenceHandle {
+  list(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
+  open(id: SessionId, access: 'read'): Promise<{
+    readonly header?: { readonly seedLength?: number; readonly isSeeded?: boolean }
+    /** 0.1.2-alpha.5+: the handle carries the exact inherited cut beside the header. */
+    readonly inheritedEventCount?: number
+    read(): Promise<readonly SessionEvent[]>
+    close(): Promise<void>
+  }>
+}
+
+/** Structural union the scanner reads through, accepting both persistence runtime families. */
+export type ScannerPersistence = ScannerPersistenceLegacy | ScannerPersistenceHandle
+
+function isHandlePersistence(persistence: ScannerPersistence): persistence is ScannerPersistenceHandle {
+  return typeof (persistence as Partial<ScannerPersistenceHandle>).open === 'function'
+}
+
+/**
+ * List every stored session snapshot across both persistence runtime families:
+ * `listSnapshots` (≤ 0.1.1-rc.2) or `list` (0.1.2-alpha.5+).
+ * @param persistence - the persistence service slice.
+ * @returns one snapshot per stored session.
+ */
+export function persistenceListSnapshots(
+  persistence: ScannerPersistence,
+): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]> {
+  return isHandlePersistence(persistence)
+    ? persistence.list()
+    : (persistence as ScannerPersistenceLegacy).listSnapshots()
+}
+
+/**
+ * Read one stored session's complete event log and durable inherited boundary
+ * across both persistence runtime families: legacy `inspect` (≤ 0.1.1-rc.2)
+ * or `open` + handle `read` (0.1.2-alpha.5+; the handle is closed after the
+ * read). Both throw when the session does not exist.
+ * @param persistence - the persistence service slice.
+ * @param id - the stored session to read.
+ * @returns the session's complete event log plus its inherited-prefix boundary.
+ */
+export async function persistenceInspect(
+  persistence: ScannerPersistence,
+  id: SessionId,
+): Promise<ScannerPersistedRead> {
+  if (isHandlePersistence(persistence)) {
+    const handle = await persistence.open(id, 'read')
+    try {
+      return { events: await handle.read(), seedLength: forkBoundaryOf(handle) }
+    } finally {
+      await handle.close()
+    }
+  }
+  const inspection = await (persistence as ScannerPersistenceLegacy).inspect(id)
+  return { events: inspection.events, seedLength: forkBoundaryOf(inspection) }
+}
+
 /** Structural slices of the optional services the scanner reads through. */
 export interface TodaySpendScannerDeps {
   /** Resolves the live SessionStore at scan time (absent in headless assemblies). */
   sessions?: () => { list(): readonly ScannerSession[] } | undefined
   /** Resolves the persistence backend at scan time (absent without persistence). */
-  persistence?: () => {
-    listSnapshots(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
-    inspect(id: SessionId): Promise<{
-      meta?: { readonly seedLength?: number; readonly isSeeded?: boolean }
-      /** 0.1.2-alpha.4+: the exact inherited cut travels beside, not inside, the header. */
-      inheritedEventCount?: number
-      events: readonly SessionEvent[]
-    }>
-  } | undefined
+  persistence?: () => ScannerPersistence | undefined
   /** Resolves the session-projection registry at scan time (absent → events path). */
   projections?: () => {
     stateOf(session: ScannerSession, key: typeof BILLING_UNIT_KEY): BillingUnitState | undefined
@@ -138,7 +205,7 @@ export interface TodaySpendScannerDeps {
    */
   ensureUnit?: () => void
   /** The billing unit's fold (the projection path's detached cold recipe). */
-  unit: Pick<ProjectionDefinition<'billingTodaySpend', BillingUnitState>, 'init' | 'apply'>
+  unit: BillingUnitFold
   /** Hard cap on today's events collected by the events path. */
   maxEvents: number
   /** Warn sink for truncation and unreadable sessions. */
@@ -301,10 +368,10 @@ export class TodaySpendScanner {
       }
     }
     try {
-      const inspection = await persistenceService.inspect(id)
+      const read = await persistenceInspect(persistenceService, id)
       return {
-        value: foldOwnBilling(this.deps.unit, inspection.events, forkBoundaryOf(inspection)),
-        title: foldSessionTitle(inspection.events),
+        value: foldOwnBilling(this.deps.unit, read.events, read.seedLength),
+        title: foldSessionTitle(read.events),
       }
     } catch (error: unknown) {
       // One unreadable session must not blank the whole-day aggregate.
@@ -366,7 +433,7 @@ export class TodaySpendScanner {
     }
     const persistenceService = persistence?.()
     if (persistenceService === undefined) return total
-    const snapshots = await persistenceService.listSnapshots()
+    const snapshots = await persistenceListSnapshots(persistenceService)
     const pending: { id: SessionId; revision: SessionPersistenceRevision; seeded: boolean }[] = []
     for (const { header, revision } of snapshots) {
       if (liveIds.has(header.id)) continue
@@ -429,13 +496,13 @@ export class TodaySpendScanner {
     }
     const persistenceService = persistence?.()
     if (!truncated && persistenceService !== undefined) {
-      const snapshots = await persistenceService.listSnapshots()
+      const snapshots = await persistenceListSnapshots(persistenceService)
       for (const { header, revision } of snapshots) {
         if (liveIds.has(header.id)) continue
         if (this.lastEventsScan?.get(header.id) === revision) continue
         try {
-          const inspection = await persistenceService.inspect(header.id)
-          collect(inspection.events, forkBoundaryOf(inspection))
+          const read = await persistenceInspect(persistenceService, header.id)
+          collect(read.events, read.seedLength)
         } catch (error: unknown) {
           // One unreadable session must not blank the whole-day aggregate.
           logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)
@@ -489,7 +556,7 @@ export class TodaySpendScanner {
     }
     const persistenceService = persistence?.()
     if (persistenceService === undefined) return [...rows.values()]
-    const snapshots = await persistenceService.listSnapshots()
+    const snapshots = await persistenceListSnapshots(persistenceService)
     const pending: { id: SessionId; revision: SessionPersistenceRevision; seeded: boolean }[] = []
     for (const { header, revision } of snapshots) {
       if (liveIds.has(header.id)) continue
@@ -564,13 +631,13 @@ export class TodaySpendScanner {
     }
     const persistenceService = persistence?.()
     if (!truncated && persistenceService !== undefined) {
-      const snapshots = await persistenceService.listSnapshots()
+      const snapshots = await persistenceListSnapshots(persistenceService)
       for (const { header, revision } of snapshots) {
         if (liveIds.has(header.id)) continue
         if (this.lastEventsScan?.get(header.id) === revision) continue
         try {
-          const inspection = await persistenceService.inspect(header.id)
-          collect(header.id, inspection.events, forkBoundaryOf(inspection))
+          const read = await persistenceInspect(persistenceService, header.id)
+          collect(header.id, read.events, read.seedLength)
         } catch (error: unknown) {
           // One unreadable session must not blank the whole-day aggregate.
           logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)

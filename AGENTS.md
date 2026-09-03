@@ -11,7 +11,7 @@ deepseek-harness 官方仓库（[deepseek-ai/deepseek-harness](https://github.co
 ```
 packages/llm-billing/    宿主插件 @rayadesu/dsh-llm-billing（/user/balance 传输、峰谷计价、billing Remote）
 packages/ui-billing/     浏览器插件 @rayadesu/dsh-client-ui-billing（会话头部徽标与详情面板）
-packages/typert-protocol/ 内嵌 Typert 协议声明（@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2 的 lib/types），构建期供 typert 生成器识别装饰器；刻意不在 pnpm workspace 内，让 @deepseek-ai/dsh-typert-protocol 从 npm 解析（内嵌副本只有声明，无运行时实现）
+packages/typert-protocol/ 内嵌 Typert 协议声明（@deepseek-ai/dsh-typert-protocol@0.1.2-alpha.5 的 lib/types），构建期供 typert 生成器识别装饰器；刻意不在 pnpm workspace 内，让 @deepseek-ai/dsh-typert-protocol 从 npm 解析（内嵌副本只有声明，无运行时实现）
 cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-billing 两个插件行
 ```
 
@@ -41,7 +41,7 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
 - **发布前校验**：`pnpm run verify`（每个包 `prepublishOnly` 自动运行）检查
   `lib/typert.host.js` 的 `TYPERT.package` 必须等于导出它的包名，且 lib 中不得残留
   其他包名的清单；失败即禁止发布。
-- **依赖以发布形态声明**：`@deepseek-ai/dsh-*` 依赖写 `^0.1.1-rc.2`（对应官方 monorepo 当前发布基线，monorepo 内为 
+- **依赖以发布形态声明**：`@deepseek-ai/dsh-*` 依赖写 `^0.1.2-alpha.5`（对应官方 monorepo 当前发布基线，monorepo 内为 
   `workspace:^`）；本插件的三个包发布到 npm 的
   `@rayadesu` scope，直接 `dsh plugin add @rayadesu/...` 安装。
 - **密钥不进仓库**：`DEEPSEEK_API_KEY` 等一律由用户环境或凭据 seam 提供，仓库不含真实值。

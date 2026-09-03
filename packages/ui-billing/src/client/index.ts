@@ -10,6 +10,9 @@ import type {} from '@rayadesu/dsh-llm-billing/remote'
 import type { RemoteResult, TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// The assistant-actions slot row left ui-conversation and now lives in
+// ui-chat (0.1.2-alpha.5); this merge declares it for the register callsite.
+import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import { BalanceBadge, type BalanceBadgeInjected } from './BalanceBadge.tsx'
 import { TurnCostAction, type TurnCostActionInjected } from './TurnCostAction.tsx'
 import { en, NS, zh, type BillingKey } from './locales.ts'
