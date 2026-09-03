@@ -130,11 +130,30 @@ commands.
 
 The two plugin packages declare the DeepSeek Harness packages they build on
 (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-credentials`, `@deepseek-ai/dsh-session`,
-and the client runtime packages) as `peerDependencies` at `^0.1.1-rc.2`. A dsh
+and the client runtime packages) as `peerDependencies` at `^0.1.2-alpha.5`. A dsh
 profile does not auto-install peers, so these are provided by the dsh
 installation itself through the `profiles/node_modules` fallback rather than
 fetched from the registry — no extra packages to install, and no registry token
 needed on the installing machine.
+
+The plugin builds against the 0.1.2-alpha.5 published line and keeps both DSH
+runtime families readable: the live `Session` log surface
+(`Session.events` + `header.seedLength` at/before 0.1.1-rc.2,
+`snapshotEvents()` + `inheritedEventCount` since 0.1.2-alpha.4), and the
+persistence service surface (`inspect`/`listSnapshots` at/before 0.1.1-rc.2,
+`open`+`SessionHandle`/`list` on the 0.1.2-alpha.5 handle-based seam — the
+checkout master that ships the refactor). The projection unit's `init` is
+declared with the newer metadata parameters and stays callable as the older
+zero-arg shape.
+
+The browser-half tests exercise the published client bundles through the
+module-loader shim; since the 0.1.2-alpha.5 client stack split the runtime out
+of `dsh-client-runtime` (deleted) into `dsh-client-store`,
+`dsh-client-ui-session`, `dsh-client-ui-chat`, and the renderer-owned
+`SlotRegistry`, the test harness re-checks registered bundle exports after a
+fallback require and pins react copies with a resolve alias. The `assistant-actions`
+slot row moved from ui-conversation to ui-chat, so the plugin's client half
+pulls the ui-chat type merge too.
 
 ### Configure your DeepSeek API key
 
@@ -174,7 +193,7 @@ it. If a typert manifest ever names a package other than its own
 
 The typert generator recognizes `Remote`/`TypertRemoteService` only from a
 workspace-registered protocol package, so `packages/typert-protocol` vendors
-the published `@deepseek-ai/dsh-typert-protocol@0.1.1-rc.2` declarations; when
+the published `@deepseek-ai/dsh-typert-protocol@0.1.2-alpha.5` declarations; when
 the dsh dependency line moves, refresh it from the installed package.
 
 Publishing (the bundle and both plugins share one version; `prepublishOnly`

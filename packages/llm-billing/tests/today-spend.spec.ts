@@ -696,3 +696,102 @@ describe('TodaySpendScanner scanSessions (projection path)', () => {
     expect(sessions[0]?.total).toBeCloseTo(13.60, 10)
   })
 })
+
+describe('TodaySpendScanner persistence handle family (0.1.2-alpha.5+)', () => {
+  /** One handle-family persistence mock: list + open returning a scripted read handle. */
+  function handlePersistence(events: readonly SessionEvent[], over: {
+    inheritedEventCount?: number
+    isSeeded?: boolean
+  } = {}) {
+    const reads: { id: SessionId }[] = []
+    const closed: { id: SessionId }[] = []
+    const read = vi.fn(async () => events)
+    const service = {
+      list: vi.fn(async () => [{
+        header: { id: 'cold-a' as SessionId, isSeeded: over.isSeeded ?? false },
+        revision: SessionPersistenceRevision('r-a'),
+      }]),
+      open: vi.fn(async (id: SessionId, _access: 'read') => {
+        reads.push({ id })
+        return {
+          header: { id, isSeeded: over.isSeeded ?? false },
+          inheritedEventCount: over.inheritedEventCount ?? 0,
+          read,
+          close: async () => { closed.push({ id }) },
+        }
+      }),
+    }
+    return { service, reads, closed, read }
+  }
+
+  it('reads and closes the handle for one cold session on the events path', async () => {
+    const { service, reads, closed, read } = handlePersistence([
+      pricedEvent(DAY_TIME, 0),
+      pricedEvent(OTHER_DAY, 1),
+    ])
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => service,
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    expect(spend.models).toHaveLength(1)
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(1_000_000)
+    expect(service.list).toHaveBeenCalledTimes(1)
+    expect(service.open).toHaveBeenCalledWith('cold-a', 'read')
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(reads).toHaveLength(1)
+    expect(closed).toHaveLength(1)
+  })
+
+  it('prices only a handle-family fork child\'s own events (inheritedEventCount boundary)', async () => {
+    // The handle carries the exact inherited cut; the child's log opens with
+    // two inherited events that the source session already billed.
+    const { service } = handlePersistence(
+      [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1), pricedEvent(DAY_TIME, 2)],
+      { isSeeded: true, inheritedEventCount: 2 },
+    )
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => service,
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    expect(spend.models).toHaveLength(1)
+    expect(spend.models[0]?.cacheHitInputTokens).toBe(1_000_000)
+  })
+
+  it('closes the handle even when the read rejects, and skips the broken session', async () => {
+    const warn = vi.fn()
+    const closed: { id: SessionId }[] = []
+    const service = {
+      list: vi.fn(async () => [
+        { header: { id: 'cold-bad' as SessionId }, revision: SessionPersistenceRevision('r-bad') },
+      ]),
+      open: vi.fn(async (id: SessionId) => ({
+        header: { id },
+        inheritedEventCount: 0,
+        read: vi.fn(async () => { throw new Error('corrupt log') }),
+        close: async () => { closed.push({ id }) },
+      })),
+    }
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => service,
+      logger: { warn },
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    expect(spend.total).toBe(0)
+    expect(warn).toHaveBeenCalled()
+    expect(closed).toHaveLength(1)
+  })
+
+  it('resolves a cold session through the handle ladder on the projection path', async () => {
+    const { service, closed, read } = handlePersistence([pricedEvent(DAY_TIME, 0)])
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => service,
+      projections: () => ({ stateOf: () => undefined }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.sessionId).toBe('cold-a')
+    expect(sessions[0]?.total).toBeCloseTo(13.60, 10)
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(closed).toHaveLength(1)
+  })
+})

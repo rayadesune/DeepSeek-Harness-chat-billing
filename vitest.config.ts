@@ -42,7 +42,34 @@ function standardDecoratorPlugin() {
 export default defineConfig({
   plugins: [standardDecoratorPlugin()],
   resolve: {
+    // The linked DSH package sources resolve their own react copies from the
+    // harness checkout; dedupe pins every react/react-dom import to this
+    // repo's copy so hooks and JSX runtime are one engine in jsdom suites.
+    dedupe: ['react', 'react-dom', 'use-sync-external-store'],
     alias: [
+      // The linked DSH package sources resolve their own react copies from
+      // the harness checkout; pin every react/react-dom/use-sync-external-
+      // store import to this repo's copies so hooks and JSX runtime are one
+      // engine in jsdom suites (dedupe does not reach paths outside the
+      // project root, which the junctions are).
+      {
+        find: 'react',
+        replacement: fileURLToPath(
+          new URL('./packages/ui-billing/node_modules/react', import.meta.url),
+        ),
+      },
+      {
+        find: 'react-dom',
+        replacement: fileURLToPath(
+          new URL('./packages/ui-billing/node_modules/react-dom', import.meta.url),
+        ),
+      },
+      {
+        find: 'use-sync-external-store',
+        replacement: fileURLToPath(
+          new URL('./packages/ui-billing/node_modules/use-sync-external-store', import.meta.url),
+        ),
+      },
       // The published test-runtime imports renderer src files that the npm
       // renderer does not ship (bind.ts / scoped-slots.tsx /
       // session-provider.tsx). Resolve them to local fixture copies: files

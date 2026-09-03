@@ -121,9 +121,22 @@ export function billingTodaySpendDefinition(
   }
 }
 
+/** The fold halves of a billing unit, as the detached cold recipes call them. */
+export interface BillingUnitFold {
+  /**
+   * Initial state for the empty log. DSH ≤ 0.1.1-rc.2 declared `init()` with
+   * no parameters; 0.1.2-alpha.5+ passes the Session header and inherited
+   * count. The unit ignores both, so the structural type accepts either call
+   * shape.
+   */
+  init(...metadata: never[]): BillingUnitState
+  /** Pure transition: previous state + one committed event → next state. */
+  apply(state: BillingUnitState, event: SessionEvent): BillingUnitState
+}
+
 /** Fold a unit from init over one session's event log (the detached cold recipe). */
 export function foldBillingUnit(
-  unit: Pick<ProjectionDefinition<'billingTodaySpend', BillingUnitState>, 'init' | 'apply'>,
+  unit: BillingUnitFold,
   events: readonly SessionEvent[],
 ): BillingUnitState {
   let state = unit.init()
@@ -144,7 +157,7 @@ export function foldBillingUnit(
  * @returns the unit state folded over the session's own events.
  */
 export function foldOwnBilling(
-  unit: Pick<ProjectionDefinition<'billingTodaySpend', BillingUnitState>, 'init' | 'apply'>,
+  unit: BillingUnitFold,
   events: readonly SessionEvent[],
   seedLength = 0,
 ): BillingUnitState {
