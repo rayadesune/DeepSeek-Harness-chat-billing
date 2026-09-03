@@ -2,6 +2,16 @@
 
 ## 发布记录
 
+### 2026-09-09 · v0.3.8
+
+* 提交：`0a45a71`（feat: 新增 MiMo-V2.5 系列模型计费）+ `6b4ccd1`（release: v0.3.8）
+* tag：`v0.3.8` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.8
+* npm dist-tags.latest：
+  - `@rayadesu/dsh-billing` → 0.3.8
+  - `@rayadesu/dsh-llm-billing` → 0.3.8
+  - `@rayadesu/dsh-client-ui-billing` → 0.3.8
+* 发布内容：新增 MiMo-V2.5 系列模型计费（mimo-v2.5-pro、mimo-v2.5），不区分峰谷，统一费率
+
 ### 2026-09-08 · v0.3.7
 
 * 提交：`898f24f`（fix: 适配 DSH 0.1.2-alpha.5 兼容性问题）+ `a645ede`（release: v0.3.7）
