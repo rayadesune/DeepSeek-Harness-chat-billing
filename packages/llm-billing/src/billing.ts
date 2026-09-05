@@ -68,13 +68,13 @@ export interface BillingConfig {
  * applied on weekdays (Monday–Friday) only — weekends are always off-peak
  * (effective 2026-08-23).
  */
-export const DEFAULT_PEAK_HOURS: { start: number; end: number }[] = [
+export const DEFAULT_PEAK_HOURS: readonly PeakHourWindow[] = [
   { start: 9, end: 12 },
   { start: 14, end: 18 },
 ]
 
 /** Official peak/off-peak rates (CNY per 1M tokens), effective 2026-08-17. */
-export const DEFAULT_MODEL_PRICING: BillingConfigModel[] = [
+export const DEFAULT_MODEL_PRICING: readonly BillingConfigModel[] = [
   {
     model: 'deepseek-v4-flash',
     peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },

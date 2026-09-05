@@ -40,6 +40,9 @@ export type BalanceBadgeProps =
 /** How many per-session ranking rows the panel shows before the overflow hint. */
 export const SESSION_RANKING_LIMIT = 10
 
+/** Debounce for the turn-settled recompute: a burst of turns prices once. */
+export const TURN_SETTLE_DEBOUNCE_MS = 2_000
+
 /**
  * Run one fetch line: the fetch is deferred to a microtask so the effect's
  * render commits before any state update lands; a settled value is stored
@@ -142,7 +145,7 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, getTo
       void fetchLine(isCurrent, () => getSessionSpend(sessionId), setSpend)
       void fetchLine(isCurrent, () => getTodaySpend(), setTodaySpend)
       void fetchLine(isCurrent, () => getTodaySessionsSpend(), setSessionsSpend)
-    }, 2_000)
+    }, TURN_SETTLE_DEBOUNCE_MS)
     return () => {
       clearTimeout(timer)
       current = false
