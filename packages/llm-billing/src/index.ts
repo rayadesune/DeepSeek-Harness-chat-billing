@@ -38,7 +38,7 @@ import {
   mergeTodaySpend,
   resolveBilling,
 } from './billing.ts'
-import type { BillingConfig, BillingConfigModel } from './billing.ts'
+import type { BillingConfig, BillingConfigModel, ResolvedBilling } from './billing.ts'
 import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 import { billingTodaySpendDefinition } from './projection.ts'
 import { liveSessionEvents, persistenceInspect, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
@@ -203,52 +203,71 @@ async function sessionEvents(ctx: Context, sessionId: SessionId): Promise<Sessio
   throw new LlmError(`llm-billing: session ${sessionId} not found`, 'NOT_FOUND')
 }
 
+/** Facts resolved once at apply time: endpoint resolver, credential ref, and pricing. */
+interface ResolvedFacts {
+  /**
+   * Resolve the endpoint base per call from config → `$DEEPSEEK_BASE_URL` →
+   * the public API (the launch environment stays dynamic on purpose).
+   */
+  baseURL: () => string
+  /** Credential reference for the API key. */
+  apiKeyRef: ReturnType<typeof credentialRef>
+  /** Pricing table and peak-hour windows resolved from config. */
+  billing: ResolvedBilling
+  /** Model display rows, in presentation order. */
+  catalog: readonly { id: string; name: string }[]
+}
+
+/** Resolve the plugin's static facts once: endpoint, credential ref, pricing table. */
+function resolveFacts(ctx: Context, config: Config): ResolvedFacts {
+  return {
+    baseURL: () => config.baseURL
+      ?? launchEnvironmentOf(ctx).get(BASE_URL_ENV)?.value
+      ?? PUBLIC_BASE_URL,
+    apiKeyRef: credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV),
+    billing: resolveBilling(config.billing),
+    catalog: (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id })),
+  }
+}
+
 /**
- * Register the `billing` Remote under the `billing` namespace.
- * @param ctx - owning plugin context.
- * @param config - validated plugin config.
+ * Resolve the API key per call: the credentials service first, then the
+ * launch environment fallback.
+ * @throws {@link LlmError} with code `MISSING_CREDENTIAL` when neither yields a usable key.
  */
-export function apply(ctx: Context, config: Config): void {
-  const baseURL = (): string => config.baseURL
-    ?? launchEnvironmentOf(ctx).get(BASE_URL_ENV)?.value
-    ?? PUBLIC_BASE_URL
-  const apiKeyRef = credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV)
-
-  const resolveApiKey = async (): Promise<string> => {
-    const credentials = ctx.get('credentials')
-    if (credentials !== undefined) {
-      const hit = await credentials.resolve(apiKeyRef)
-      if (hit !== undefined) return assertUsableApiKey(hit.value, 'llm-billing', apiKeyRef)
-    } else {
-      const ambient = launchEnvironmentOf(ctx).get(apiKeyRef)
-      if (ambient !== undefined && ambient.value.length > 0) {
-        return assertUsableApiKey(ambient.value, 'llm-billing', apiKeyRef)
-      }
+async function resolveApiKey(ctx: Context, apiKeyRef: ReturnType<typeof credentialRef>): Promise<string> {
+  const credentials = ctx.get('credentials')
+  if (credentials !== undefined) {
+    const hit = await credentials.resolve(apiKeyRef)
+    if (hit !== undefined) return assertUsableApiKey(hit.value, 'llm-billing', apiKeyRef)
+  } else {
+    const ambient = launchEnvironmentOf(ctx).get(apiKeyRef)
+    if (ambient !== undefined && ambient.value.length > 0) {
+      return assertUsableApiKey(ambient.value, 'llm-billing', apiKeyRef)
     }
-    throw new LlmError(
-      `llm-billing: no API key; store ${apiKeyRef} through the credentials service or export it`,
-      'MISSING_CREDENTIAL',
-    )
   }
+  throw new LlmError(
+    `llm-billing: no API key; store ${apiKeyRef} through the credentials service or export it`,
+    'MISSING_CREDENTIAL',
+  )
+}
 
-  const fetchBalance = async (): Promise<DeepSeekBalance> => {
-    const apiKey = await resolveApiKey()
-    return fetchDeepSeekBalance(baseURL(), apiKey)
-  }
-
-  const billing = resolveBilling(config.billing)
-  const catalog = (config.models ?? DEFAULT_MODELS).map(model => ({ id: model.id, name: model.name ?? model.id }))
-
-  // Per-session incremental spend cache: a session log is append-only and
-  // chronological (the same assumption the projection unit makes), so a spend
-  // computed for `count` EVENTS OF THE SESSION'S OWN WORK (the log minus its
-  // inherited fork prefix) stays valid while the log length is unchanged, and
-  // only the appended tail needs pricing when it grows. A forked child's
-  // inherited prefix (`seq < seedLength`) is priced only in its source
-  // session; the map is capped so an unbounded session-id space cannot grow
-  // it without bound (see {@link evictOldest}).
+/**
+ * Per-session incremental spend loader: a session log is append-only and
+ * chronological (the same assumption the projection unit makes), so a spend
+ * computed for `count` EVENTS OF THE SESSION'S OWN WORK (the log minus its
+ * inherited fork prefix) stays valid while the log length is unchanged, and
+ * only the appended tail needs pricing when it grows. A forked child's
+ * inherited prefix (`seq < seedLength`) is priced only in its source
+ * session; the cache is bounded (see {@link evictOldest}), so an unbounded
+ * session-id space cannot grow it without bound.
+ */
+function createSessionSpendFetcher(
+  ctx: Context,
+  facts: ResolvedFacts,
+): (sessionId: SessionId) => Promise<DeepSeekSessionSpend> {
   const sessionSpendCache = new Map<SessionId, { count: number; spend: DeepSeekSessionSpend }>()
-  const fetchSessionSpend = async (sessionId: SessionId): Promise<DeepSeekSessionSpend> => {
+  return async (sessionId: SessionId): Promise<DeepSeekSessionSpend> => {
     const { events, seedLength } = await sessionEvents(ctx, sessionId)
     const ownCount = events.length - seedLength
     const cached = sessionSpendCache.get(sessionId)
@@ -259,25 +278,36 @@ export function apply(ctx: Context, config: Config): void {
       return cached.spend
     }
     if (cached !== undefined && cached.count < ownCount) {
-      const spend = mergeTodaySpend(cached.spend, computeSessionSpend(events.slice(seedLength + cached.count), billing, catalog))
+      const spend = mergeTodaySpend(cached.spend, computeSessionSpend(events.slice(seedLength + cached.count), facts.billing, facts.catalog))
       evictOldest(sessionSpendCache, SESSION_SPEND_CACHE_LIMIT)
       sessionSpendCache.set(sessionId, { count: ownCount, spend })
       return spend
     }
-    const spend = computeSessionSpend(events, billing, catalog, seedLength)
+    const spend = computeSessionSpend(events, facts.billing, facts.catalog, seedLength)
     evictOldest(sessionSpendCache, SESSION_SPEND_CACHE_LIMIT)
     sessionSpendCache.set(sessionId, { count: ownCount, spend })
     return spend
   }
+}
 
-  // Plan C: register the per-session spend projection unit on the projection
-  // registry. Registration is lazy — it happens on the first projection-path
-  // scan, not through `ctx.inject` (whose plugin-mount wait would also engage
-  // the test-invariant host in suites that never provide the registry). The
-  // registry builds cells lazily over the in-memory log, so events committed
-  // before registration are folded on first touch; without the registry the
-  // events path serves today's spend.
-  const unit = billingTodaySpendDefinition(billing, catalog)
+/**
+ * Today-spend loaders over one revision-gated scanner with two 60s
+ * Beijing-day caches (in-flight coalescing and a `force` bypass):
+ * - plan C registers the per-session spend projection unit on the projection
+ *   registry lazily — on the first projection-path scan, not through
+ *   `ctx.inject` (whose plugin-mount wait would also engage the
+ *   test-invariant host in suites that never provide the registry). The
+ *   registry builds cells lazily over the in-memory log, so events committed
+ *   before registration are folded on first touch; without the registry the
+ *   events path serves today's spend.
+ * - plans A1–A3: the scanner chooses the projection path when the registry
+ *   is composed, the events path otherwise.
+ */
+function createTodaySpendLoaders(ctx: Context, facts: ResolvedFacts): {
+  fetchTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
+  fetchTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend>
+} {
+  const unit = billingTodaySpendDefinition(facts.billing, facts.catalog)
   let unitRegistered = false
   const ensureUnit = (): void => {
     if (unitRegistered) return
@@ -286,10 +316,6 @@ export function apply(ctx: Context, config: Config): void {
     registry.register(unit)
     unitRegistered = true
   }
-
-  // Plans A1–A3: 60s Beijing-day cache with in-flight coalescing and a force
-  // bypass, over a revision-gated scanner (projection path when the registry
-  // is composed, events path otherwise).
   const scanner = new TodaySpendScanner({
     sessions: () => ctx.get('sessions'),
     persistence: () => ctx.get('sessionPersistence'),
@@ -299,8 +325,8 @@ export function apply(ctx: Context, config: Config): void {
     unit,
     maxEvents: TODAY_SPEND_MAX_EVENTS,
     logger: ctx.logger,
-    billing,
-    catalog,
+    billing: facts.billing,
+    catalog: facts.catalog,
   })
   const todayCache = new TodaySpendCache(
     dayKey => scanner.scan(dayKey),
@@ -310,14 +336,38 @@ export function apply(ctx: Context, config: Config): void {
     dayKey => scanner.scanSessions(dayKey),
     TODAY_SPEND_CACHE_MS,
   )
-
-  const fetchTodaySpend = async (force = false): Promise<DeepSeekTodaySpend> => todayCache.get(force)
-  const fetchTodaySessionsSpend = async (force = false): Promise<DeepSeekTodaySessionsSpend> => todaySessionsCache.get(force)
-
-  const fetchTurnSpend = async (sessionId: SessionId, messageId: string): Promise<DeepSeekTurnSpend> => {
-    const { events } = await sessionEvents(ctx, sessionId)
-    return computeTurnSpend(events, billing, catalog, messageId)
+  return {
+    fetchTodaySpend: (force = false) => todayCache.get(force),
+    fetchTodaySessionsSpend: (force = false) => todaySessionsCache.get(force),
   }
+}
 
+/** One completed Turn's spend loader, located by its closing message id. */
+function createTurnSpendFetcher(
+  ctx: Context,
+  facts: ResolvedFacts,
+): (sessionId: SessionId, messageId: string) => Promise<DeepSeekTurnSpend> {
+  return async (sessionId: SessionId, messageId: string): Promise<DeepSeekTurnSpend> => {
+    const { events } = await sessionEvents(ctx, sessionId)
+    return computeTurnSpend(events, facts.billing, facts.catalog, messageId)
+  }
+}
+
+/**
+ * Register the `billing` Remote under the `billing` namespace. Assembly only:
+ * facts resolve once, each loader owns its caches, and the gateway receives
+ * the bound thunks.
+ * @param ctx - owning plugin context.
+ * @param config - validated plugin config.
+ */
+export function apply(ctx: Context, config: Config): void {
+  const facts = resolveFacts(ctx, config)
+  const fetchBalance = async (): Promise<DeepSeekBalance> => {
+    const apiKey = await resolveApiKey(ctx, facts.apiKeyRef)
+    return fetchDeepSeekBalance(facts.baseURL(), apiKey)
+  }
+  const fetchSessionSpend = createSessionSpendFetcher(ctx, facts)
+  const { fetchTodaySpend, fetchTodaySessionsSpend } = createTodaySpendLoaders(ctx, facts)
+  const fetchTurnSpend = createTurnSpendFetcher(ctx, facts)
   new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchSessionSpend, fetchTodaySpend, fetchTodaySessionsSpend, fetchTurnSpend })
 }
