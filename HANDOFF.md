@@ -2,16 +2,16 @@
 
 ## 实施范围（每项一个 commit，均「四绿」通过）
 
-* `7408bc3` perf: price each event with one Beijing-time parse — 今日扫描每条事件只做一次时区解析（原为「日过滤 + 计价」各解析一次）；新增 `priceEventAt` / `beijingPartsOf`
-* `23f2f62` perf: evict oldest cache entries instead of clearing on capacity — `sessionSpendCache`（含 LRU touch）、`coldResolved`、`ownStates` 满额逐出最旧（原为整体 clear / 无上限）
-* `bd1190e` refactor: dedupe the four today-spend scan paths — 投影两路共享 `liveBillingEntries` + `coldAdopt`；事件两路共享 `collectTodayEvents`（单遍收集 + 截断 + revision watermark 语义不变）
-* `d219faa` refactor: share client money formatting — 新建 `packages/ui-billing/src/client/format.ts`（formatSpend / currencySymbol / primaryLine）
-* `2059958` polish: type the published tables as readonly and name tunable constants — `DEFAULT_PEAK_HOURS` 标注 `PeakHourWindow[]`、表 readonly（schemastery default 改为展开副本）；`TURN_SETTLE_DEBOUNCE_MS` 具名
-* `d3ce706` ci: GitHub Actions workflow — push/PR 跑 install → typecheck → build → test → verify
-* `94a78c6` build: minimal ESLint config（`eslint.config.mjs` + `pnpm lint`）— typescript-eslint recommended + react-hooks 两条规则；`_`-前缀参数豁免；顺带修复 BalanceBadge 一处真实 `exhaustive-deps`（ref 读取「values already present」）
-* `a3426bc` refactor: split BalanceBadge — `useBillingData.ts`（状态 + 三个 effect + fetchLine）+ `BalanceTrigger.tsx` / `BalancePanel.tsx` 纯视图；导出面（BalanceBadge / 类型 / SESSION_RANKING_LIMIT / TURN_SETTLE_DEBOUNCE_MS）不变
-* `c01ddba` refactor: converge apply() — `resolveFacts` / `resolveApiKey` / `createSessionSpendFetcher` / `createTodaySpendLoaders` / `createTurnSpendFetcher`；apply 变 15 行装配，缓存仍按实例持有、扫描依赖保持惰性解析
-* `d4970f8` docs: dedupe repeated billing-semantics JSDoc — 峰谷口径只写一次（types 模块头 / priceEvent），其余引用
+* `3e8f781` perf: price each event with one Beijing-time parse — 今日扫描每条事件只做一次时区解析（原为「日过滤 + 计价」各解析一次）；新增 `priceEventAt` / `beijingPartsOf`
+* `8537481` perf: evict oldest cache entries instead of clearing on capacity — `sessionSpendCache`（含 LRU touch）、`coldResolved`、`ownStates` 满额逐出最旧（原为整体 clear / 无上限）
+* `de9ad49` refactor: dedupe the four today-spend scan paths — 投影两路共享 `liveBillingEntries` + `coldAdopt`；事件两路共享 `collectTodayEvents`（单遍收集 + 截断 + revision watermark 语义不变）
+* `69a2442` refactor: share client money formatting — 新建 `packages/ui-billing/src/client/format.ts`（formatSpend / currencySymbol / primaryLine）
+* `0d17c78` polish: type the published tables as readonly and name tunable constants — `DEFAULT_PEAK_HOURS` 标注 `PeakHourWindow[]`、表 readonly（schemastery default 改为展开副本）；`TURN_SETTLE_DEBOUNCE_MS` 具名
+* `34ed492` ci: GitHub Actions workflow — push/PR 跑 install → typecheck → build → test → verify
+* `1f235b5` build: minimal ESLint config（`eslint.config.mjs` + `pnpm lint`）— typescript-eslint recommended + react-hooks 两条规则；`_`-前缀参数豁免；顺带修复 BalanceBadge 一处真实 `exhaustive-deps`（ref 读取「values already present」）
+* `96d9199` refactor: split BalanceBadge — `useBillingData.ts`（状态 + 三个 effect + fetchLine）+ `BalanceTrigger.tsx` / `BalancePanel.tsx` 纯视图；导出面（BalanceBadge / 类型 / SESSION_RANKING_LIMIT / TURN_SETTLE_DEBOUNCE_MS）不变
+* `2ecf394` refactor: converge apply() — `resolveFacts` / `resolveApiKey` / `createSessionSpendFetcher` / `createTodaySpendLoaders` / `createTurnSpendFetcher`；apply 变 15 行装配，缓存仍按实例持有、扫描依赖保持惰性解析
+* `cc9f3ed` docs: dedupe repeated billing-semantics JSDoc — 峰谷口径只写一次（types 模块头 / priceEvent），其余引用
 
 ## 验证
 
@@ -25,7 +25,7 @@
 
 ### 2026-09-09 · v0.3.8
 
-* 提交：`0a45a71`（feat: 新增 MiMo-V2.5 系列模型计费）+ `6b4ccd1`（release: v0.3.8）
+* 提交：`58f0942`（feat: 新增 MiMo-V2.5 系列模型计费）+ `a84ef65`（release: v0.3.8）
 * tag：`v0.3.8` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.8
 * npm dist-tags.latest：
   - `@rayadesu/dsh-billing` → 0.3.8
@@ -35,7 +35,7 @@
 
 ### 2026-09-08 · v0.3.7
 
-* 提交：`898f24f`（fix: 适配 DSH 0.1.2-alpha.5 兼容性问题）+ `a645ede`（release: v0.3.7）
+* 提交：`da1875b`（fix: 适配 DSH 0.1.2-alpha.5 兼容性问题）+ `16f8e69`（release: v0.3.7）
 * tag：`v0.3.7` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.7
 * npm dist-tags.latest：
   - `@rayadesu/dsh-billing` → 0.3.7
@@ -156,7 +156,7 @@
 
 ## 发布记录（2026-09-02 · 0.3.6）
 
-- **已发布完成**：提交 `76285b1`（中文提交信息）已推送 origin/main；tag `v0.3.6` 已推送；
+- **已发布完成**：提交 `95b60d0`（中文提交信息）已推送 origin/main；tag `v0.3.6` 已推送；
   GitHub Release **v0.3.6** 已创建（中文发布说明，
   https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.6）。
 - **npm 三包均发布成功**：顺序 llm-billing → ui-billing → dsh-billing，registry
@@ -258,7 +258,7 @@
 
 - **已发布完成**：顺序 llm-billing → ui-billing → dsh-billing 均发布成功（token 内联传参，
   未写入任何文件；prepublishOnly 自动运行并通过），registry `dist-tags.latest` 均为 0.3.5。
-- 已推送 origin/main（17d0fe7 功能 + e3d14ea 间距修正）与 tag v0.3.5；GitHub Release
+- 已推送 origin/main（e393833 功能 + d3390ff 间距修正）与 tag v0.3.5；GitHub Release
   **v0.3.5** 已创建（中文发布说明，https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.5）。
 - 本机 web profile 仍为 local-tarballs 的 `file:` 引用 0.3.5（视觉效果已验）；如需换 npm
   版本：`dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
@@ -311,7 +311,7 @@
 
 ## 状态（2026-08-29）
 
-- **已提交并推送**：`b64aa8c`（rebase 于远端 `8e00a08` 之上；远端 4 条提交——v0.3.2 发布与截图
+- **已提交并推送**：`81d9ffa`（rebase 于远端 `4a1760c` 之上；远端 4 条提交——v0.3.2 发布与截图
   文档——**全部保留**，冲突仅版本号与 ui-billing README / lockfile，逐一合并后 lockfile 重新生成）。
 - **未上传 npm**（按用户要求）。将来发布须带 bypass-2FA token，顺序 llm-billing → ui-billing →
   dsh-billing（坑见下文）；0.3.2 已在 registry，0.3.3 发布不会冲突。
@@ -401,7 +401,7 @@
 - 目标：修复 @rayadesu/dsh-llm-billing 的 TYPERT 清单包名归属错误，恢复独立构建，发布 0.2.2。
 - 当前进度：**全部完成**——6 个测试套件全绿（83 用例）；build / typecheck / verify 全绿；三个包
   **0.2.2 已发布到 npm**（@rayadesu/dsh-billing、@rayadesu/dsh-llm-billing、@rayadesu/dsh-client-ui-billing，
-  均 PUT 200）；本轮改动已提交 `58be982`。剩余唯一可选步骤：把 0.2.2 装进 DSH profile 验证（用户明确暂不执行）。
+  均 PUT 200）；本轮改动已提交 `2ad83ce`。剩余唯一可选步骤：把 0.2.2 装进 DSH profile 验证（用户明确暂不执行）。
 
 ## 历史发布记录（0.2.2 · 2026-08-28）
 - 发布方式：npm publish（**显式传参** `--//registry.npmjs.org/:_authToken=<TOKEN>`）。
@@ -410,7 +410,7 @@
 - token 由用户提供，仅用于发布命令，未写入仓库任何文件。
 - registry 验证：三个包最新版本均为 0.2.2。
 
-## 0.2.2 改动（提交 58be982，相对 0ed0a37）
+## 0.2.2 改动（提交 2ad83ce，相对 c7d68cb）
 1. **vitest.config.ts 修复**：上一轮提交的配置里正则被写坏（反斜杠丢失、正则拆行）导致 vitest 无法加载；已按 harness 原版（vitest.shared.ts）重写 standardDecoratorPlugin。
 2. **typert-protocol 移出 pnpm workspace**：内嵌包只有声明（`export declare`），没有运行时实现，且 `linkWorkspacePackages` 会让它遮蔽 npm 包；现在 `packages:` 只含 llm-billing / ui-billing，`@deepseek-ai/dsh-typert-protocol` 从 npm 解析（lib 带真实 remoteMethods 实现）。typert 生成器不受影响（它按 tsconfig references 注册包，不依赖 pnpm workspace 成员身份）。
 3. **ui-billing 客户端测试基础设施**（npm 0.1.1-rc.2 client 栈发布缺陷的完整应对）：
