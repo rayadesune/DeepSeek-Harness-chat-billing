@@ -437,14 +437,9 @@ export function mergeTodaySpend(target: DeepSeekTodaySpend, source: DeepSeekToda
 }
 
 /**
- * Price a set of billed events at the official per-model rates, applying the
- * peak/off-peak table per event by its Beijing-time hour and weekday (peak
- * windows apply Monday–Friday only; weekends are off-peak). Each
- * `assistant/message` event with usage contributes cache-hit input, cache-miss
- * input (uncached input plus cache writes), and output (reasoning included)
- * tokens at the rate of its own timestamp, with the three component costs
- * carried separately; a model with usage but no pricing row is omitted (the
- * published table prices only the two V4 rows).
+ * Price a set of billed events (the shared sweep behind every scan path):
+ * each event where `priceEvent` yields a contribution is folded, optionally
+ * restricted to one Beijing calendar day and to `seq >= startSeq`.
  * @param events - the events to price.
  * @param billing - resolved pricing with peak-hour windows.
  * @param names - model id → display label.
@@ -492,12 +487,11 @@ export function computeSessionSpend(
 }
 
 /**
- * Price one completed Turn's billed usage at the official per-model rates,
- * identified by its closing assistant message id. The turn's events are those
- * between its `turn/start` and `turn/end` (both matched by the message's own
- * turn coordinate); each priced event applies the peak/off-peak table by its
- * Beijing-time hour and weekday. A message that cannot be located, a turn
- * without bracketing `turn/start` / `turn/end` events (for example after
+ * Price one completed Turn's billed usage, identified by its closing
+ * assistant message id. The turn's events are those between its `turn/start`
+ * and `turn/end` (both matched by the message's own turn coordinate), priced
+ * per event as in {@link priceEvent}. A message that cannot be located, a
+ * turn without bracketing `turn/start` / `turn/end` events (for example after
  * compaction), or a session with no priced usage prices to zero.
  * @param events - one session's complete event log.
  * @param billing - resolved pricing with peak-hour windows.
@@ -537,8 +531,9 @@ export function computeTurnSpend(
 
 /**
  * Price every event whose Beijing-time calendar day is the day of `now`,
- * aggregating across every session's event log. Events from other Beijing
+ * aggregating across every session's event log; events from other Beijing
  * days are ignored, so a caller passes the concatenated logs of all sessions.
+ * Pricing per event as in {@link priceEvent}.
  * @param events - every session's complete event log, concatenated.
  * @param billing - resolved pricing with peak-hour windows.
  * @param catalog - model display rows, in presentation order.
