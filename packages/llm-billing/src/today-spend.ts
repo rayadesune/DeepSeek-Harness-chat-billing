@@ -42,7 +42,7 @@
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import type { ResolvedBilling } from './billing.ts'
-import { beijingDayKey, emptyTodaySpend, forkBoundaryOf, isSeededSession, mergeTodaySpend, priceEvent, SpendAccumulator } from './billing.ts'
+import { beijingDayKey, beijingPartsOf, emptyTodaySpend, forkBoundaryOf, isSeededSession, mergeTodaySpend, priceEventAt, SpendAccumulator } from './billing.ts'
 import type { DeepSeekTodaySessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from './types.ts'
 import { BILLING_UNIT_KEY, foldOwnBilling, type BillingUnitFold, type BillingUnitState } from './projection.ts'
 
@@ -474,13 +474,15 @@ export class TodaySpendScanner {
     const collect = (events: readonly SessionEvent[], seedLength: number): void => {
       for (const event of events) {
         if (event.seq < seedLength) continue
-        if (beijingDayKey(new Date(event.time)) !== dayKey) continue
+        // One timezone parse serves both the day filter and the pricing.
+        const parts = beijingPartsOf(event.time)
+        if (parts.dayKey !== dayKey) continue
         collected += 1
         if (collected > maxEvents) {
           truncated = true
           return
         }
-        const priced = priceEvent(event, billing, names)
+        const priced = priceEventAt(parts, event, billing, names)
         if (priced !== undefined) accumulator.add(priced)
       }
     }
@@ -609,13 +611,15 @@ export class TodaySpendScanner {
       }
       for (const event of events) {
         if (event.seq < seedLength) continue
-        if (beijingDayKey(new Date(event.time)) !== dayKey) continue
+        // One timezone parse serves both the day filter and the pricing.
+        const parts = beijingPartsOf(event.time)
+        if (parts.dayKey !== dayKey) continue
         collected += 1
         if (collected > maxEvents) {
           truncated = true
           return
         }
-        const priced = priceEvent(event, billing, names)
+        const priced = priceEventAt(parts, event, billing, names)
         if (priced !== undefined) row.total += priced.cost
       }
     }

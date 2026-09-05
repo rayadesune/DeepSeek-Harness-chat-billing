@@ -133,7 +133,7 @@ export function resolveBilling(config: BillingConfig | undefined): ResolvedBilli
 }
 
 /** One shifted-timestamp view of a Beijing (UTC+8, no DST) instant. */
-interface BeijingParts {
+export interface BeijingParts {
   /** Beijing hour, `0`–`23`. */
   hour: number
   /** Beijing weekday as `getUTCDay()`: `0` is Sunday, `6` is Saturday. */
@@ -145,10 +145,12 @@ interface BeijingParts {
 /**
  * Derive the Beijing hour, weekday, and calendar-day key of one timestamp from
  * a single shifted `Date` — every timezone-sensitive read shares this one
- * implementation, so the pieces cannot drift apart.
+ * implementation, so the pieces cannot drift apart. Callers that filter by
+ * day and then price the same event reuse the returned view via
+ * {@link priceEventAt}, so each event is parsed exactly once.
  * @param time - epoch milliseconds.
  */
-function beijingParts(time: number): BeijingParts {
+export function beijingPartsOf(time: number): BeijingParts {
   const shifted = new Date(time + 8 * 3_600_000)
   return {
     hour: shifted.getUTCHours(),
@@ -159,7 +161,7 @@ function beijingParts(time: number): BeijingParts {
 
 /** The Beijing (Asia/Shanghai, UTC+8, no DST) calendar-day key of a timestamp. */
 export function beijingDayKey(now: Date): string {
-  return beijingParts(now.getTime()).dayKey
+  return beijingPartsOf(now.getTime()).dayKey
 }
 
 /**
@@ -229,7 +231,7 @@ function isPeakParts(billing: ResolvedBilling, hour: number, weekday: number): b
  * @returns true during a weekday peak hour.
  */
 export function isPeak(billing: ResolvedBilling, now: Date): boolean {
-  const { hour, weekday } = beijingParts(now.getTime())
+  const { hour, weekday } = beijingPartsOf(now.getTime())
   return isPeakParts(billing, hour, weekday)
 }
 
@@ -284,14 +286,33 @@ export function priceEvent(
   billing: ResolvedBilling,
   names: ReadonlyMap<string, string>,
 ): BillingEventContribution | undefined {
+  return priceEventAt(beijingPartsOf(event.time), event, billing, names)
+}
+
+/**
+ * Price one event at the official per-model rates using a precomputed
+ * Beijing-time view — the day-filtering and pricing of one event share a
+ * single timezone parse (see {@link beijingPartsOf}). Semantics are identical
+ * to {@link priceEvent}.
+ * @param parts - the event's Beijing-time view.
+ * @param event - the event to price.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param names - model id → display label.
+ * @returns the priced contribution, or `undefined` when the event has no priced usage.
+ */
+export function priceEventAt(
+  parts: BeijingParts,
+  event: SessionEvent,
+  billing: ResolvedBilling,
+  names: ReadonlyMap<string, string>,
+): BillingEventContribution | undefined {
   if (event.type !== 'assistant/message') return undefined
   const reported = event.data.usage
   if (reported === undefined) return undefined
   const model = event.data.message.source.model
   const pricing = billing.models.get(model)
   if (pricing === undefined) return undefined
-  const { hour, weekday, dayKey } = beijingParts(event.time)
-  const peak = isPeakParts(billing, hour, weekday)
+  const peak = isPeakParts(billing, parts.hour, parts.weekday)
   const price = peak ? pricing.peak : pricing.offPeak
   const hit = reported.cacheReadTokens ?? 0
   const miss = reported.inputTokens + (reported.cacheWriteTokens ?? 0)
@@ -301,7 +322,7 @@ export function priceEvent(
   const outputCost = (output * price.output) / 1_000_000
   const cost = hitCost + missCost + outputCost
   return {
-    dayKey,
+    dayKey: parts.dayKey,
     model,
     displayName: names.get(model) ?? model,
     cost,
