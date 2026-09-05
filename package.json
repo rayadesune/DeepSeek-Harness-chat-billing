@@ -21,6 +21,7 @@
     "build:host": "tsc -b tsconfig.host.json && tsdown --env.DSH_BUILD_FACE host",
     "build:client": "tsc -b tsconfig.client.json && tsdown --env.DSH_BUILD_FACE client",
     "typecheck": "tsc -b tsconfig.host.json && tsc -b tsconfig.client.json",
+    "lint": "eslint .",
     "test": "vitest run",
     "verify": "node scripts/verify-packages.mjs"
   },
@@ -46,11 +47,15 @@
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-invariants": "^0.1.2-alpha.5",
     "@deepseek-ai/dsh-typert-generator": "^0.1.2-alpha.5",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.0",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "jsdom": "29.1.1",
     "lightningcss": "^1.32.0",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.69.0",
     "vitest": "^4.1.8"
   }
 }

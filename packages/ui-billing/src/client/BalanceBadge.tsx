@@ -98,12 +98,18 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, getTo
   // effect skips the initial mount (the mount effect already fetched).
   const pricedRunningRef = useRef(running)
 
+  // The fetch effect reads whether values are already present (refreshing vs
+  // first load) without subscribing to balance changes — a ref keeps the
+  // effect's dependency array as the fetch trigger only.
+  const balanceRef = useRef(balance)
+  balanceRef.current = balance
+
   useEffect(() => {
     let current = true
     const isCurrent = (): boolean => current
     // A refresh (values already present) keeps the previous values on screen;
     // the first load has nothing to keep, so it stays on the loading render.
-    setRefreshing(balance !== null)
+    setRefreshing(balanceRef.current !== null)
     void Promise.resolve().then(() => {
       // Each line settles on its own: the badge renders from the balance and
       // the panel rows from their own spend, so a slow aggregate (today's
@@ -114,7 +120,7 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, getTo
         setError(null)
       }, (reason: unknown) => {
         // A refresh failure keeps the last good value instead of blanking it.
-        if (balance === null) setError(reason instanceof Error ? reason.message : String(reason))
+        if (balanceRef.current === null) setError(reason instanceof Error ? reason.message : String(reason))
       })
       const sessionSpendRequest = fetchLine(isCurrent, () => getSessionSpend(sessionId), setSpend)
       const todaySpendRequest = fetchLine(isCurrent, () => getTodaySpend(request > 0), setTodaySpend)

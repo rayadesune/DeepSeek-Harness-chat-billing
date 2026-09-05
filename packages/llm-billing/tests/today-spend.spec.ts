@@ -91,7 +91,7 @@ describe('TodaySpendCache', () => {
   })
 
   it('force bypasses the time window; the day key still gates', async () => {
-    let now = Date.parse('2026-08-20T04:00:00Z')
+    const now = Date.parse('2026-08-20T04:00:00Z')
     let scans = 0
     const cache = new TodaySpendCache(async () => {
       scans += 1
