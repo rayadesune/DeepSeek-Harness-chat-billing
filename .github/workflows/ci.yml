@@ -19,9 +19,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run typecheck
       - run: pnpm run lint
-      - run: pnpm run build
-      # verify inspects the built lib/ artifacts, so it runs after build.
+      # The host face first: its tsdown pass generates the typert Remote
+      # artifacts (lib/typert.remote-client.d.ts) the browser face imports,
+      # so a clean checkout must build it before typechecking the client
+      # half. build:client then emits the browser bundle.
+      - run: pnpm run build:host
+      - run: pnpm run typecheck
+      - run: pnpm run build:client
       - run: pnpm run test
+      # verify inspects the built lib/ artifacts, so it runs after build.
       - run: pnpm run verify

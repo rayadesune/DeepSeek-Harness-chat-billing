@@ -9,6 +9,6 @@
   "files": [],
   "references": [
     { "path": "./packages/llm-billing" },
-    { "path": "./packages/ui-billing" }
+    { "path": "./packages/ui-billing/tsconfig.client.json" }
   ]
 }
