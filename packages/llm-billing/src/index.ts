@@ -151,6 +151,20 @@ export const Config: z<Config> = z.object({
 export const TODAY_SPEND_CACHE_MS = 60_000
 /** Hard cap on today's events collected by the events scan path. */
 export const TODAY_SPEND_MAX_EVENTS = 200_000
+/** Max session-spend rows kept for incremental recompute before eviction. */
+export const SESSION_SPEND_CACHE_LIMIT = 1024
+
+/**
+ * Bounded-map eviction: drop the oldest inserted entry once `size` reached
+ * `limit`, so an unbounded session-id space grows the map no further. Evicting
+ * one entry (instead of clearing) keeps the other sessions' incremental
+ * spend warm.
+ */
+function evictOldest<K, V>(map: Map<K, V>, limit: number): void {
+  if (map.size < limit) return
+  const oldest = map.keys().next().value
+  if (oldest !== undefined) map.delete(oldest)
+}
 
 /** One session read: the event log plus the durable inherited-prefix boundary. */
 interface SessionEventsRead {
@@ -231,20 +245,26 @@ export function apply(ctx: Context, config: Config): void {
   // only the appended tail needs pricing when it grows. A forked child's
   // inherited prefix (`seq < seedLength`) is priced only in its source
   // session; the map is capped so an unbounded session-id space cannot grow
-  // it without bound.
+  // it without bound (see {@link evictOldest}).
   const sessionSpendCache = new Map<SessionId, { count: number; spend: DeepSeekSessionSpend }>()
   const fetchSessionSpend = async (sessionId: SessionId): Promise<DeepSeekSessionSpend> => {
     const { events, seedLength } = await sessionEvents(ctx, sessionId)
     const ownCount = events.length - seedLength
     const cached = sessionSpendCache.get(sessionId)
-    if (cached !== undefined && cached.count === ownCount) return cached.spend
+    if (cached !== undefined && cached.count === ownCount) {
+      // LRU touch: re-insert so the entry is evicted only after fresher ones.
+      sessionSpendCache.delete(sessionId)
+      sessionSpendCache.set(sessionId, cached)
+      return cached.spend
+    }
     if (cached !== undefined && cached.count < ownCount) {
       const spend = mergeTodaySpend(cached.spend, computeSessionSpend(events.slice(seedLength + cached.count), billing, catalog))
+      evictOldest(sessionSpendCache, SESSION_SPEND_CACHE_LIMIT)
       sessionSpendCache.set(sessionId, { count: ownCount, spend })
       return spend
     }
     const spend = computeSessionSpend(events, billing, catalog, seedLength)
-    if (sessionSpendCache.size >= 1024) sessionSpendCache.clear()
+    evictOldest(sessionSpendCache, SESSION_SPEND_CACHE_LIMIT)
     sessionSpendCache.set(sessionId, { count: ownCount, spend })
     return spend
   }

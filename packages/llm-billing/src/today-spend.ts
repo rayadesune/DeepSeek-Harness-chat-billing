@@ -294,6 +294,22 @@ export class TodaySpendCache<T = DeepSeekTodaySpend> {
   }
 }
 
+/** Max session-ids kept in the scanner's cold-resolution cache before eviction. */
+export const COLD_RESOLVE_CACHE_LIMIT = 1024
+/** Max session-ids kept in the scanner's fork-child own-state cache before eviction. */
+export const OWN_STATE_CACHE_LIMIT = 1024
+
+/**
+ * Bounded-map eviction: drop the oldest inserted entry once `size` reached
+ * `limit`. Evicting one entry (instead of clearing) keeps the other sessions'
+ * resolved state warm across scans.
+ */
+function evictOldest<K, V>(map: Map<K, V>, limit: number): void {
+  if (map.size < limit) return
+  const oldest = map.keys().next().value
+  if (oldest !== undefined) map.delete(oldest)
+}
+
 /**
  * The aggregate computation behind a cache miss. Chooses the projection path
  * when the projection registry is composed, the events path otherwise; both
@@ -403,6 +419,7 @@ export class TodaySpendScanner {
     } else {
       state = foldOwnBilling(this.deps.unit, events, seedLength)
     }
+    evictOldest(this.ownStates, OWN_STATE_CACHE_LIMIT)
     this.ownStates.set(id, { count: ownCount, state })
     return state
   }
@@ -447,7 +464,10 @@ export class TodaySpendScanner {
     }
     await withConcurrency(pending, 8, async ({ id, revision, seeded }) => {
       const resolved = await this.resolveCold(id, seeded)
-      if (resolved !== undefined) this.coldResolved.set(id, { revision, ...resolved })
+      if (resolved !== undefined) {
+        evictOldest(this.coldResolved, COLD_RESOLVE_CACHE_LIMIT)
+        this.coldResolved.set(id, { revision, ...resolved })
+      }
     })
     for (const { id } of pending) {
       const resolved = this.coldResolved.get(id)
@@ -574,7 +594,10 @@ export class TodaySpendScanner {
     }
     await withConcurrency(pending, 8, async ({ id, revision, seeded }) => {
       const resolved = await this.resolveCold(id, seeded)
-      if (resolved !== undefined) this.coldResolved.set(id, { revision, ...resolved })
+      if (resolved !== undefined) {
+        evictOldest(this.coldResolved, COLD_RESOLVE_CACHE_LIMIT)
+        this.coldResolved.set(id, { revision, ...resolved })
+      }
     })
     for (const { id } of pending) {
       const resolved = this.coldResolved.get(id)
