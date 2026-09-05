@@ -156,8 +156,8 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   }
 
   /**
-   * Read one session's billed spend, priced per event by its Beijing-time
-   * peak/off-peak hour and weekday (weekends are always off-peak).
+   * Read one session's billed spend (same per-event pricing as
+   * {@link priceEvent}).
    * @param sessionId - the session whose spend to compute.
    * @returns the session's total cost plus one row per priced model.
    */
@@ -167,8 +167,8 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   }
 
   /**
-   * Read today's billed spend across every session, priced per event by its
-   * Beijing-time calendar day, hour, and weekday (weekends are always off-peak).
+   * Read today's billed spend across every session: the same per-event
+   * pricing as {@link priceEvent}, restricted to the queried Beijing day.
    * @param force - bypass the host-side 60s cache (manual refresh); omitted
    *   means a cached read. Remote parameters cannot carry default values, so
    *   the thunk receives `undefined` for an omitted argument.
@@ -180,10 +180,9 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   }
 
   /**
-   * Read today's billed spend per session, priced per event by its
-   * Beijing-time calendar day, hour, and weekday (weekends are always
-   * off-peak). Rows carry the session's durable title and sort by cost
-   * descending; sessions with no priced usage on the day are omitted.
+   * Read today's billed spend per session, restricted to the queried Beijing
+   * day. Rows carry the session's durable title and sort by cost descending;
+   * sessions with no priced usage on the day are omitted.
    * @param force - bypass the host-side 60s cache (manual refresh); omitted
    *   means a cached read.
    * @returns today's per-session rows, highest first.
@@ -194,8 +193,8 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   }
 
   /**
-   * Read one completed Turn's billed spend, priced per event by its
-   * Beijing-time hour and weekday (weekends are always off-peak).
+   * Read one completed Turn's billed spend (same per-event pricing as
+   * {@link priceEvent}).
    * @param sessionId - the session owning the Turn.
    * @param messageId - the closing assistant message's durable id, which
    *   locates the Turn in the session log.

@@ -1,6 +1,14 @@
 /**
  * Client-safe balance and spend vocabulary shared by the `billing` Remote,
  * its generated artifacts, and the web UI.
+ *
+ * Billing semantics (single source of truth, see billing.ts): every spend is
+ * priced per event by its own timestamp — Beijing-time (UTC+8, no DST) hour
+ * and weekday, with peak windows Monday–Friday 09:00–12:00 / 14:00–18:00 and
+ * weekends always off-peak; cache-hit input, cache-miss input (including
+ * cache writes), and output (including reasoning) are billed separately at
+ * per-1M-token rates. The published table prices the DeepSeek V4 rows and
+ * the MiMo-V2.5 series (flat rate, no peak/off-peak distinction).
  * @module @rayadesu/dsh-llm-billing/types
  */
 
@@ -26,7 +34,7 @@ export interface DeepSeekBalance {
   lines: readonly DeepSeekBalanceLine[]
 }
 
-/** One model's billed spend within one session, priced by the peak/off-peak table. */
+/** One model's billed spend within one session. */
 export interface DeepSeekSessionSpendModel {
   /** Wire model id, e.g. `deepseek-v4-flash`. */
   model: string
@@ -52,7 +60,7 @@ export interface DeepSeekSessionSpendModel {
   outputCost: number
 }
 
-/** The billed spend of one session, priced per event by its Beijing-time hour and weekday (peak hours apply Monday–Friday only; weekends are off-peak). */
+/** The billed spend of one session. */
 export interface DeepSeekSessionSpend {
   /** Total billed cost in CNY across every priced model. */
   total: number
@@ -60,7 +68,7 @@ export interface DeepSeekSessionSpend {
   models: readonly DeepSeekSessionSpendModel[]
 }
 
-/** The billed spend of every session on one Beijing-time calendar day, priced per event by its Beijing-time hour and weekday (peak hours apply Monday–Friday only; weekends are off-peak). */
+/** The billed spend of every session on one Beijing-time calendar day. */
 export interface DeepSeekTodaySpend {
   /** Total billed cost in CNY across every priced model and every session. */
   total: number
@@ -68,7 +76,7 @@ export interface DeepSeekTodaySpend {
   models: readonly DeepSeekSessionSpendModel[]
 }
 
-/** One session's billed spend on one Beijing-time calendar day, priced per event by its Beijing-time hour and weekday (peak hours apply Monday–Friday only; weekends are off-peak). */
+/** One session's billed spend on one Beijing-time calendar day. */
 export interface DeepSeekTodaySessionSpend {
   /** The session's durable identity. */
   sessionId: SessionId
@@ -87,7 +95,7 @@ export interface DeepSeekTodaySessionsSpend {
   sessions: readonly DeepSeekTodaySessionSpend[]
 }
 
-/** The billed cost of one completed Turn, priced per event by its Beijing-time hour and weekday (peak hours apply Monday–Friday only; weekends are off-peak). */
+/** The billed cost of one completed Turn. */
 export interface DeepSeekTurnSpend {
   /** Total billed cost in CNY across every priced model in the Turn. */
   total: number
