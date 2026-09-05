@@ -1,0 +1,22 @@
+{
+  // Browser-face project for the UI plugin: the client sources compile with
+  // React JSX and no ambient node types. It runs after the host face's
+  // tsdown pass, which generates the lib/typert.remote-client.d.ts that
+  // @rayadesu/dsh-llm-billing/remote resolves through.
+  "extends": "../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src/client",
+    "outDir": "lib/types/client"
+  },
+  "include": [
+    "src/client"
+  ],
+  "references": [
+    {
+      "path": "../llm-billing"
+    },
+    {
+      "path": "../typert-protocol"
+    }
+  ]
+}

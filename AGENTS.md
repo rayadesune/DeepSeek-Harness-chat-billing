@@ -60,4 +60,11 @@ pnpm run verify # 发布前校验
 dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing  # 安装进 DSH
 ```
 
+**从零构建顺序是硬约束**：`ui-billing` 的浏览器半面（`tsconfig.client.json`）导入
+`@rayadesu/dsh-llm-billing/remote`，其类型声明是 host 面 tsdown 生成的
+`lib/typert.remote-client.d.ts`（gitignore，不入库）。所以干净 checkout 必须先跑
+`pnpm run build:host`（tsc + tsdown 生成 typert 产物）再跑
+`pnpm run typecheck` / `pnpm run build:client`；`pnpm run build` 本身已按
+host → client 顺序封装，CI 亦按此顺序执行。
+
 改动后至少校验 JSON/YAML 可解析，并更新受影响包的 README（双语都要）。

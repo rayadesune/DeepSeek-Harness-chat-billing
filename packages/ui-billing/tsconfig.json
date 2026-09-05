@@ -1,11 +1,16 @@
 {
-  "extends": "../../tsconfig.base.client.json",
+  // Host-face project for the UI plugin: the Node half (index + invariant)
+  // only. The browser half compiles as its own project (tsconfig.client.json)
+  // after the host face's tsdown pass generated the typert Remote artifacts
+  // it imports, so a clean checkout builds in order without stale lib/.
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib/types"
   },
   "include": [
-    "src"
+    "src/index.ts",
+    "src/invariant.ts"
   ],
   "references": [
     {
