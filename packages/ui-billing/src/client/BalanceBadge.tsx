@@ -6,6 +6,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { IconChevronDownOutline14, IconQuestionOutline14, IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { formatSpend, primaryLine } from './format.ts'
 import { NS } from './locales.ts'
 import css from './BalanceBadge.module.css'
 
@@ -35,25 +36,6 @@ export type BalanceBadgeProps =
   PropsRuntime<'conversation.session.header.utilities'>
   & InjectFace<BalanceBadgeInjected>
   & PropsLocale<typeof NS>
-
-/** Currency prefix for one balance line; unknown codes render as a literal prefix. */
-function currencySymbol(currency: string): string {
-  if (currency === 'CNY') return '¥'
-  if (currency === 'USD') return '$'
-  return `${currency} `
-}
-
-/** The primary balance line, or undefined when the provider reports none. */
-function primaryLine(balance: DeepSeekBalance): { symbol: string; total: string } | undefined {
-  const line = balance.lines[0]
-  if (line === undefined) return undefined
-  return { symbol: currencySymbol(line.currency), total: line.total }
-}
-
-/** CNY amount, up to four decimals with trailing zeros trimmed. */
-function formatSpend(amount: number): string {
-  return `¥${amount.toFixed(4).replace(/\.?0+$/, '')}`
-}
 
 /** How many per-session ranking rows the panel shows before the overflow hint. */
 export const SESSION_RANKING_LIMIT = 10

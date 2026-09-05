@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import type { DeepSeekTurnSpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { formatSpend } from './format.ts'
 import { NS } from './locales.ts'
 import css from './TurnCostAction.module.css'
 
@@ -23,11 +24,6 @@ export type TurnCostActionProps =
   PropsRuntime<'conversation.chat.assistant-actions'>
   & InjectFace<TurnCostActionInjected>
   & PropsLocale<typeof NS>
-
-/** CNY amount, up to four decimals with trailing zeros trimmed. */
-function formatSpend(amount: number): string {
-  return `¥${amount.toFixed(4).replace(/\.?0+$/, '')}`
-}
 
 // Completed turns never change, so one fetch per (session, message) serves
 // the page lifetime; the map is capped so an unbounded transcript cannot grow
