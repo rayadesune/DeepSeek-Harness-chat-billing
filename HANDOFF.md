@@ -1,3 +1,24 @@
+# HANDOFF — 全量代码优化（P0 性能/结构 + P1 可维护性 · 2026-09 已实施，纯重构，未发布）
+
+## 实施范围（每项一个 commit，均「四绿」通过）
+
+* `7408bc3` perf: price each event with one Beijing-time parse — 今日扫描每条事件只做一次时区解析（原为「日过滤 + 计价」各解析一次）；新增 `priceEventAt` / `beijingPartsOf`
+* `23f2f62` perf: evict oldest cache entries instead of clearing on capacity — `sessionSpendCache`（含 LRU touch）、`coldResolved`、`ownStates` 满额逐出最旧（原为整体 clear / 无上限）
+* `bd1190e` refactor: dedupe the four today-spend scan paths — 投影两路共享 `liveBillingEntries` + `coldAdopt`；事件两路共享 `collectTodayEvents`（单遍收集 + 截断 + revision watermark 语义不变）
+* `d219faa` refactor: share client money formatting — 新建 `packages/ui-billing/src/client/format.ts`（formatSpend / currencySymbol / primaryLine）
+* `2059958` polish: type the published tables as readonly and name tunable constants — `DEFAULT_PEAK_HOURS` 标注 `PeakHourWindow[]`、表 readonly（schemastery default 改为展开副本）；`TURN_SETTLE_DEBOUNCE_MS` 具名
+* `d3ce706` ci: GitHub Actions workflow — push/PR 跑 install → typecheck → build → test → verify
+* `94a78c6` build: minimal ESLint config（`eslint.config.mjs` + `pnpm lint`）— typescript-eslint recommended + react-hooks 两条规则；`_`-前缀参数豁免；顺带修复 BalanceBadge 一处真实 `exhaustive-deps`（ref 读取「values already present」）
+* `a3426bc` refactor: split BalanceBadge — `useBillingData.ts`（状态 + 三个 effect + fetchLine）+ `BalanceTrigger.tsx` / `BalancePanel.tsx` 纯视图；导出面（BalanceBadge / 类型 / SESSION_RANKING_LIMIT / TURN_SETTLE_DEBOUNCE_MS）不变
+* `c01ddba` refactor: converge apply() — `resolveFacts` / `resolveApiKey` / `createSessionSpendFetcher` / `createTodaySpendLoaders` / `createTurnSpendFetcher`；apply 变 15 行装配，缓存仍按实例持有、扫描依赖保持惰性解析
+* `d4970f8` docs: dedupe repeated billing-semantics JSDoc — 峰谷口径只写一次（types 模块头 / priceEvent），其余引用
+
+## 验证
+
+* 143 用例全绿；typecheck / lint / build / verify 全绿（每项提交前均跑）。
+* 未改版本号（0.3.8），未发布；计费逻辑、双运行时兼容层、定价表零改动；README 无功能变化未改。
+* 已知权衡：P2 项（turn 花费二分、balance 超时、环境解析缓存、Remote cancellation）经评估**不做**，理由见讨论记录。
+
 # HANDOFF — billing 插件适配 DSH 0.1.2-alpha.5 基线（persistence handle 面 + 客户端栈重构 · 2026-09-03 检查并修复）
 
 ## 发布记录
