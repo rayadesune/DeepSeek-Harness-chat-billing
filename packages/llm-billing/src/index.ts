@@ -129,15 +129,16 @@ const tokenPrice: z<BillingConfigModel['peak']> = z.object({
 })
 
 const billingConfig: z<BillingConfig> = z.object({
+  // Copies of the readonly published tables, taken once at module load.
   peakHours: z.array(z.object({
     start: z.number().step(1).min(0).max(23),
     end: z.number().step(1).min(0).max(24),
-  })).default(DEFAULT_PEAK_HOURS),
+  })).default([...DEFAULT_PEAK_HOURS]),
   models: z.array(z.object({
     model: z.string().required(),
     peak: tokenPrice,
     offPeak: tokenPrice,
-  })).default(DEFAULT_MODEL_PRICING),
+  })).default([...DEFAULT_MODEL_PRICING]),
 })
 
 export const Config: z<Config> = z.object({
