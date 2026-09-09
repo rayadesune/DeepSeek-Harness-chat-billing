@@ -15,8 +15,8 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 
 ## Data update mechanics
 
-- **Session spend follows the conversation** — on every new message in the current session, the badge recomputes only **this session's spend** and **today's spend** (purely local pricing, no network request), so the spend lines stay live during an ongoing conversation. The host prices incrementally: an unchanged session log is served from the host-side cache, and only the appended tail of a growing log is re-priced.
-- **Balance stays manual** — the balance is account-level data, queried only on mount, session switch, the manual refresh action, or a browser reload; **there is no polling** and it does not track account changes by itself.
+- **Session spend follows the conversation** — the host prices every committed event into a per-session projection (`billingTodaySpend`) and pushes it to the browser, so **this session's spend** updates live with no Remote call; the Remote read remains the fallback when the projection registry is absent. **Today's spend** is recomputed on turn settle (one shared scan serves both the aggregate and the ranking), and each turn's cost comes from **one batch fetch per session** instead of one call per rendered message.
+- **Balance is cached, not polled** — the host reuses one `/user/balance` snapshot for 15 seconds (manual refresh forces a fresh one) and caps each request at 5 seconds; the browser keeps the last settled value so a session switch renders the amount immediately and revalidates in the background. There is still no polling.
 - **Old values survive refreshes** — a failed refresh keeps the last good value instead of blanking it.
 
 ## Preview
@@ -38,7 +38,7 @@ Close-up of the turn-cost amount — the static `¥` amount at the end of the ac
 
 | Package | Side | Role |
 | --- | --- | --- |
-| [`packages/llm-billing`](packages/llm-billing) — `@rayadesu/dsh-llm-billing` | Host | Owns the `/user/balance` transport and the peak/off-peak pricing table. Exposes the `billing` Remote (`getBalance`, `getSessionSpend`, `getTodaySpend`, `getTodaySessionsSpend`, `getTurnSpend`). |
+| [`packages/llm-billing`](packages/llm-billing) — `@rayadesu/dsh-llm-billing` | Host | Owns the `/user/balance` transport and the peak/off-peak pricing table. Exposes the `billing` Remote (`getBalance(force?)`, `getSessionSpend`, `getTodaySpend`, `getTodaySessionsSpend`, `getTurnSpend`, `getSessionTurnSpends`) and registers the client-visible `billingTodaySpend` projection unit. |
 | [`packages/ui-billing`](packages/ui-billing) — `@rayadesu/dsh-client-ui-billing` | Browser | Mounts the `billing` Remote itself and contributes the session-header badge and detail panel, plus the static turn-cost amount at the end of the message actions strip. |
 
 ## Prerequisites
@@ -242,20 +242,21 @@ Both packages ship sane defaults; everything below is optional.
 
 ## How session spend is computed
 
-- Each `assistant/message` event reports three billed token buckets: **cache-hit input**, **cache-miss input** (uncached input + cache writes), and **output** (including reasoning).
-- Each message is priced at the peak/off-peak rate of its own **Beijing-time** hour, the three buckets are billed separately (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), then summed per model. Peak windows apply weekdays (Monday–Friday) only; weekends are always off-peak.
+- Each `assistant/message` event reports three billed token buckets: **cache-hit input**, **cache-miss input** (uncached input + cache writes), and **output** (including reasoning). A failed or retried `assistant/attempt` reports its usage only in its embedded stream; that sample is priced too (with the model of the latest `request/header`), a later sample for the same `(turn, step)` **replaces** the earlier one, and `llm/retry-started` makes the retried attempt **add** — the same accounting DSH's own turn-usage disclosure uses.
+- Each sample is priced at the peak/off-peak rate of its own **Beijing-time** hour, the three buckets are billed separately (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), then summed per model. Peak windows apply weekdays (Monday–Friday) only; weekends are always off-peak.
 - **Today's spend** aggregates every session's events on the current Beijing-time calendar day with the same pricing rules; event dates are also assigned in Beijing time.
-- **Turn cost** prices the messages inside the turn's `turn/start`..`turn/end` range with the same rules (located by the closing message's session id + message id).
+- **Turn cost** prices the events inside the turn's `turn/start`..`turn/end` range with the same rules (located by the closing message's session id + message id), folded in one pass for the whole session and served as a `messageId → cost` map.
 - **Today session ranking** aggregates today's spend per session with the same rules (a cross-day session counts only today's part), sorted descending; names come from the log's latest `session/title` event (the auto-generated Chinese title or a user rename).
 - Models without a rate row are not priced (the built-in catalog currently has the four V4 rows: V4 Flash, V4.1 Flash, V4 Pro, and V4 Flash Vision Exp; V4.1 Flash bills at the V4 Flash rates). Rates follow the DeepSeek pricing effective **August 17**; the weekend-off-peak rule (weekends billed at off-peak prices all day) follows the adjustment effective **August 23**.
 
 ## Known limitations
 
 - **Priced rows only** — the session, turn, and today spends only price models that have a `billing.models` row.
-- **On-demand aggregation** — today's spend and the session ranking are computed on the host behind a 60-second cache; a miss scans only sessions whose persisted log changed since the last resolution (live sessions fold through the projection cells when the registry is composed), and a growing session's spend is priced incrementally (only the appended tail is re-priced).
+- **On-demand aggregation** — today's spend and the session ranking are computed on the host behind a 60-second cache and share ONE scan; a miss resolves live sessions from their eager projection cells and cold sessions from the zero-I/O projection-cache row when that row's own day is not the queried one, reading a log only for sessions whose persisted revision changed (or whose cached row covers the queried day). A failed resolution is remembered by revision instead of being retried every scan.
+- **Ranking is fetched on demand** — the panel loads the ranking when it is opened (and on refresh), so a badge that stays closed never pays for the all-session scan.
 - **Ranking capped at 10** — the panel shows at most the top 10 sessions, with a "…N more sessions" hint.
 - **Turn cost needs a finalized closing message** — interrupted turns have no actions row, so no turn cost; cold sessions served straight from the projection cache may rank with an "Untitled" name until their log is read again.
-- **Balance does not follow automatically** — the balance stays a manual snapshot (no polling); spending from another client does not move the shown value until a refresh or browser reload.
+- **Balance is TTL-cached** — the host reuses one snapshot for up to 15 seconds and each request aborts after 5 seconds; spending from another client does not move the shown value until the TTL expires, a manual refresh, or a browser reload (there is no polling).
 - **Estimate, not a promise** — the session spend prices tokens at official rates; the provider's actual billing prevails.
 
 ## License

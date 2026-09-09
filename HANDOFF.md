@@ -1,3 +1,62 @@
+# HANDOFF — 全量性能优化（DSH 0.1.5 冷读回归修复 + 传输/渲染重排 · 2026-09-09 已实施，未发布）
+
+## 问题与根因（先看这段）
+
+用户反馈「dsh 更新几轮后插件显示有些迟钝」。全量审计（三个并行子代理 + 真实语料实测）结论：
+
+* **根因 A（致命，性能 + 正确性）**：DSH `9b78f99dec`（2026-09-06，在 0.1.5-alpha.1 中）把
+  `SessionHandle.read()` 的返回从裸数组改成 `{ eventState, events }`。插件仍按数组处理
+  （`today-spend.ts` 的 `events: await handle.read()`），折叠时对对象 `for…of` 抛错 → 被 catch
+  吞掉 → **失败不写 `coldResolved`** → 每 60 秒对全部冷会话重读一遍日志再丢弃。语料实测：
+  233 个逻辑会话 / 544 MB 解压 / 63 万事件，全量冷读 ≈ 13–17 秒/轮。
+* **根因 B（阶梯长期失效）**：插件的 `projectionCache.coldSnapshot(id)` 只匹配 0.1.1-rc.2 的
+  异步签名；0.1.2-alpha.1 起真实签名是同步三参 `coldSnapshot(meta, inheritedEventCount, events)`，
+  调用必然抛错 → 从不走缓存行。而磁盘上 233 份投影缓存里已有 225 份存了 `billingTodaySpend` 行。
+* **根因 C（渲染卡顿）**：每条已定稿消息一次 `getTurnSpend` Remote（一次 HTTP POST，无批处理），
+  宿主侧每次两遍全日志 → 实测 **1.57 ms/条**（10 个大会话 4070 条共 6.37 秒）；一趟映射只需 0.9 µs/条。
+* 次要：余额每次挂载走网络且无超时/缓存（切会话徽标先空一会儿）、今日花费 60 秒 TTL 导致数字不动、
+  排行在挂载时就扫、客户端 turnCost 缓存满 1024 整表清空、只计 `assistant/message`（DSH 自身口径还计
+  `assistant/attempt`）。
+
+## 改动（每项一个提交，均「四绿」通过）
+
+1. `30e50b7` fix: 冷会话读取兼容 DSH 0.1.5 形状、接回投影缓存零 I/O 快路径并提前注册单元 ——
+   `handleReadEvents` 兼容两种 read 形状；`cachedSnapshot(header, 0, [key])` 零 I/O 作答（行自身日期
+   非查询日即采信）；失败按 revision 负缓存（`COLD_FAILED_CACHE_LIMIT`）；`apply()` 里注册表一存在就注册
+   投影单元（`createUnitRegistrar`），DSH write-behind 因此从启动起为每个 `turn/end` 落行。
+2. `395955d` perf: 回合成本改为一次批量拉取 —— 新增 `getSessionTurnSpends(sessionId)`（`SessionTurnSpendFolder`
+   增量折叠，宿主按会话缓存 64 条）+ 客户端 `createTurnCostStore`（每会话一次、并发共享、缺失 id 只重拉一次）。
+3. `c200eac` perf: 余额 15s 宿主 TTL + 5s 超时（`AbortSignal.timeout`），客户端 `getCachedBalance` 让
+   徽标挂载即渲染、后台校验；`getBalance(force?)` 手动刷新绕过 TTL。
+4. `abdf470` perf: 聚合与排行共用一次 `scanDetail`（一次扫描同时产出两者），排行改为面板打开时才拉取。
+5. `3f05e0f` feat: 投影单元 v2——状态加 `session`（全量累计）与 `inheritedEventCount`（单元自身带边界，
+   分叉子会话的 eager cell 直接正确，删除 `ownBillingState` 旁路）；客户端「本会话花费」改读
+   `useProjection('billingTodaySpend')`（零 Remote、实时），Remote 仅作回退；新增包导出子路径 `./projection`。
+6. `8515d8c` feat: 对齐 DSH 口径——`applyBillingEvent` 把 `assistant/attempt` 内嵌 stream 的 usage 也计价
+   （模型取最近 `request/header`），同 `(turn, step)` 后样本替换前样本，`llm/retry-started` 后重试累加；
+   `SpendAccumulator` 之外新增 `subtractSpend`/`negateSpend`/`BillingFolder`，`computeSessionSpend` /
+   `computeTodaySpend` / `computeTurnSpend` / 投影单元全部走同一折叠。**金额会略增**（语料中 115 条带
+   usage 的 attempt，其中 41 个 step 同时有 message → 靠替换不双计）。投影 `stateVersion` 3。
+7. `6b4b43a` perf: `beijingPartsOf` 改纯整数运算（去掉每事件 `Date` + `toISOString().slice`）；
+   920,039 个时间戳与 Date 参照零差异，补月/年/闰日/纪元边界用例。
+
+## 验证
+
+* **174 用例全绿**（新增 30 条：read 形状、负缓存、缓存行快路径、批量回合成本、余额 TTL/强制、
+  attempt 计价/替换/重试、北京日算术边界、共享扫描、useProjection 渲染等）。
+* `pnpm run test` / `build` / `typecheck` / `lint` / `verify` 全绿；typert 已重生成
+  （`getSessionTurnSpends` 进入 `lib/typert.remote-client.*`）。
+* 文档：根 README 与两个包 README 双语同步（Remote 方法、读取路径、分叉边界、运行时兼容、
+  已知限制），三份 `README.i18n.yaml` blob hash 重算。
+* 未改版本号（0.3.8），未推送、未发布。
+* **本地安装已完成**：三包 0.3.8 `npm pack` → `%DSH_HOME%\local-tarballs\`，remove + add 装入 web profile。
+* **用户待办**：重启 `dsh web` 并硬刷新，重点核对——① 徽标切会话立即出现（不再空白等待）；
+  ② 长会话打开/滚动时行尾 `¥金额` 迅速补齐、不再逐个转圈；③ 今日共花费在回合结束后 2 秒内更新；
+  ④ 详情面板打开时才拉排行；⑤ 终端不再刷 `llm-billing:` 警告；⑥ 金额与 DSH 的 🗄用量口径一致
+  （重试回合会略高于旧版）。
+
+---
+
 # HANDOFF — 新增 deepseek-v4.1-flash-expires-on-0910 计费（与 V4 Flash 同价 · 2026-09-09 已实施，未发布）
 
 ## 本轮改动
