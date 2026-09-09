@@ -385,14 +385,18 @@ describe('BalanceBadge', () => {
     expect(screen.queryByText('今日会话花费')).toBeNull()
   })
 
-  it('passes force to getTodaySessionsSpend only on the manual refresh, not on mount', async () => {
+  it('fetches the ranking only when the panel opens; the manual refresh forces it', async () => {
     const getTodaySessionsSpend = vi.fn(async (_force?: boolean) => ({ sessions: [] }))
     render(<BalanceBadge
       {...props(async () => balance(), async () => SPEND, async () => TODAY_SPEND, () => false, getTodaySessionsSpend)}
     />)
     await act(async () => {})
-    expect(getTodaySessionsSpend.mock.calls[0]?.[0]).toBeFalsy()
+    // The closed badge never pays for the all-session ranking.
+    expect(getTodaySessionsSpend).not.toHaveBeenCalled()
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    await act(async () => {})
+    expect(getTodaySessionsSpend).toHaveBeenCalledTimes(1)
+    expect(getTodaySessionsSpend.mock.calls[0]?.[0]).toBeFalsy()
     fireEvent.click(screen.getByRole('button', { name: zh['action.refresh'] }))
     await act(async () => {})
     expect(getTodaySessionsSpend.mock.calls[1]?.[0]).toBe(true)

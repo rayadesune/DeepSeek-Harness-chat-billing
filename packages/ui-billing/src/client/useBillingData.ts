@@ -90,6 +90,11 @@ export function useBillingData({
   const balanceRef = useRef(balance)
   balanceRef.current = balance
 
+  // Whether the detail panel is open: the ranking fetch is gated on it, so a
+  // badge that is never opened never pays for the all-session ranking.
+  const openRef = useRef(open)
+  openRef.current = open
+
   useEffect(() => {
     let current = true
     const isCurrent = (): boolean => current
@@ -110,7 +115,10 @@ export function useBillingData({
       })
       const sessionSpendRequest = fetchLine(isCurrent, () => getSessionSpend(sessionId), setSpend)
       const todaySpendRequest = fetchLine(isCurrent, () => getTodaySpend(request > 0), setTodaySpend)
-      const sessionsSpendRequest = fetchLine(isCurrent, () => getTodaySessionsSpend(request > 0), setSessionsSpend)
+      // The ranking is only rendered inside the open detail panel.
+      const sessionsSpendRequest = openRef.current
+        ? fetchLine(isCurrent, () => getTodaySessionsSpend(request > 0), setSessionsSpend)
+        : Promise.resolve()
       // The refresh spinner covers the whole refresh, whatever settles last.
       void Promise.allSettled([balanceRequest, sessionSpendRequest, todaySpendRequest, sessionsSpendRequest]).then(() => {
         if (current) setRefreshing(false)
@@ -118,6 +126,15 @@ export function useBillingData({
     })
     return () => { current = false }
   }, [getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, request])
+
+  // Opening the panel loads today's ranking on demand (it is never fetched
+  // while the panel stays closed).
+  useEffect(() => {
+    if (!open) return
+    let current = true
+    void fetchLine(() => current, () => getTodaySessionsSpend(), setSessionsSpend)
+    return () => { current = false }
+  }, [getTodaySessionsSpend, open])
 
   // A turn settles: recompute this session's spend and today's spend across
   // every session. The balance is account-level and stays a manual snapshot —
@@ -136,7 +153,8 @@ export function useBillingData({
       // does not delay the session line.
       void fetchLine(isCurrent, () => getSessionSpend(sessionId), setSpend)
       void fetchLine(isCurrent, () => getTodaySpend(), setTodaySpend)
-      void fetchLine(isCurrent, () => getTodaySessionsSpend(), setSessionsSpend)
+      // The ranking is only refreshed while its panel is open.
+      if (openRef.current) void fetchLine(isCurrent, () => getTodaySessionsSpend(), setSessionsSpend)
     }, TURN_SETTLE_DEBOUNCE_MS)
     return () => {
       clearTimeout(timer)

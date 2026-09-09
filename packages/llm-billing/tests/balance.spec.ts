@@ -229,6 +229,27 @@ describe('apply / today spend', () => {
     } as unknown as SessionEvent
   }
 
+  it('serves the aggregate and the ranking from one shared scan', async () => {
+    const ctx = new Context()
+    ctx.provide('sessions', { list: () => [] } as never)
+    const inspect = vi.fn(async () => ({ meta: {}, events: [pricedEvent(0)] }))
+    ctx.provide('sessionPersistence', {
+      listSnapshots: async () => [
+        { header: { id: 'session-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
+      ],
+      inspect,
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const spend = await gateway.getTodaySpend()
+    const ranking = await gateway.getTodaySessionsSpend()
+    expect(spend.total).toBeGreaterThan(0)
+    expect(ranking.sessions).toHaveLength(1)
+    // One scan served both reads: the cold session was inspected once.
+    expect(inspect).toHaveBeenCalledTimes(1)
+    await ctx.fiber.dispose()
+  })
+
   it('aggregates today\'s spend across a very large session log without exceeding the call stack', async () => {
     const ctx = new Context()
     ctx.provide('sessions', { list: () => [] } as never)
