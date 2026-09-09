@@ -1,3 +1,29 @@
+# HANDOFF — 新增 deepseek-v4.1-flash-expires-on-0910 计费（与 V4 Flash 同价 · 2026-09-09 已实施，未发布）
+
+## 本轮改动
+
+* **需求**：用户 DSH 新增模型 `deepseek-v4.1-flash-expires-on-0910`（`~/.dsh/settings.yaml` 的
+  `llm-deepseek.models` 行：显示名 `DeepSeek-V4.1-Flash`、上下文 1M、支持图片输入），要求按 V4 Flash 同价计费。
+* `billing.ts`：`DEFAULT_MODEL_PRICING` 紧跟 flash 行新增一行——峰 `0.10 / 3.0 / 9.0`、谷
+  `0.05 / 1.5 / 4.5`（元/百万 token，与 `deepseek-v4-flash` 逐桶一致；图片按同一单价折算 token，
+  与 vision-exp 同理）。
+* `index.ts`：`DEFAULT_MODELS` 新增展示行 `{ id: 'deepseek-v4.1-flash-expires-on-0910',
+  name: 'DeepSeek-V4.1-Flash' }`（显示名取自用户 settings.yaml 的 `name`，徽标/面板直接显示）。
+* 测试：`billing.spec.ts` +1 用例（新模型与 flash 在峰/谷两端总额与三个 token 桶等价、displayName 正确）
+  + 默认费率表断言；**全套 144 用例全绿**。
+* 文档：根 README 与 llm-billing README 双语模型列表补 V4.1 Flash（顺带补上此前遗漏的 MiMo 行），
+  两份 `README.i18n.yaml` blob hash 已重算。
+* 版本未动（0.3.8）；未推送、未发布。
+
+## 验证
+
+* `pnpm run test` / `pnpm run build` / `pnpm run lint` / `pnpm run verify` 全绿。
+* 本地 pack 三包 0.3.8 → `%DSH_HOME%\local-tarballs\`，remove + add 装入 web profile。
+* **用户待办**：重启 `dsh web` 并硬刷新，用 V4.1 Flash 聊一轮，核对「本轮花费」与详情面板里该模型
+  的金额（应与同用量的 V4 Flash 一致）、模型名显示为 `DeepSeek-V4.1-Flash`。
+
+---
+
 # HANDOFF — 全量代码优化（P0 性能/结构 + P1 可维护性 · 2026-09 已实施，纯重构，未发布）
 
 ## 实施范围（每项一个 commit，均「四绿」通过）

@@ -42,11 +42,13 @@ function assistantMessage(model: string, usage: TokenUsage, time = 0, seq = 0): 
 }
 
 const FLASH = 'deepseek-v4-flash'
+const V41_FLASH = 'deepseek-v4.1-flash-expires-on-0910'
 const PRO = 'deepseek-v4-pro'
 const MIMO_PRO = 'mimo-v2.5-pro'
 const MIMO = 'mimo-v2.5'
 const CATALOG = [
   { id: FLASH, name: 'DeepSeek-V4-Flash' },
+  { id: V41_FLASH, name: 'DeepSeek-V4.1-Flash' },
   { id: PRO, name: 'DeepSeek-V4-Pro' },
   { id: MIMO_PRO, name: 'MiMo-V2.5-Pro' },
   { id: MIMO, name: 'MiMo-V2.5' },
@@ -58,6 +60,11 @@ describe('resolveBilling', () => {
     expect(billing.peakHours).toEqual([{ start: 9, end: 12 }, { start: 14, end: 18 }])
     expect(billing.models.get(FLASH)?.peak).toEqual({ cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 })
     expect(billing.models.get(PRO)?.offPeak).toEqual({ cacheHitInput: 0.15, cacheMissInput: 4.5, output: 13.5 })
+    // deepseek-v4.1-flash-expires-on-0910 bills at the same published rates as flash.
+    expect(billing.models.get(V41_FLASH)?.peak)
+      .toEqual({ cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 })
+    expect(billing.models.get(V41_FLASH)?.offPeak)
+      .toEqual({ cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 })
     // deepseek-v4-flash-vision-exp bills at the same published rates as flash.
     expect(billing.models.get('deepseek-v4-flash-vision-exp')?.peak)
       .toEqual({ cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 })
@@ -197,6 +204,20 @@ describe('computeSessionSpend', () => {
     expect(spend.total).toBeCloseTo(13.60 + 6.80, 10)
     expect(spend.models[0]?.peakCost).toBeCloseTo(13.60, 10)
     expect(spend.models[0]?.offPeakCost).toBeCloseTo(6.80, 10)
+  })
+
+  it('prices deepseek-v4.1-flash-expires-on-0910 exactly like flash, peak and off-peak', () => {
+    const billing = resolveBilling(undefined)
+    for (const [time, expected] of [[PEAK, 13.60], [OFF_PEAK, 6.80]] as const) {
+      const v41 = computeSessionSpend([assistantMessage(V41_FLASH, USAGE, time)], billing, CATALOG)
+      const flash = computeSessionSpend([assistantMessage(FLASH, USAGE, time)], billing, CATALOG)
+      expect(v41.total).toBeCloseTo(expected, 10)
+      expect(v41.total).toBeCloseTo(flash.total, 10)
+      expect(v41.models[0]?.displayName).toBe('DeepSeek-V4.1-Flash')
+      expect(v41.models[0]?.cacheHitInputTokens).toBe(flash.models[0]?.cacheHitInputTokens)
+      expect(v41.models[0]?.cacheMissInputTokens).toBe(flash.models[0]?.cacheMissInputTokens)
+      expect(v41.models[0]?.outputTokens).toBe(flash.models[0]?.outputTokens)
+    }
   })
 
   it('prices a weekend event at the off-peak rate even during a weekday peak window', () => {
