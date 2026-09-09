@@ -361,16 +361,12 @@ function createTodaySpendLoaders(
     catalog: facts.catalog,
   })
   const todayCache = new TodaySpendCache(
-    dayKey => scanner.scan(dayKey),
-    TODAY_SPEND_CACHE_MS,
-  )
-  const todaySessionsCache = new TodaySpendCache(
-    dayKey => scanner.scanSessions(dayKey),
+    dayKey => scanner.scanDetail(dayKey),
     TODAY_SPEND_CACHE_MS,
   )
   return {
-    fetchTodaySpend: (force = false) => todayCache.get(force),
-    fetchTodaySessionsSpend: (force = false) => todaySessionsCache.get(force),
+    fetchTodaySpend: async (force = false) => (await todayCache.get(force)).aggregate,
+    fetchTodaySessionsSpend: async (force = false) => ({ sessions: (await todayCache.get(force)).sessions }),
   }
 }
 
