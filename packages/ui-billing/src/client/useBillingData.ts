@@ -7,6 +7,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
+// Type-only: pulls the host's `billingTodaySpend` SessionProjectionMap merge
+// (the state/wire view type) for the `useProjection` read below.
+import type {} from '@rayadesu/dsh-llm-billing/projection'
 import type { BalanceBadgeProps } from './BalanceBadge.tsx'
 
 /** Debounce for the turn-settled recompute: a burst of turns prices once. */
@@ -48,9 +51,10 @@ export interface BillingData {
 
 /**
  * Start the badge's data lifecycle for one session. The spend follows the
- * conversation: when a prompt turn settles in the current session, only the
- * (local, network-free) session spend and today's spend are recomputed
- * through `getSessionSpend` / `getTodaySpend`; the balance stays a
+ * conversation: the host-pushed `billingTodaySpend` projection drives the
+ * session line live (zero Remote calls), with `getSessionSpend` as the
+ * bootstrap/fallback when the projection key is absent; today's spend is
+ * recomputed through `getTodaySpend` when a turn settles; the balance stays a
  * manual-refresh snapshot and is never refetched on its own.
  * @param props - the badge's injected face and session runtime share.
  */
@@ -62,7 +66,8 @@ export function useBillingData({
   getTodaySessionsSpend,
   sessionId,
   useSession,
-}: Pick<BalanceBadgeProps, 'getBalance' | 'getCachedBalance' | 'getSessionSpend' | 'getTodaySpend' | 'getTodaySessionsSpend' | 'sessionId' | 'useSession'>): BillingData {
+  useProjection,
+}: Pick<BalanceBadgeProps, 'getBalance' | 'getCachedBalance' | 'getSessionSpend' | 'getTodaySpend' | 'getTodaySessionsSpend' | 'sessionId' | 'useSession' | 'useProjection'>): BillingData {
   // A previously settled balance renders immediately on mount; the effect
   // below revalidates in the background (the host reuses its own TTL snapshot).
   const [balance, setBalance] = useState<DeepSeekBalance | null>(getCachedBalance)
@@ -74,6 +79,12 @@ export function useBillingData({
   const [open, setOpen] = useState(false)
   const [request, setRequest] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
+
+  // The host computes this session's spend eagerly and pushes it through the
+  // projection wire; reading it here is a subscription, not a Remote call.
+  // `undefined` means the key is absent (no projection registry), in which
+  // case the Remote fetch below is the only source.
+  const projected = useProjection('billingTodaySpend')
 
   // The running flag is the "turn settled" signal: it flips true when a prompt
   // turn starts and false when the turn ends, letting the spend-only effect
@@ -174,7 +185,9 @@ export function useBillingData({
 
   return {
     balance,
-    spend,
+    // The pushed projection wins over the Remote snapshot when present: it is
+    // already current for this session and costs no round trip.
+    spend: projected === undefined ? spend : projected.session,
     todaySpend,
     sessionsSpend,
     error,

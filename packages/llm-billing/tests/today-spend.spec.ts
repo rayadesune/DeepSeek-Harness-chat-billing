@@ -482,7 +482,7 @@ describe('TodaySpendScanner projection path', () => {
     expect(inspect).toHaveBeenCalledTimes(1)
   })
 
-  it('bypasses the eager cell for a live fork child and prices its own events', async () => {
+  it('reads a live fork child\'s own-event cell (the unit skips the inherited prefix)', async () => {
     const scanner = new TodaySpendScanner(deps({
       sessions: () => ({
         list: () => [
@@ -495,14 +495,14 @@ describe('TodaySpendScanner projection path', () => {
         ],
       }),
       projections: () => ({
+        // The cell is already boundary-aware: it excludes the child's
+        // inherited prefix, so the scanner adopts it as-is.
         stateOf: (session) => session.id === 'child'
-          // The child's eager cell would cover its inherited prefix too.
-          ? { dayKey: DAY_KEY, spend: { total: 999, models: [] } }
+          ? { dayKey: DAY_KEY, spend: { total: 13.60, models: [] } }
           : { dayKey: DAY_KEY, spend: { total: 27.20, models: [] } },
       }),
     }))
     const spend = await scanner.scan(DAY_KEY)
-    // Parent's cell (two events) plus the child's own event, not the junk cell.
     expect(spend.total).toBeCloseTo(27.20 + 13.60, 10)
   })
 
@@ -717,7 +717,7 @@ describe('TodaySpendScanner scanSessions (projection path)', () => {
     expect(sessions[1]?.title).toBe('直播会话')
   })
 
-  it('reports a fork child row from its own-events fold on the projection path', async () => {
+  it('reports a fork child row from its own-event cell on the projection path', async () => {
     const scanner = new TodaySpendScanner(deps({
       sessions: () => ({
         list: () => [
@@ -731,8 +731,8 @@ describe('TodaySpendScanner scanSessions (projection path)', () => {
       }),
       projections: () => ({
         stateOf: (session) => session.id === 'child'
-          // The child's eager cell would cover its inherited prefix too.
-          ? { dayKey: DAY_KEY, spend: { total: 999, models: [] } }
+          // Boundary-aware cell: the inherited prefix is already excluded.
+          ? { dayKey: DAY_KEY, spend: { total: 13.60, models: [] } }
           : { dayKey: DAY_KEY, spend: { total: 27.20, models: [] } },
       }),
     }))
