@@ -41,6 +41,7 @@ import {
 import type { BillingConfig, BillingConfigModel, ResolvedBilling } from './billing.ts'
 import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 import { billingTodaySpendDefinition } from './projection.ts'
+import type { BillingUnitDefinition } from './projection.ts'
 import { liveSessionEvents, persistenceInspect, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
 import type { ScannerPersistence } from './today-spend.ts'
 
@@ -292,31 +293,52 @@ function createSessionSpendFetcher(
 }
 
 /**
- * Today-spend loaders over one revision-gated scanner with two 60s
- * Beijing-day caches (in-flight coalescing and a `force` bypass):
- * - plan C registers the per-session spend projection unit on the projection
- *   registry lazily — on the first projection-path scan, not through
- *   `ctx.inject` (whose plugin-mount wait would also engage the
- *   test-invariant host in suites that never provide the registry). The
- *   registry builds cells lazily over the in-memory log, so events committed
- *   before registration are folded on first touch; without the registry the
- *   events path serves today's spend.
- * - plans A1–A3: the scanner chooses the projection path when the registry
- *   is composed, the events path otherwise.
+ * Once-registrar for the billing projection unit: the first call that finds
+ * the registry composed registers the shared unit and every later call is a
+ * no-op. Registering as early as the registry exists lets DSH's projection
+ * write-behind (mandatory at `turn/end`) checkpoint a billing row for every
+ * session that runs in this process, which is what makes the zero-I/O cold
+ * path in {@link TodaySpendScanner} hit after the next restart.
+ * @param ctx - plugin context.
+ * @param unit - the unit definition built once per plugin config.
+ * @returns an idempotent registrar.
  */
-function createTodaySpendLoaders(ctx: Context, facts: ResolvedFacts): {
-  fetchTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
-  fetchTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend>
-} {
-  const unit = billingTodaySpendDefinition(facts.billing, facts.catalog)
-  let unitRegistered = false
-  const ensureUnit = (): void => {
-    if (unitRegistered) return
+function createUnitRegistrar(ctx: Context, unit: BillingUnitDefinition): () => void {
+  let registered = false
+  return () => {
+    if (registered) return
     const registry = ctx.get('sessionProjections')
     if (registry === undefined) return
     registry.register(unit)
-    unitRegistered = true
+    registered = true
   }
+}
+
+/**
+ * Today-spend loaders over one revision-gated scanner with two 60s
+ * Beijing-day caches (in-flight coalescing and a `force` bypass):
+ * - plan C uses the per-session spend projection unit registered by the
+ *   caller's {@link createUnitRegistrar} as early as the registry exists (the
+ *   registry builds cells lazily over the in-memory log, so events committed
+ *   before registration are folded on first touch); without the registry the
+ *   events path serves today's spend.
+ * - plans A1–A3: the scanner chooses the projection path when the registry
+ *   is composed, the events path otherwise.
+ * @param ctx - plugin context.
+ * @param facts - resolved endpoint, credential, pricing, and catalog facts.
+ * @param unit - the shared projection unit definition.
+ * @param ensureUnit - idempotent unit registrar (last-resort registration).
+ * @returns the two today-spend loaders.
+ */
+function createTodaySpendLoaders(
+  ctx: Context,
+  facts: ResolvedFacts,
+  unit: BillingUnitDefinition,
+  ensureUnit: () => void,
+): {
+  fetchTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
+  fetchTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend>
+} {
   const scanner = new TodaySpendScanner({
     sessions: () => ctx.get('sessions'),
     persistence: () => ctx.get('sessionPersistence'),
@@ -363,12 +385,20 @@ function createTurnSpendFetcher(
  */
 export function apply(ctx: Context, config: Config): void {
   const facts = resolveFacts(ctx, config)
+  // One unit instance per plugin config, registered as early as the registry
+  // exists (and again on the first session created, in case the registry is
+  // composed after this plugin): DSH's write-behind then checkpoints a
+  // billing row for every session that runs in this process.
+  const unit = billingTodaySpendDefinition(facts.billing, facts.catalog)
+  const ensureUnit = createUnitRegistrar(ctx, unit)
+  ensureUnit()
+  ctx.on('session/created', ensureUnit)
   const fetchBalance = async (): Promise<DeepSeekBalance> => {
     const apiKey = await resolveApiKey(ctx, facts.apiKeyRef)
     return fetchDeepSeekBalance(facts.baseURL(), apiKey)
   }
   const fetchSessionSpend = createSessionSpendFetcher(ctx, facts)
-  const { fetchTodaySpend, fetchTodaySessionsSpend } = createTodaySpendLoaders(ctx, facts)
+  const { fetchTodaySpend, fetchTodaySessionsSpend } = createTodaySpendLoaders(ctx, facts, unit, ensureUnit)
   const fetchTurnSpend = createTurnSpendFetcher(ctx, facts)
   new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchSessionSpend, fetchTodaySpend, fetchTodaySessionsSpend, fetchTurnSpend })
 }

@@ -4,11 +4,13 @@
  * compute the aggregate behind a cache miss:
  *
  * - projection path (plan C): live sessions read their eagerly folded
- *   `billingTodaySpend` projection cell; cold sessions resolve through the
- *   projection-cache ladder (cached row + tail replay + registry restore,
- *   with write-back) or, without the cache service, one detached local fold
- *   over a full `inspect`. Persisted revisions gate every cold read, so a
- *   session whose log did not change since the last resolution costs nothing.
+ *   `billingTodaySpend` projection cell; cold sessions are answered from the
+ *   zero-I/O projection-cache row whenever that row's own day is not the
+ *   queried one, and otherwise resolved through one detached local fold over
+ *   a full `inspect`. Persisted revisions gate every cold read, so a session
+ *   whose log did not change since the last resolution costs nothing — and a
+ *   failed resolution is remembered by revision instead of being retried on
+ *   every scan.
  * - events path (plans A2/A3): collect and price only today's events in one
  *   pass (per-event Beijing-day filter during collection) with a hard cap,
  *   skipping sessions whose persisted revision is unchanged since the last
@@ -105,6 +107,12 @@ export interface ScannerPersistedHeader {
   readonly seedLength?: number
   /** 0.1.2-alpha.4+: whether the session has a fork-inherited prefix (exact cut arrives with the inspect result). */
   readonly isSeeded?: boolean
+  /** Session format generation; part of the projection-cache record identity. */
+  readonly version?: number
+  /** Session creation time; part of the projection-cache record identity. */
+  readonly createdAt?: number
+  /** Working directory recorded on the header; part of the projection-cache record identity. */
+  readonly cwd?: string
 }
 
 /** One stored-session read: the full event log plus the durable inherited boundary. */
@@ -125,6 +133,28 @@ export interface ScannerPersistenceLegacy {
   }>
 }
 
+/**
+ * One handle read result across DSH generations. The handle seam first
+ * returned the bare event array; since `9b78f99dec` (2026-09-06, in the
+ * 0.1.5-alpha.1 checkout) it returns `{ eventState, events }`. Both shapes are
+ * accepted so the same build serves the npm alpha line and the checkout.
+ */
+export type ScannerHandleRead =
+  | readonly SessionEvent[]
+  | { readonly events: readonly SessionEvent[] }
+
+/**
+ * Unwrap a handle read across both return shapes.
+ * @param read - the handle's read result.
+ * @returns the event array.
+ */
+export function handleReadEvents(read: ScannerHandleRead): readonly SessionEvent[] {
+  // `Array.isArray` does not narrow readonly arrays out of a union, so the
+  // branches are asserted explicitly.
+  if (Array.isArray(read)) return read as readonly SessionEvent[]
+  return (read as { readonly events: readonly SessionEvent[] }).events
+}
+
 /** 0.1.2-alpha.5+ handle-based persistence slice: service-level `list` / `open` + `SessionHandle`. */
 export interface ScannerPersistenceHandle {
   list(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
@@ -132,7 +162,7 @@ export interface ScannerPersistenceHandle {
     readonly header?: { readonly seedLength?: number; readonly isSeeded?: boolean }
     /** 0.1.2-alpha.5+: the handle carries the exact inherited cut beside the header. */
     readonly inheritedEventCount?: number
-    read(): Promise<readonly SessionEvent[]>
+    read(): Promise<ScannerHandleRead>
     close(): Promise<void>
   }>
 }
@@ -174,7 +204,7 @@ export async function persistenceInspect(
   if (isHandlePersistence(persistence)) {
     const handle = await persistence.open(id, 'read')
     try {
-      return { events: await handle.read(), seedLength: forkBoundaryOf(handle) }
+      return { events: handleReadEvents(await handle.read()), seedLength: forkBoundaryOf(handle) }
     } finally {
       await handle.close()
     }
@@ -193,9 +223,17 @@ export interface TodaySpendScannerDeps {
   projections?: () => {
     stateOf(session: ScannerSession, key: typeof BILLING_UNIT_KEY): BillingUnitState | undefined
   } | undefined
-  /** Resolves the projection cache at scan time (absent → detached fold for cold sessions). */
+  /**
+   * Resolves the projection cache at scan time (absent → detached fold for
+   * cold sessions). Only the zero-I/O `cachedSnapshot` reader is used: it
+   * serves already-checkpointed wire rows without touching a session log.
+   */
   projectionCache?: () => {
-    coldSnapshot(id: SessionId): Promise<{ values: Partial<Record<typeof BILLING_UNIT_KEY, BillingUnitState>> }>
+    cachedSnapshot(
+      header: ScannerPersistedHeader,
+      inheritedEventCount: number,
+      keys?: readonly string[],
+    ): { readonly asOfSeq: number; readonly values: Partial<Record<typeof BILLING_UNIT_KEY, BillingUnitState>> } | undefined
   } | undefined
   /**
    * Registers the billing unit on the projection registry, called once before
@@ -298,6 +336,8 @@ export class TodaySpendCache<T = DeepSeekTodaySpend> {
 export const COLD_RESOLVE_CACHE_LIMIT = 1024
 /** Max session-ids kept in the scanner's fork-child own-state cache before eviction. */
 export const OWN_STATE_CACHE_LIMIT = 1024
+/** Max session-ids kept in the scanner's cold-failure cache before eviction. */
+export const COLD_FAILED_CACHE_LIMIT = 1024
 /** Bounded parallel fan-out for cold-session resolution. */
 export const COLD_RESOLVE_CONCURRENCY = 8
 
@@ -307,8 +347,8 @@ type SessionStore = NonNullable<ReturnType<NonNullable<TodaySpendScannerDeps['se
 type ProjectionsService = NonNullable<ReturnType<NonNullable<TodaySpendScannerDeps['projections']>>>
 /** One stored snapshot as listed by either persistence runtime family. */
 type StoredSnapshot = { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }
-/** One cold session pending resolution: its durable revision plus fork flag. */
-type ColdPending = { id: SessionId; revision: SessionPersistenceRevision; seeded: boolean }
+/** One cold session pending resolution: its header, durable revision, and fork flag. */
+type ColdPending = { header: ScannerPersistedHeader; revision: SessionPersistenceRevision; seeded: boolean }
 
 /**
  * Bounded-map eviction: drop the oldest inserted entry once `size` reached
@@ -330,6 +370,8 @@ function evictOldest<K, V>(map: Map<K, V>, limit: number): void {
 export class TodaySpendScanner {
   /** Cold sessions resolved on the projection path: id → revision + unit state + title. */
   private readonly coldResolved = new Map<SessionId, { revision: SessionPersistenceRevision; value: BillingUnitState; title: string | null }>()
+  /** Cold sessions whose resolution failed: id → revision (retried only when the log changes). */
+  private readonly coldFailed = new Map<SessionId, SessionPersistenceRevision>()
   /** Cold sessions resolved on the events path: id → revision (events were collected). */
   private lastEventsScan: Map<SessionId, SessionPersistenceRevision> | undefined
   /** Live fork children priced on the projection path: id → own-events count + folded state. */
@@ -364,45 +406,54 @@ export class TodaySpendScanner {
   }
 
   /**
-   * Resolve one cold session's billing unit state and display title through
-   * the projection-cache ladder (cached row first, then a detached local
-   * fold over a full inspect). A cache-served value carries no title (the
-   * ladder only stores projection values), so such rows report `title: null`
-   * until the session is inspected again. A SEEDED session (fork child)
-   * skips the ladder entirely: its cached row was folded over the inherited
+   * Resolve one cold session's billing unit state and display title.
+   *
+   * The zero-I/O projection-cache row answers the query directly whenever its
+   * own latest priced day is NOT the queried day: the row then proves the
+   * session contributed nothing to the queried day, so the log is never read.
+   * When the row IS the queried day (or no usable row exists) the session is
+   * inspected and folded locally, because the row may trail the log (a crash
+   * between the last checkpoint and the session's last event).
+   *
+   * A cache-served value carries no title (the ladder only stores projection
+   * values), so such rows report `title: null`. A SEEDED session (fork child)
+   * skips the cache entirely: its cached row was folded over the inherited
    * prefix too, so it always detaches through inspect with the durable
    * boundary (the inspect result's inherited count or `meta.seedLength`,
    * depending on the runtime family) applied to the local fold.
-   * @param id - the cold session's id.
-   * @param seeded - whether the session carries a fork-inherited prefix
-   *   (from the snapshot header: `isSeeded` on 0.1.2-alpha.4+, `seedLength`
-   *   at and before the 0.1.1-rc.2 baseline).
+   * @param header - the listed session header (the cache identity witness).
+   * @param seeded - whether the session carries a fork-inherited prefix.
+   * @param dayKey - the Beijing-time day being aggregated.
    * @returns the resolved state and title, or `undefined` when unreadable.
    */
-  private async resolveCold(id: SessionId, seeded: boolean): Promise<{ value: BillingUnitState; title: string | null } | undefined> {
+  private async resolveCold(
+    header: ScannerPersistedHeader,
+    seeded: boolean,
+    dayKey: string,
+  ): Promise<{ value: BillingUnitState; title: string | null } | undefined> {
     const { persistence, projectionCache, logger } = this.deps
-    const persistenceService = persistence?.()
-    if (persistenceService === undefined) return undefined
     if (!seeded) {
       const cache = projectionCache?.()
       if (cache !== undefined) {
         try {
-          const value = (await cache.coldSnapshot(id)).values[BILLING_UNIT_KEY]
-          if (value !== undefined) return { value, title: null }
+          const value = cache.cachedSnapshot(header, 0, [BILLING_UNIT_KEY])?.values[BILLING_UNIT_KEY]
+          if (value !== undefined && value.dayKey !== dayKey) return { value, title: null }
         } catch (error: unknown) {
-          logger.warn(`llm-billing: projection cold read for session ${id} failed: ${String(error)}`)
+          logger.warn(`llm-billing: projection cache read for session ${header.id} failed: ${String(error)}`)
         }
       }
     }
+    const persistenceService = persistence?.()
+    if (persistenceService === undefined) return undefined
     try {
-      const read = await persistenceInspect(persistenceService, id)
+      const read = await persistenceInspect(persistenceService, header.id)
       return {
         value: foldOwnBilling(this.deps.unit, read.events, read.seedLength),
         title: foldSessionTitle(read.events),
       }
     } catch (error: unknown) {
       // One unreadable session must not blank the whole-day aggregate.
-      logger.warn(`llm-billing: skipping unreadable session ${id}: ${String(error)}`)
+      logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)
       return undefined
     }
   }
@@ -461,17 +512,22 @@ export class TodaySpendScanner {
    * Cold-ladder adopt: for every stored session not live, either the
    * revision-gated resolution already in {@link coldResolved} is adopted
    * (unchanged log costs nothing) or the session is queued behind a bounded
-   * parallel fan-out, resolved, remembered, and then adopted. One unreadable
-   * session never blanks the whole-day aggregate.
+   * parallel fan-out, resolved, remembered, and then adopted. A session whose
+   * resolution failed is remembered too (by revision), so an unreadable log
+   * is not re-read on every scan; a changed revision retries it. One
+   * unreadable session never blanks the whole-day aggregate.
    * @param liveIds - ids of sessions already folded from the live store.
    * @param snapshots - stored snapshot list (either runtime family).
+   * @param dayKey - the Beijing-time day being aggregated.
    * @param adopt - fold one resolved cold session into the scan's result.
    */
   private async coldAdopt(
     liveIds: ReadonlySet<SessionId>,
     snapshots: readonly StoredSnapshot[],
+    dayKey: string,
     adopt: (id: SessionId, resolved: { value: BillingUnitState; title: string | null }) => void,
   ): Promise<void> {
+    const persistenceAvailable = this.deps.persistence?.() !== undefined
     const pending: ColdPending[] = []
     for (const { header, revision } of snapshots) {
       if (liveIds.has(header.id)) continue
@@ -481,18 +537,23 @@ export class TodaySpendScanner {
         adopt(header.id, resolved)
         continue
       }
-      pending.push({ id: header.id, revision, seeded })
+      if (this.coldFailed.get(header.id) === revision) continue
+      pending.push({ header, revision, seeded })
     }
-    await withConcurrency(pending, COLD_RESOLVE_CONCURRENCY, async ({ id, revision, seeded }) => {
-      const resolved = await this.resolveCold(id, seeded)
+    await withConcurrency(pending, COLD_RESOLVE_CONCURRENCY, async ({ header, revision, seeded }) => {
+      const resolved = await this.resolveCold(header, seeded, dayKey)
       if (resolved !== undefined) {
+        this.coldFailed.delete(header.id)
         evictOldest(this.coldResolved, COLD_RESOLVE_CACHE_LIMIT)
-        this.coldResolved.set(id, { revision, ...resolved })
+        this.coldResolved.set(header.id, { revision, ...resolved })
+      } else if (persistenceAvailable) {
+        evictOldest(this.coldFailed, COLD_FAILED_CACHE_LIMIT)
+        this.coldFailed.set(header.id, revision)
       }
     })
-    for (const { id } of pending) {
-      const resolved = this.coldResolved.get(id)
-      if (resolved !== undefined) adopt(id, resolved)
+    for (const { header } of pending) {
+      const resolved = this.coldResolved.get(header.id)
+      if (resolved !== undefined) adopt(header.id, resolved)
     }
   }
 
@@ -593,7 +654,7 @@ export class TodaySpendScanner {
     const persistenceService = persistence?.()
     if (persistenceService === undefined) return total
     const snapshots = await persistenceListSnapshots(persistenceService)
-    await this.coldAdopt(liveIds, snapshots, (_id, resolved) => {
+    await this.coldAdopt(liveIds, snapshots, dayKey, (_id, resolved) => {
       if (resolved.value.dayKey === dayKey) total = mergeTodaySpend(total, resolved.value.spend)
     })
     return total
@@ -642,7 +703,7 @@ export class TodaySpendScanner {
     const persistenceService = persistence?.()
     if (persistenceService === undefined) return [...rows.values()]
     const snapshots = await persistenceListSnapshots(persistenceService)
-    await this.coldAdopt(liveIds, snapshots, (id, resolved) => {
+    await this.coldAdopt(liveIds, snapshots, dayKey, (id, resolved) => {
       if (resolved.value.dayKey === dayKey) {
         rows.set(id, { sessionId: id, title: resolved.title, total: resolved.value.spend.total })
       }
