@@ -70,6 +70,7 @@ function props(
   useSession: (selector: (snapshot: { running: boolean }) => boolean) => boolean = () => false,
   getTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend> = defaultGetTodaySessionsSpend,
   getCachedBalance: () => DeepSeekBalance | null = () => null,
+  useProjection: (key: string, selector?: (value: unknown) => unknown) => unknown = () => undefined,
 ): BalanceBadgeProps {
   return {
     getBalance,
@@ -78,9 +79,10 @@ function props(
     getTodaySpend,
     getTodaySessionsSpend,
     useSession,
+    useProjection,
     sessionId: 'session-1',
     t,
-  } as BalanceBadgeProps
+  } as unknown as BalanceBadgeProps
 }
 
 describe('BalanceBadge', () => {
@@ -158,6 +160,29 @@ describe('BalanceBadge', () => {
     await waitFor(() => { expect(getBalance).toHaveBeenCalledTimes(1) })
     expect(getBalance).toHaveBeenCalledWith(false)
     expect(getCachedBalance).toHaveBeenCalled()
+  })
+
+  it('renders the session spend from the pushed projection without waiting for the Remote', async () => {
+    const projected = {
+      dayKey: '2026-09-09',
+      spend: TODAY_SPEND,
+      session: SPEND,
+      inheritedEventCount: 0,
+    }
+    const getSessionSpend = vi.fn(() => new Promise<DeepSeekSessionSpend>(() => {}))
+    render(<BalanceBadge
+      {...props(
+        async () => balance(),
+        getSessionSpend,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        (key: string) => key === 'billingTodaySpend' ? projected : undefined,
+      )}
+    />)
+    // The projection value is live: the line renders even though the Remote never settles.
+    expect(await screen.findByText('本轮对话花费：¥0.04')).toBeDefined()
   })
 
   it('keeps both spend values when a refresh rejects', async () => {

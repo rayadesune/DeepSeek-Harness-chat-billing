@@ -64,7 +64,7 @@ export type BalanceBadgeProps =
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null until the first balance fetch settles.
  */
-export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession, t }: BalanceBadgeProps) {
+export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession, useProjection, t }: BalanceBadgeProps) {
   const {
     balance,
     spend,
@@ -76,7 +76,7 @@ export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, ge
     rootRef,
     refresh,
     toggleOpen,
-  } = useBillingData({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession })
+  } = useBillingData({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession, useProjection })
 
   if (balance === null) {
     if (error === null) return null

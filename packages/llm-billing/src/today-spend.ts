@@ -22,14 +22,15 @@
  * unchanged log provably cannot change the aggregate.
  *
  * Forked sessions never double-count: a fork child's log opens with a
- * verbatim copy of its source session's events (its inherited boundary),
- * so the scanner prices only the child's OWN events on every path — the
- * projection path bypasses the eager cell for a seeded session and folds its
- * own events instead (the cell covers the inherited prefix too), and the cold
- * ladder skips the projection cache for a seeded session (its cached row
- * predates the boundary and covers inherited events). The boundary is the
- * durable session state, read across both DSH runtime families — a resumed
- * fork child keeps its original boundary and an unseeded session stays at 0.
+ * verbatim copy of its source session's events (its inherited boundary), so
+ * the scanner prices only the child's OWN events on every path. The
+ * `billingTodaySpend` unit is boundary-aware (its state carries the inherited
+ * cut, and `apply` skips events below it), so the eager cell is correct for a
+ * fork child; the cold path skips the projection cache for a seeded session
+ * (its cached row may predate the boundary) and folds its own events with the
+ * durable cut instead. The boundary is the durable session state, read across
+ * both DSH runtime families — a resumed fork child keeps its original
+ * boundary and an unseeded session stays at 0.
  *
  * The live `Session` log surface changed in 0.1.2-alpha.4: `Session.events`
  * was removed and replaced by `Session.snapshotEvents()` / `ownEvents()`, and
@@ -336,8 +337,6 @@ export class TodaySpendCache<T = DeepSeekTodaySpend> {
 
 /** Max session-ids kept in the scanner's cold-resolution cache before eviction. */
 export const COLD_RESOLVE_CACHE_LIMIT = 1024
-/** Max session-ids kept in the scanner's fork-child own-state cache before eviction. */
-export const OWN_STATE_CACHE_LIMIT = 1024
 /** Max session-ids kept in the scanner's cold-failure cache before eviction. */
 export const COLD_FAILED_CACHE_LIMIT = 1024
 /** Bounded parallel fan-out for cold-session resolution. */
@@ -388,8 +387,6 @@ export class TodaySpendScanner {
   private readonly coldFailed = new Map<SessionId, SessionPersistenceRevision>()
   /** Cold sessions resolved on the events path: id → revision (events were collected). */
   private lastEventsScan: Map<SessionId, SessionPersistenceRevision> | undefined
-  /** Live fork children priced on the projection path: id → own-events count + folded state. */
-  private readonly ownStates = new Map<SessionId, { count: number; state: BillingUnitState }>()
 
   constructor(private readonly deps: TodaySpendScannerDeps) {}
 
@@ -482,52 +479,17 @@ export class TodaySpendScanner {
   }
 
   /**
-   * Fold one fork child's OWN events (its log minus the inherited prefix)
-   * with the billing unit, incrementally: the fold is reused while the log
-   * length is unchanged and only the new tail is applied when it grows.
-   * @param id - the session id (the own-state cache key).
-   * @param events - the session's complete log.
-   * @param seedLength - the inherited-prefix boundary.
-   * @returns the unit state over the session's own events.
-   */
-  private ownBillingState(id: SessionId, events: readonly SessionEvent[], seedLength: number): BillingUnitState {
-    const cached = this.ownStates.get(id)
-    const ownCount = events.length - seedLength
-    if (cached !== undefined && cached.count === ownCount) return cached.state
-    let state: BillingUnitState
-    if (cached !== undefined && cached.count < ownCount) {
-      state = cached.state
-      for (const event of events) {
-        if (event.seq < seedLength + cached.count) continue
-        state = this.deps.unit.apply(state, event)
-      }
-    } else {
-      state = foldOwnBilling(this.deps.unit, events, seedLength)
-    }
-    evictOldest(this.ownStates, OWN_STATE_CACHE_LIMIT)
-    this.ownStates.set(id, { count: ownCount, state })
-    return state
-  }
-
-  /**
-   * Live-session entries of one projection-path scan: the fork boundary, the
-   * log snapshot (materialized only when the session is a fork child, or
-   * lazily by a caller that needs the title), and the per-session state
-   * (eager cell, or the child's own-events fold). A fork child's eager cell
-   * covers its inherited prefix too, so it prices its own events directly.
+   * Live-session entries of one projection-path scan: each session with its
+   * eager `billingTodaySpend` cell. The cell is boundary-aware (the unit skips
+   * a fork child's inherited prefix), so a fork child reads the same own-event
+   * spend a non-fork session does.
    */
   private *liveBillingEntries(
     store: SessionStore,
     projections: ProjectionsService | undefined,
-  ): Generator<{ session: ScannerSession; events?: readonly SessionEvent[]; state: BillingUnitState | undefined }> {
+  ): Generator<{ session: ScannerSession; state: BillingUnitState | undefined }> {
     for (const session of store.list()) {
-      const seedLength = forkBoundaryOf(session)
-      if (seedLength > 0) {
-        const events = liveSessionEvents(session)
-        yield { session, events, state: this.ownBillingState(session.id, events, seedLength) }
-      } else {
-        yield { session, state: projections?.stateOf(session, BILLING_UNIT_KEY) }
-      }
+      yield { session, state: projections?.stateOf(session, BILLING_UNIT_KEY) }
     }
   }
 
@@ -675,14 +637,12 @@ export class TodaySpendScanner {
     if (sessions !== undefined) {
       const store = sessions()
       if (store !== undefined) {
-        for (const { session, events, state } of this.liveBillingEntries(store, projectionsService)) {
+        for (const { session, state } of this.liveBillingEntries(store, projectionsService)) {
           liveIds.add(session.id)
           if (state === undefined || state.dayKey !== dayKey) continue
           aggregate = mergeTodaySpend(aggregate, state.spend)
-          // The eager cell carries no title; fold it from the log (fork
-          // children already materialized it in the entry).
-          const title = events !== undefined ? foldSessionTitle(events) : foldSessionTitle(liveSessionEvents(session))
-          rows.set(session.id, { sessionId: session.id, title, total: state.spend.total })
+          // The eager cell carries no title; fold it from the live log.
+          rows.set(session.id, { sessionId: session.id, title: foldSessionTitle(liveSessionEvents(session)), total: state.spend.total })
         }
       }
     }

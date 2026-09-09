@@ -61,7 +61,39 @@ describe('billingTodaySpend unit', () => {
     expect(unit.apply(initial, turnStart)).toBe(initial)
     expect(unit.apply(initial, unknownModel)).toBe(initial)
     expect(unit.apply(initial, noUsage)).toBe(initial)
-    expect(initial).toEqual({ dayKey: '', spend: { total: 0, models: [] } })
+    expect(initial).toEqual({
+      dayKey: '',
+      spend: { total: 0, models: [] },
+      session: { total: 0, models: [] },
+      inheritedEventCount: 0,
+    })
+  })
+
+  it('tracks the whole-session total across days while the latest day resets', () => {
+    const state = foldBillingUnit(unit, [
+      assistantMessage(FLASH, USAGE, DAY1_PEAK, 0),
+      assistantMessage(FLASH, USAGE, DAY1_OFF, 1),
+      assistantMessage(FLASH, USAGE, DAY2, 2),
+    ])
+    // Latest day: only DAY2 (off-peak 6.80); whole session: 13.60 + 6.80 + 6.80.
+    expect(state.dayKey).toBe('2026-08-21')
+    expect(state.spend.total).toBeCloseTo(6.80, 10)
+    expect(state.session.total).toBeCloseTo(13.60 + 6.80 + 6.80, 10)
+  })
+
+  it('skips events below the inherited boundary seeded by init(header, count)', () => {
+    const seeded = unit.init({} as never, 2 as never)
+    expect(seeded.inheritedEventCount).toBe(2)
+    const events = [
+      assistantMessage(FLASH, USAGE, DAY1_PEAK, 0),
+      assistantMessage(FLASH, USAGE, DAY1_OFF, 1),
+      assistantMessage(FLASH, USAGE, DAY1_OFF, 2),
+    ]
+    let state = seeded
+    for (const event of events) state = unit.apply(state, event)
+    // Only the own off-peak event (seq 2) is priced.
+    expect(state.spend.total).toBeCloseTo(6.80, 10)
+    expect(state.session.total).toBeCloseTo(6.80, 10)
   })
 
   it('seeds the first priced event and accumulates same-day events across peak and off-peak hours', () => {
