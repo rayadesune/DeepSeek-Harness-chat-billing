@@ -20,7 +20,9 @@ function assistantMessage(model: string, usage: TokenUsage, time: number, seq = 
     time,
     data: {
       turn: 0,
-      step: 0,
+      // One message per step: distinct seqs must not collide on the
+      // `(turn, step)` replacement slot.
+      step: seq,
       message: {
         id: 'm' as never,
         role: 'assistant',
@@ -66,6 +68,8 @@ describe('billingTodaySpend unit', () => {
       spend: { total: 0, models: [] },
       session: { total: 0, models: [] },
       inheritedEventCount: 0,
+      model: '',
+      last: null,
     })
   })
 

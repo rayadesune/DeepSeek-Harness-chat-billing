@@ -17,10 +17,12 @@ import {
   isPeak,
   isSeededSession,
   mergeTodaySpend,
+  negateSpend,
   priceEvent,
   resolveBilling,
   SessionTurnSpendFolder,
   SpendAccumulator,
+  subtractSpend,
 } from '../src/billing.ts'
 import type { BillingEventContribution, DeepSeekTodaySpend } from '../src/billing.ts'
 
@@ -31,7 +33,9 @@ function assistantMessage(model: string, usage: TokenUsage, time = 0, seq = 0): 
     time,
     data: {
       turn: 0,
-      step: 0,
+      // One message per step: distinct seqs must not collide on the
+      // `(turn, step)` replacement slot.
+      step: seq,
       message: {
         id: 'm' as never,
         role: 'assistant',
@@ -199,7 +203,7 @@ describe('computeSessionSpend', () => {
 
   it('splits peak and off-peak portions across mixed-hour events', () => {
     const spend = computeSessionSpend(
-      [assistantMessage(FLASH, USAGE, PEAK), assistantMessage(FLASH, USAGE, OFF_PEAK)],
+      [assistantMessage(FLASH, USAGE, PEAK, 0), assistantMessage(FLASH, USAGE, OFF_PEAK, 1)],
       resolveBilling(undefined),
       CATALOG,
     )
@@ -285,9 +289,9 @@ describe('computeTodaySpend', () => {
   it('prices every priced event on the reference Beijing calendar day, from any session', () => {
     const spend = computeTodaySpend(
       [
-        assistantMessage(FLASH, USAGE, PEAK),
-        assistantMessage(FLASH, USAGE, OFF_PEAK),
-        assistantMessage(PRO, USAGE, PREVIOUS_UTC_DAY),
+        assistantMessage(FLASH, USAGE, PEAK, 0),
+        assistantMessage(FLASH, USAGE, OFF_PEAK, 1),
+        assistantMessage(PRO, USAGE, PREVIOUS_UTC_DAY, 2),
       ],
       resolveBilling(undefined),
       CATALOG,
@@ -424,7 +428,7 @@ describe('computeTurnSpend', () => {
       time,
       data: {
         turn,
-        step: 0,
+        step: seq,
         message: {
           id: id as never,
           role: 'assistant',
@@ -567,5 +571,120 @@ describe('MiMo-V2.5 flat-rate billing', () => {
     const peakSpend = computeSessionSpend([assistantMessage(MIMO, USAGE, PEAK)], billing, CATALOG)
     const weekendSpend = computeSessionSpend([assistantMessage(MIMO, USAGE, WEEKEND)], billing, CATALOG)
     expect(peakSpend.total).toBeCloseTo(weekendSpend.total, 10)
+  })
+})
+
+describe('attempt pricing (DSH tokenUsage semantics)', () => {
+  // 2026-08-20 02:00Z is 10:00 Beijing (weekday, peak).
+  const PEAK = Date.parse('2026-08-20T02:00:00Z')
+  const USAGE: TokenUsage = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 500_000 }
+  const BILLING = resolveBilling(undefined)
+
+  /** A `request/header` naming the model of the next request (newer than the npm union). */
+  function requestHeader(model: string, seq: number): SessionEvent {
+    return {
+      type: 'request/header',
+      seq,
+      time: PEAK,
+      data: { header: { config: { provider: 'deepseek-official', model } } },
+    } as unknown as SessionEvent
+  }
+
+  /** One `assistant/attempt` whose embedded stream reports usage (no route of its own). */
+  function attempt(usage: TokenUsage, seq: number, turn = 0, step = 0): SessionEvent {
+    return {
+      type: 'assistant/attempt',
+      seq,
+      time: PEAK,
+      data: { turn, step, stream: [{ type: 'chunk', time: PEAK, chunk: { type: 'usage', usage } }] },
+    } as unknown as SessionEvent
+  }
+
+  /** One `assistant/message` of an explicit `(turn, step)` (attempt replacement keys on both). */
+  function message(usage: TokenUsage, seq: number, turn = 0, step = 0): SessionEvent {
+    return {
+      type: 'assistant/message',
+      seq,
+      time: PEAK,
+      data: {
+        turn,
+        step,
+        message: {
+          id: `m${seq}` as never,
+          role: 'assistant',
+          content: [],
+          source: { kind: 'model', provider: 'deepseek-official', model: FLASH },
+        },
+        usage,
+      },
+    } as unknown as SessionEvent
+  }
+
+  /** One `llm/retry-started` for an attempt (newer than the npm union). */
+  function retryStarted(turn: number, step: number, seq: number): SessionEvent {
+    return { type: 'llm/retry-started', seq, time: PEAK, data: { turn, step } } as unknown as SessionEvent
+  }
+
+  it('prices an assistant/attempt with the model of the latest request/header', () => {
+    const spend = computeSessionSpend([
+      requestHeader(FLASH, 0),
+      attempt(USAGE, 1),
+    ], BILLING, CATALOG)
+    expect(spend.total).toBeCloseTo(13.60, 10)
+    expect(spend.models[0]?.model).toBe(FLASH)
+  })
+
+  it('skips an attempt before any request/header names a model', () => {
+    const spend = computeSessionSpend([attempt(USAGE, 0)], BILLING, CATALOG)
+    expect(spend.total).toBe(0)
+  })
+
+  it('replaces the attempt sample with the message sample of the same (turn, step)', () => {
+    const tiny: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+    const spend = computeSessionSpend([
+      requestHeader(FLASH, 0),
+      attempt(tiny, 1, 0, 1),
+      message(USAGE, 2, 0, 1),
+    ], BILLING, CATALOG)
+    // Only the message's sample counts; the replaced attempt leaves no row behind.
+    expect(spend.total).toBeCloseTo(13.60, 10)
+    expect(spend.models).toHaveLength(1)
+  })
+
+  it('adds the retried attempt after llm/retry-started', () => {
+    const spend = computeSessionSpend([
+      requestHeader(FLASH, 0),
+      attempt(USAGE, 1, 0, 1),
+      retryStarted(0, 1, 2),
+      attempt(USAGE, 3, 0, 1),
+    ], BILLING, CATALOG)
+    // Both requests were billed: the failed attempt and its retry.
+    expect(spend.total).toBeCloseTo(13.60 * 2, 10)
+  })
+
+  it('prices a message with no data.usage from its stream usage chunk', () => {
+    const streamOnly = {
+      ...message(USAGE, 1),
+      data: {
+        turn: 0,
+        step: 1,
+        message: {
+          id: 'm1' as never,
+          role: 'assistant',
+          content: [],
+          source: { kind: 'model', provider: 'deepseek-official', model: FLASH },
+        },
+        stream: [{ type: 'chunk', time: PEAK, chunk: { type: 'usage', usage: USAGE } }],
+      },
+    } as unknown as SessionEvent
+    expect(computeSessionSpend([streamOnly], BILLING, CATALOG).total).toBeCloseTo(13.60, 10)
+  })
+
+  it('negates and subtracts spends exactly (replacement primitive)', () => {
+    const spend = computeSessionSpend([message(USAGE, 0, 0, 0)], BILLING, CATALOG)
+    expect(subtractSpend(spend, spend)).toEqual({ total: 0, models: [] })
+    const doubled = mergeTodaySpend(spend, spend)
+    expect(subtractSpend(doubled, spend).total).toBeCloseTo(spend.total, 10)
+    expect(negateSpend(spend).total).toBeCloseTo(-spend.total, 10)
   })
 })
