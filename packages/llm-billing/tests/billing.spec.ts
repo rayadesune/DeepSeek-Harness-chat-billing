@@ -8,6 +8,8 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
 import {
   addEventContribution,
+  beijingDayKey,
+  beijingPartsOf,
   computeSessionSpend,
   computeSessionTurnSpends,
   computeTodaySpend,
@@ -163,6 +165,40 @@ describe('isSeededSession', () => {
     expect(isSeededSession({ seedLength: 0 })).toBe(false)
     expect(isSeededSession({})).toBe(false)
     expect(isSeededSession(undefined)).toBe(false)
+  })
+})
+
+describe('beijingPartsOf', () => {
+  it('derives the Beijing day, hour, and weekday with pure arithmetic', () => {
+    // 2026-08-20 02:00Z = 10:00 Beijing on a Thursday.
+    expect(beijingPartsOf(Date.parse('2026-08-20T02:00:00Z')))
+      .toEqual({ hour: 10, weekday: 4, dayKey: '2026-08-20' })
+    // 16:30Z = 00:30 Beijing the NEXT calendar day (Friday).
+    expect(beijingPartsOf(Date.parse('2026-08-20T16:30:00Z')))
+      .toEqual({ hour: 0, weekday: 5, dayKey: '2026-08-21' })
+    // 2026-08-22 is a Saturday; 2026-08-23 a Sunday.
+    expect(beijingPartsOf(Date.parse('2026-08-22T02:00:00Z')).weekday).toBe(6)
+    expect(beijingPartsOf(Date.parse('2026-08-23T02:00:00Z')).weekday).toBe(0)
+  })
+
+  it('handles month, year, and leap-day boundaries', () => {
+    // 2026-12-31 16:00Z = 2027-01-01 00:00 Beijing.
+    expect(beijingPartsOf(Date.parse('2026-12-31T16:00:00Z')).dayKey).toBe('2027-01-01')
+    // 2028 is a leap year: 2028-02-28 16:00Z = 2028-02-29 00:00 Beijing.
+    expect(beijingPartsOf(Date.parse('2028-02-28T16:00:00Z')).dayKey).toBe('2028-02-29')
+    // 1970-01-01 00:00Z is a Thursday (epoch edge).
+    expect(beijingPartsOf(0)).toEqual({ hour: 8, weekday: 4, dayKey: '1970-01-01' })
+  })
+
+  it('rejects a non-finite timestamp loudly', () => {
+    expect(() => beijingPartsOf(Number.NaN)).toThrow(RangeError)
+  })
+
+  it('agrees with the Date-based day key on the current instant', () => {
+    const now = new Date()
+    const reference = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10)
+    expect(beijingDayKey(now)).toBe(reference)
+    expect(beijingPartsOf(now.getTime()).dayKey).toBe(reference)
   })
 })
 
