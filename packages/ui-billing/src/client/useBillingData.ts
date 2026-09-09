@@ -56,13 +56,16 @@ export interface BillingData {
  */
 export function useBillingData({
   getBalance,
+  getCachedBalance,
   getSessionSpend,
   getTodaySpend,
   getTodaySessionsSpend,
   sessionId,
   useSession,
-}: Pick<BalanceBadgeProps, 'getBalance' | 'getSessionSpend' | 'getTodaySpend' | 'getTodaySessionsSpend' | 'sessionId' | 'useSession'>): BillingData {
-  const [balance, setBalance] = useState<DeepSeekBalance | null>(null)
+}: Pick<BalanceBadgeProps, 'getBalance' | 'getCachedBalance' | 'getSessionSpend' | 'getTodaySpend' | 'getTodaySessionsSpend' | 'sessionId' | 'useSession'>): BillingData {
+  // A previously settled balance renders immediately on mount; the effect
+  // below revalidates in the background (the host reuses its own TTL snapshot).
+  const [balance, setBalance] = useState<DeepSeekBalance | null>(getCachedBalance)
   const [spend, setSpend] = useState<DeepSeekSessionSpend | null>(null)
   const [todaySpend, setTodaySpend] = useState<DeepSeekTodaySpend | null>(null)
   const [sessionsSpend, setSessionsSpend] = useState<DeepSeekTodaySessionsSpend | null>(null)
@@ -98,7 +101,7 @@ export function useBillingData({
       // the panel rows from their own spend, so a slow aggregate (today's
       // spend scans every session) delays neither the balance nor the session
       // spend.
-      const balanceRequest = fetchLine(isCurrent, getBalance, (value) => {
+      const balanceRequest = fetchLine(isCurrent, () => getBalance(request > 0), (value) => {
         setBalance(value)
         setError(null)
       }, (reason: unknown) => {

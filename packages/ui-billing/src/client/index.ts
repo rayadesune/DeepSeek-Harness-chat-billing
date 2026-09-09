@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // The assistant-actions slot row left ui-conversation and now lives in
 // ui-chat (0.1.2-alpha.5); this merge declares it for the register callsite.
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { DeepSeekBalance } from '@rayadesu/dsh-llm-billing/types'
 import { BalanceBadge, type BalanceBadgeInjected } from './BalanceBadge.tsx'
 import { TurnCostAction, type TurnCostActionInjected } from './TurnCostAction.tsx'
 import { createTurnCostStore } from './turnCostStore.ts'
@@ -64,8 +65,17 @@ export async function apply(ctx: ClientContext): Promise<void> {
   // the badge's fetch effects list these functions as dependencies, so a
   // per-call rebuild would re-trigger the mount fetch on every render that
   // re-invokes the slot's injector.
+  // The last settled balance is kept here (per plugin instance) so a badge
+  // mount renders the amount immediately instead of waiting for the network;
+  // the host-side TTL then serves the revalidation from its own cache.
+  let lastBalance: DeepSeekBalance | null = null
   const injected: BalanceBadgeInjected = {
-    getBalance: async () => unwrap('billing.getBalance', await billing.getBalance()),
+    getBalance: async (force) => {
+      const value = unwrap('billing.getBalance', await billing.getBalance(force))
+      lastBalance = value
+      return value
+    },
+    getCachedBalance: () => lastBalance,
     getSessionSpend: async (sessionId) => unwrap('billing.getSessionSpend', await billing.getSessionSpend(sessionId)),
     getTodaySpend: async (force) => unwrap('billing.getTodaySpend', await billing.getTodaySpend(force)),
     getTodaySessionsSpend: async (force) => unwrap('billing.getTodaySessionsSpend', await billing.getTodaySessionsSpend(force)),

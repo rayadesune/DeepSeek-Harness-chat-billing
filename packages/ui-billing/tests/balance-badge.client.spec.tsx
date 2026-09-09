@@ -64,14 +64,16 @@ const EMPTY_TODAY_SESSIONS: DeepSeekTodaySessionsSpend = { sessions: [] }
 const defaultGetTodaySessionsSpend = async (): Promise<DeepSeekTodaySessionsSpend> => EMPTY_TODAY_SESSIONS
 
 function props(
-  getBalance: () => Promise<DeepSeekBalance>,
+  getBalance: (force?: boolean) => Promise<DeepSeekBalance>,
   getSessionSpend: () => Promise<DeepSeekSessionSpend> = async () => SPEND,
   getTodaySpend: () => Promise<DeepSeekTodaySpend> = async () => TODAY_SPEND,
   useSession: (selector: (snapshot: { running: boolean }) => boolean) => boolean = () => false,
   getTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend> = defaultGetTodaySessionsSpend,
+  getCachedBalance: () => DeepSeekBalance | null = () => null,
 ): BalanceBadgeProps {
   return {
     getBalance,
+    getCachedBalance,
     getSessionSpend,
     getTodaySpend,
     getTodaySessionsSpend,
@@ -142,6 +144,20 @@ describe('BalanceBadge', () => {
     expect(screen.getByText('剩余额度：¥110.00')).toBeDefined()
     await waitFor(() => { expect(getBalance).toHaveBeenCalledTimes(2) })
     await waitFor(() => { expect(screen.getByText('剩余额度：¥9.00')).toBeDefined() })
+    // The mount reads the TTL-served snapshot; the manual refresh forces.
+    expect(getBalance.mock.calls[0]?.[0]).toBe(false)
+    expect(getBalance.mock.calls[1]?.[0]).toBe(true)
+  })
+
+  it('renders a cached balance immediately on mount and revalidates in the background', async () => {
+    const getBalance = vi.fn(async () => balance())
+    const getCachedBalance = vi.fn(() => balance())
+    render(<BalanceBadge {...props(getBalance, undefined, undefined, undefined, undefined, getCachedBalance)} />)
+    // On screen before the revalidation settles: no blank badge on a session switch.
+    expect(screen.getByText('剩余额度：¥110.00')).toBeDefined()
+    await waitFor(() => { expect(getBalance).toHaveBeenCalledTimes(1) })
+    expect(getBalance).toHaveBeenCalledWith(false)
+    expect(getCachedBalance).toHaveBeenCalled()
   })
 
   it('keeps both spend values when a refresh rejects', async () => {

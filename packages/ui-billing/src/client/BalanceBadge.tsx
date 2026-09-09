@@ -22,8 +22,19 @@ export { TURN_SETTLE_DEBOUNCE_MS } from './useBillingData.ts'
 
 /** Registration-side Remote face used by the header badge. */
 export interface BalanceBadgeInjected {
-  /** Read the account balance; rejects with the Remote error message. */
-  getBalance: () => Promise<DeepSeekBalance>
+  /**
+   * Read the account balance; rejects with the Remote error message. `force`
+   * bypasses the host-side TTL — the manual refresh passes it, a mount does
+   * not (a snapshot younger than the TTL is reused, so switching sessions
+   * costs no provider call).
+   */
+  getBalance: (force?: boolean) => Promise<DeepSeekBalance>
+  /**
+   * The last balance this browser half settled, or `null` before the first
+   * one. Synchronous: a badge mount renders the amount immediately and
+   * revalidates in the background.
+   */
+  getCachedBalance: () => DeepSeekBalance | null
   /** Read one session's billed spend; rejects with the Remote error message. */
   getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
   /**
@@ -53,7 +64,7 @@ export type BalanceBadgeProps =
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null until the first balance fetch settles.
  */
-export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession, t }: BalanceBadgeProps) {
+export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession, t }: BalanceBadgeProps) {
   const {
     balance,
     spend,
@@ -65,7 +76,7 @@ export function BalanceBadge({ getBalance, getSessionSpend, getTodaySpend, getTo
     rootRef,
     refresh,
     toggleOpen,
-  } = useBillingData({ getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession })
+  } = useBillingData({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession })
 
   if (balance === null) {
     if (error === null) return null
