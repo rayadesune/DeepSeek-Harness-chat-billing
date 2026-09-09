@@ -369,39 +369,66 @@ describe('TodaySpendScanner events path', () => {
 })
 
 describe('TodaySpendScanner projection path', () => {
-  const coldState: BillingUnitState = {
-    dayKey: DAY_KEY,
-    spend: { total: 1, models: [{ model: FLASH, displayName: 'DeepSeek-V4-Flash', cost: 1, peakCost: 0, offPeakCost: 1, cacheHitInputTokens: 0, cacheMissInputTokens: 100000, outputTokens: 20000, cacheHitInputCost: 0, cacheMissInputCost: 1, outputCost: 0 }] },
-  }
-  const liveState: BillingUnitState = {
-    dayKey: DAY_KEY,
-    spend: { total: 2, models: [{ model: FLASH, displayName: 'DeepSeek-V4-Flash', cost: 2, peakCost: 2, offPeakCost: 0, cacheHitInputTokens: 0, cacheMissInputTokens: 200000, outputTokens: 20000, cacheHitInputCost: 0, cacheMissInputCost: 2, outputCost: 0 }] },
-  }
+  const rowFor = (dayKey: string, total: number): BillingUnitState => ({
+    dayKey,
+    spend: {
+      total,
+      models: [{ model: FLASH, displayName: 'DeepSeek-V4-Flash', cost: total, peakCost: 0, offPeakCost: total, cacheHitInputTokens: 0, cacheMissInputTokens: 100000, outputTokens: 20000, cacheHitInputCost: 0, cacheMissInputCost: total, outputCost: 0 }],
+    },
+  })
+  /** A cached row whose own latest priced day is NOT the queried day. */
+  const coldElsewhere = rowFor('2026-08-19', 1)
+  /** A cached row whose own latest priced day IS the queried day. */
+  const coldToday = rowFor(DAY_KEY, 1)
+  const liveState = rowFor(DAY_KEY, 2)
 
-  it('reads live sessions from eager cells and cold sessions through the cache ladder', async () => {
-    const coldSnapshot = vi.fn(async () => ({ values: { [BILLING_UNIT_KEY]: coldState } }))
+  it('reads live cells eagerly and answers a cold session from its cache row without reading the log', async () => {
+    const cachedSnapshot = vi.fn(() => ({ asOfSeq: 7, values: { [BILLING_UNIT_KEY]: coldElsewhere } }))
+    const inspect = vi.fn(async () => { throw new Error('must not be read') })
     const scanner = new TodaySpendScanner(deps({
       sessions: () => ({ list: () => [{ id: 'live' as SessionId, events: [] }] }),
       persistence: () => ({
         listSnapshots: async () => [
-          { header: { id: 'cold-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
+          { header: { id: 'cold-a' as SessionId, version: 3, createdAt: 1 }, revision: SessionPersistenceRevision('r-a') },
           { header: { id: 'live' as SessionId }, revision: SessionPersistenceRevision('r-live') },
         ],
-        inspect: async () => { throw new Error('must not be read') },
+        inspect,
       }),
       projections: () => ({
         stateOf: (session) => session.id === 'live' ? liveState : undefined,
       }),
-      projectionCache: () => ({ coldSnapshot }),
+      projectionCache: () => ({ cachedSnapshot }),
     }))
     const spend = await scanner.scan(DAY_KEY)
-    expect(spend.total).toBeCloseTo(3, 10)
-    expect(coldSnapshot).toHaveBeenCalledTimes(1)
-    expect(coldSnapshot).toHaveBeenCalledWith('cold-a')
+    // The live cell counts; the cold row's day is not the queried one, so it
+    // contributes nothing AND its log is never read.
+    expect(spend.total).toBeCloseTo(2, 10)
+    expect(cachedSnapshot).toHaveBeenCalledTimes(1)
+    expect(cachedSnapshot).toHaveBeenCalledWith({ id: 'cold-a', version: 3, createdAt: 1 }, 0, [BILLING_UNIT_KEY])
+    expect(inspect).not.toHaveBeenCalled()
+  })
+
+  it('reads the log when the cached row is the queried day (the row may trail the log)', async () => {
+    const cachedSnapshot = vi.fn(() => ({ asOfSeq: 7, values: { [BILLING_UNIT_KEY]: coldToday } }))
+    const inspect = vi.fn(async () => ({ meta: {}, events: [pricedEvent(DAY_TIME, 0)] }))
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'cold-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
+        ],
+        inspect,
+      }),
+      projections: () => ({ stateOf: () => undefined }),
+      projectionCache: () => ({ cachedSnapshot }),
+    }))
+    const spend = await scanner.scan(DAY_KEY)
+    expect(spend.total).toBeCloseTo(13.60, 10)
+    expect(cachedSnapshot).toHaveBeenCalledTimes(1)
+    expect(inspect).toHaveBeenCalledTimes(1)
   })
 
   it('reuses resolved cold values for unchanged revisions', async () => {
-    const coldSnapshot = vi.fn(async () => ({ values: { [BILLING_UNIT_KEY]: coldState } }))
+    const cachedSnapshot = vi.fn(() => ({ asOfSeq: 7, values: { [BILLING_UNIT_KEY]: coldElsewhere } }))
     const scanner = new TodaySpendScanner(deps({
       persistence: () => ({
         listSnapshots: async () => [
@@ -410,29 +437,29 @@ describe('TodaySpendScanner projection path', () => {
         inspect: async () => { throw new Error('must not be read') },
       }),
       projections: () => ({ stateOf: () => undefined }),
-      projectionCache: () => ({ coldSnapshot }),
+      projectionCache: () => ({ cachedSnapshot }),
     }))
     await scanner.scan(DAY_KEY)
     await scanner.scan(DAY_KEY)
-    expect(coldSnapshot).toHaveBeenCalledTimes(1)
+    expect(cachedSnapshot).toHaveBeenCalledTimes(1)
   })
 
   it('re-resolves a cold session whose revision changed', async () => {
     let revision = SessionPersistenceRevision('r-a')
-    const coldSnapshot = vi.fn(async () => ({ values: { [BILLING_UNIT_KEY]: coldState } }))
+    const cachedSnapshot = vi.fn(() => ({ asOfSeq: 7, values: { [BILLING_UNIT_KEY]: coldElsewhere } }))
     const scanner = new TodaySpendScanner(deps({
       persistence: () => ({
         listSnapshots: async () => [{ header: { id: 'cold-a' as SessionId }, revision }],
         inspect: async () => { throw new Error('must not be read') },
       }),
       projections: () => ({ stateOf: () => undefined }),
-      projectionCache: () => ({ coldSnapshot }),
+      projectionCache: () => ({ cachedSnapshot }),
     }))
     await scanner.scan(DAY_KEY)
-    expect(coldSnapshot).toHaveBeenCalledTimes(1)
+    expect(cachedSnapshot).toHaveBeenCalledTimes(1)
     revision = SessionPersistenceRevision('r-b')
     await scanner.scan(DAY_KEY)
-    expect(coldSnapshot).toHaveBeenCalledTimes(2)
+    expect(cachedSnapshot).toHaveBeenCalledTimes(2)
   })
 
   it('folds locally from inspect when the projection cache is absent', async () => {
@@ -480,7 +507,8 @@ describe('TodaySpendScanner projection path', () => {
   })
 
   it('resolves a cold fork child through inspect, skipping the projection cache', async () => {
-    const coldSnapshot = vi.fn(async () => ({
+    const cachedSnapshot = vi.fn(() => ({
+      asOfSeq: 7,
       values: { [BILLING_UNIT_KEY]: { dayKey: DAY_KEY, spend: { total: 555, models: [] } } },
     }))
     const inspect = vi.fn(async () => ({
@@ -495,17 +523,17 @@ describe('TodaySpendScanner projection path', () => {
         inspect,
       }),
       projections: () => ({ stateOf: () => undefined }),
-      projectionCache: () => ({ coldSnapshot }),
+      projectionCache: () => ({ cachedSnapshot }),
     }))
     const spend = await scanner.scan(DAY_KEY)
     // The seeded session never rides the cached row: it folds its own events.
-    expect(coldSnapshot).not.toHaveBeenCalled()
+    expect(cachedSnapshot).not.toHaveBeenCalled()
     expect(inspect).toHaveBeenCalledTimes(1)
     expect(spend.total).toBeCloseTo(13.60, 10)
   })
 
-  it('falls back to the local fold when the cache ladder read fails', async () => {
-    const coldSnapshot = vi.fn(async () => { throw new Error('cache row poisoned') })
+  it('falls back to the local fold when the cache read fails', async () => {
+    const cachedSnapshot = vi.fn(() => { throw new Error('cache row poisoned') })
     const warn = vi.fn()
     const inspect = vi.fn(async () => ({ meta: {}, events: [pricedEvent(DAY_TIME, 0)] }))
     const scanner = new TodaySpendScanner(deps({
@@ -516,13 +544,49 @@ describe('TodaySpendScanner projection path', () => {
         inspect,
       }),
       projections: () => ({ stateOf: () => undefined }),
-      projectionCache: () => ({ coldSnapshot }),
+      projectionCache: () => ({ cachedSnapshot }),
       logger: { warn },
     }))
     const spend = await scanner.scan(DAY_KEY)
     expect(spend.total).toBeGreaterThan(0)
     expect(warn).toHaveBeenCalled()
     expect(inspect).toHaveBeenCalledTimes(1)
+  })
+
+  it('negative-caches an unreadable session so the next scan does not re-read it', async () => {
+    const warn = vi.fn()
+    const inspect = vi.fn(async () => { throw new Error('corrupt log') })
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'cold-bad' as SessionId }, revision: SessionPersistenceRevision('r-bad') },
+        ],
+        inspect,
+      }),
+      projections: () => ({ stateOf: () => undefined }),
+      logger: { warn },
+    }))
+    await scanner.scan(DAY_KEY)
+    await scanner.scan(DAY_KEY)
+    expect(inspect).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a failed session once its revision changes', async () => {
+    let revision = SessionPersistenceRevision('r-bad')
+    const inspect = vi.fn(async () => { throw new Error('corrupt log') })
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [{ header: { id: 'cold-bad' as SessionId }, revision }],
+        inspect,
+      }),
+      projections: () => ({ stateOf: () => undefined }),
+      logger: { warn: () => {} },
+    }))
+    await scanner.scan(DAY_KEY)
+    revision = SessionPersistenceRevision('r-bad-2')
+    await scanner.scan(DAY_KEY)
+    expect(inspect).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -625,9 +689,9 @@ describe('TodaySpendScanner scanSessions (projection path)', () => {
   }
 
   it('uses eager cells for live sessions and resolved cold rows, with titles folded from each log', async () => {
-    // The cache ladder misses (empty values), so the cold session resolves
+    // The cached row has no usable billing value, so the cold session resolves
     // through inspect, which folds its title alongside the billing unit.
-    const coldSnapshot = vi.fn(async () => ({ values: {} }))
+    const cachedSnapshot = vi.fn(() => ({ asOfSeq: 3, values: {} }))
     const scanner = new TodaySpendScanner(deps({
       sessions: () => ({
         list: () => [
@@ -644,7 +708,7 @@ describe('TodaySpendScanner scanSessions (projection path)', () => {
       projections: () => ({
         stateOf: (session) => session.id === 'live-a' ? liveState : undefined,
       }),
-      projectionCache: () => ({ coldSnapshot }),
+      projectionCache: () => ({ cachedSnapshot }),
     }))
     const { sessions } = await scanner.scanSessions(DAY_KEY)
     // Sorted descending: cold-a 13.60 first, live-a 0.5 second; live-b has no cell.
@@ -678,7 +742,7 @@ describe('TodaySpendScanner scanSessions (projection path)', () => {
   })
 
   it('reports a null title for cold sessions served from the projection cache', async () => {
-    const coldSnapshot = vi.fn(async () => ({ values: { [BILLING_UNIT_KEY]: coldState } }))
+    const cachedSnapshot = vi.fn(() => ({ asOfSeq: 3, values: { [BILLING_UNIT_KEY]: { ...coldState, dayKey: '2026-08-19' } } }))
     const scanner = new TodaySpendScanner(deps({
       persistence: () => ({
         listSnapshots: async () => [
@@ -687,13 +751,34 @@ describe('TodaySpendScanner scanSessions (projection path)', () => {
         inspect: async () => { throw new Error('must not be read') },
       }),
       projections: () => ({ stateOf: () => undefined }),
-      projectionCache: () => ({ coldSnapshot }),
+      projectionCache: () => ({ cachedSnapshot }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    // The row's own day is not the queried day: it contributes no row at all,
+    // and the log is never read (title therefore unavailable).
+    expect(sessions).toHaveLength(0)
+  })
+
+  it('reports the cached row as a titled-null row when its day is the queried day', async () => {
+    const inspect = vi.fn(async () => ({ meta: {}, events: [pricedEvent(DAY_TIME, 0)] }))
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'cold-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
+        ],
+        inspect,
+      }),
+      projections: () => ({ stateOf: () => undefined }),
+      projectionCache: () => ({
+        cachedSnapshot: () => ({ asOfSeq: 3, values: { [BILLING_UNIT_KEY]: coldState } }),
+      }),
     }))
     const { sessions } = await scanner.scanSessions(DAY_KEY)
     expect(sessions).toHaveLength(1)
     expect(sessions[0]?.sessionId).toBe('cold-a')
     expect(sessions[0]?.title).toBeNull()
     expect(sessions[0]?.total).toBeCloseTo(13.60, 10)
+    expect(inspect).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -739,6 +824,31 @@ describe('TodaySpendScanner persistence handle family (0.1.2-alpha.5+)', () => {
     expect(service.open).toHaveBeenCalledWith('cold-a', 'read')
     expect(read).toHaveBeenCalledTimes(1)
     expect(reads).toHaveLength(1)
+    expect(closed).toHaveLength(1)
+  })
+
+  it('accepts the 0.1.5-alpha.1 handle read shape ({ eventState, events })', async () => {
+    // Since DSH commit 9b78f99dec the handle read returns a result wrapper;
+    // the scanner must unwrap it exactly like the older bare-array shape.
+    const closed: { id: SessionId }[] = []
+    const service = {
+      list: vi.fn(async () => [
+        { header: { id: 'cold-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
+      ]),
+      open: vi.fn(async (id: SessionId) => ({
+        header: { id },
+        inheritedEventCount: 0,
+        read: vi.fn(async () => ({
+          eventState: 'shared-frozen',
+          events: [pricedEvent(DAY_TIME, 0), pricedEvent(OTHER_DAY, 1)],
+        })),
+        close: async () => { closed.push({ id }) },
+      })),
+    }
+    const scanner = new TodaySpendScanner(deps({ persistence: () => service }))
+    const spend = await scanner.scan(DAY_KEY)
+    expect(spend.total).toBeCloseTo(13.60, 10)
+    expect(spend.models).toHaveLength(1)
     expect(closed).toHaveLength(1)
   })
 
