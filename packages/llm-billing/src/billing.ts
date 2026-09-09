@@ -151,20 +151,63 @@ export interface BeijingParts {
   dayKey: string
 }
 
+/** Beijing is a fixed UTC+8 offset with no DST. */
+const BEIJING_OFFSET_MS = 8 * 3_600_000
+/** Milliseconds in one day. */
+const DAY_MS = 86_400_000
+/** Epoch day of 1970-01-01 in the civil-date algorithm below. */
+const CIVIL_EPOCH_DAY = 719_468
+
+/** Two-digit zero pad for a calendar field. */
+function pad2(value: number): string {
+  return value < 10 ? `0${value}` : String(value)
+}
+
 /**
- * Derive the Beijing hour, weekday, and calendar-day key of one timestamp from
- * a single shifted `Date` — every timezone-sensitive read shares this one
+ * Civil date of an epoch day (Howard Hinnant's days-from-civil inverse):
+ * pure integer arithmetic, no `Date` allocation and no ISO-string slicing.
+ */
+function civilDateOf(epochDay: number): { year: number; month: number; day: number } {
+  const shifted = epochDay + CIVIL_EPOCH_DAY
+  const era = Math.floor(shifted / 146_097)
+  const dayOfEra = shifted - era * 146_097
+  const yearOfEra = Math.floor(
+    (dayOfEra - Math.floor(dayOfEra / 1_460) + Math.floor(dayOfEra / 36_524) - Math.floor(dayOfEra / 146_096)) / 365,
+  )
+  const year = yearOfEra + era * 400
+  const dayOfYear = dayOfEra - (365 * yearOfEra + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100))
+  const monthPrime = Math.floor((5 * dayOfYear + 2) / 153)
+  const month = monthPrime + (monthPrime < 10 ? 3 : -9)
+  return {
+    // January/February belong to the civil year AFTER the era year.
+    year: month <= 2 ? year + 1 : year,
+    month,
+    day: dayOfYear - Math.floor((153 * monthPrime + 2) / 5) + 1,
+  }
+}
+
+/**
+ * Derive the Beijing hour, weekday, and calendar-day key of one timestamp with
+ * pure integer arithmetic — every timezone-sensitive read shares this one
  * implementation, so the pieces cannot drift apart. Callers that filter by
- * day and then price the same event reuse the returned view via
- * {@link priceEventAt}, so each event is parsed exactly once.
+ * day and then price the same event reuse the returned view, so each event is
+ * parsed exactly once. (The hot fold path runs this per committed event; the
+ * previous `Date` + `toISOString().slice()` version allocated a `Date` and a
+ * 24-character string per call.)
  * @param time - epoch milliseconds.
+ * @throws {RangeError} when `time` is not a finite number.
  */
 export function beijingPartsOf(time: number): BeijingParts {
-  const shifted = new Date(time + 8 * 3_600_000)
+  if (!Number.isFinite(time)) throw new RangeError(`billing: event time is not finite (${String(time)})`)
+  const shifted = time + BEIJING_OFFSET_MS
+  const epochDay = Math.floor(shifted / DAY_MS)
+  const msOfDay = shifted - epochDay * DAY_MS
+  const civil = civilDateOf(epochDay)
   return {
-    hour: shifted.getUTCHours(),
-    weekday: shifted.getUTCDay(),
-    dayKey: shifted.toISOString().slice(0, 10),
+    hour: Math.floor(msOfDay / 3_600_000),
+    // 1970-01-01 was a Thursday (4).
+    weekday: ((epochDay + 4) % 7 + 7) % 7,
+    dayKey: `${civil.year}-${pad2(civil.month)}-${pad2(civil.day)}`,
   }
 }
 
