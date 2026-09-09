@@ -15,10 +15,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import { BalanceBadge, type BalanceBadgeInjected } from './BalanceBadge.tsx'
 import { TurnCostAction, type TurnCostActionInjected } from './TurnCostAction.tsx'
+import { createTurnCostStore } from './turnCostStore.ts'
 import { en, NS, zh, type BillingKey } from './locales.ts'
 
 export type { BalanceBadgeInjected, BalanceBadgeProps } from './BalanceBadge.tsx'
 export type { TurnCostActionInjected, TurnCostActionProps } from './TurnCostAction.tsx'
+export { createTurnCostStore, TURN_COST_STORE_LIMIT, type TurnCostStore } from './turnCostStore.ts'
 export type { BillingKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -67,7 +69,6 @@ export async function apply(ctx: ClientContext): Promise<void> {
     getSessionSpend: async (sessionId) => unwrap('billing.getSessionSpend', await billing.getSessionSpend(sessionId)),
     getTodaySpend: async (force) => unwrap('billing.getTodaySpend', await billing.getTodaySpend(force)),
     getTodaySessionsSpend: async (force) => unwrap('billing.getTodaySessionsSpend', await billing.getTodaySessionsSpend(force)),
-    getTurnSpend: async (sessionId, messageId) => unwrap('billing.getTurnSpend', await billing.getTurnSpend(sessionId, messageId)),
   }
 
   ctx.slots.inject(
@@ -81,16 +82,25 @@ export async function apply(ctx: ClientContext): Promise<void> {
     }, BalanceBadge),
   )
 
-  // The per-turn cost amount rides ui-chat's assistant-actions list slot (the
-  // same strip ui-message-feedback uses), so it coexists with every other
+  // The per-turn cost amounts ride ui-chat's assistant-actions list slot (the
+  // same strip ui-message-feedback uses), so they coexist with every other
   // entry; the actions row renders once per completed Turn, for its closing
   // assistant message. The DOM therefore stays between copy and branch — the
   // label's own CSS `order: 1` sorts it visually after every order-0 sibling
   // (copy, branch, usage pills, clock), landing at the line end.
   // The amount is a plain static span: no interaction, no icon, no label
   // text, so the entry needs no aria or portal behavior.
+  //
+  // ONE batch fetch per session serves every row: `getSessionTurnSpends`
+  // returns the whole message→Turn-cost map in one pass on the host, and the
+  // shared store coalesces the concurrent mounts of a transcript (the old
+  // per-message `getTurnSpend` fan-out cost one Remote call and one full-log
+  // fold per rendered message).
+  const turnCosts = createTurnCostStore(
+    async (sessionId) => unwrap('billing.getSessionTurnSpends', await billing.getSessionTurnSpends(sessionId)),
+  )
   const turnCostInjected: TurnCostActionInjected = {
-    getTurnSpend: injected.getTurnSpend,
+    getTurnCost: (sessionId, messageId) => turnCosts.get(sessionId, messageId),
   }
   ctx.slots.inject(
     'conversation.chat.assistant-actions',

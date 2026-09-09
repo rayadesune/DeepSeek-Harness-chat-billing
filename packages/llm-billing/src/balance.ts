@@ -13,7 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
-import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
+import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekSessionSpend, DeepSeekSessionTurnSpends, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 
 /** Map a balance HTTP status to a stable LlmError code. */
 function httpErrorCode(status: number): string {
@@ -125,6 +125,11 @@ export interface DeepSeekBalanceGatewayOptions {
    * facts, identified by its closing assistant message id.
    */
   fetchTurnSpend: (sessionId: SessionId, messageId: string) => Promise<DeepSeekTurnSpend>
+  /**
+   * Compute every completed Turn's billed spend in one session through the
+   * plugin's resolved facts, in one pass over the log.
+   */
+  fetchTurnSpends: (sessionId: SessionId) => Promise<DeepSeekSessionTurnSpends>
 }
 
 /**
@@ -203,6 +208,18 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   @Remote('getTurnSpend')
   getTurnSpend(sessionId: SessionId, messageId: string): Promise<DeepSeekTurnSpend> {
     return this.options.fetchTurnSpend(sessionId, messageId)
+  }
+
+  /**
+   * Read every completed Turn's billed spend in one session (same per-event
+   * pricing as {@link priceEvent}). One call replaces the per-message
+   * `getTurnSpend` fan-out for a rendered transcript.
+   * @param sessionId - the session whose Turn costs to compute.
+   * @returns one row per assistant message inside a completed Turn, in log order.
+   */
+  @Remote('getSessionTurnSpends')
+  getSessionTurnSpends(sessionId: SessionId): Promise<DeepSeekSessionTurnSpends> {
+    return this.options.fetchTurnSpends(sessionId)
   }
 }
 

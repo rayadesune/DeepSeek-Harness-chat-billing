@@ -5,7 +5,7 @@
  * the first balance fetch settles, and a refresh keeps the last values
  * visible rather than blanking them.
  */
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from '@rayadesu/dsh-llm-billing/types'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -37,8 +37,6 @@ export interface BalanceBadgeInjected {
    * with the Remote error message. `force` behaves as in {@link getTodaySpend}.
    */
   getTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend>
-  /** Read one completed Turn's billed cost, located by its closing message id. */
-  getTurnSpend: (sessionId: SessionId, messageId: string) => Promise<DeepSeekTurnSpend>
 }
 
 /** Full props assembled by the header utilities slot renderer. */

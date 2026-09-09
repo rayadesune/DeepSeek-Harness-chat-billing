@@ -100,3 +100,22 @@ export interface DeepSeekTurnSpend {
   /** Total billed cost in CNY across every priced model in the Turn. */
   total: number
 }
+
+/** One completed Turn's cost, located by the id of an assistant message inside it. */
+export interface DeepSeekTurnSpendRow {
+  /** The durable id of one assistant message inside the Turn. */
+  messageId: string
+  /** The Turn's total billed cost in CNY (the same value for every message of the Turn). */
+  total: number
+}
+
+/**
+ * Every completed Turn's billed cost in one session, in log order. One call
+ * replaces the per-message `getTurnSpend` fan-out (the transcript renders one
+ * row per message; fetching the whole map once is O(log), fetching per row is
+ * O(messages × log)).
+ */
+export interface DeepSeekSessionTurnSpends {
+  /** One row per assistant message inside a completed Turn; a Turn with N assistant messages contributes N rows. */
+  turns: readonly DeepSeekTurnSpendRow[]
+}

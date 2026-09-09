@@ -14,7 +14,7 @@
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
+import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel, DeepSeekSessionTurnSpends, DeepSeekTodaySpend, DeepSeekTurnSpend, DeepSeekTurnSpendRow } from './types.ts'
 
 /** One token price point, in CNY per 1M tokens. */
 export interface DeepSeekTokenPrice {
@@ -534,6 +534,104 @@ export function computeTurnSpend(
     if (priced !== undefined) accumulator.add(priced)
   }
   return { total: accumulator.finish().total }
+}
+
+/**
+ * Incremental single-pass fold of one session's completed-Turn costs, keyed by
+ * the id of every assistant message inside each Turn. Feeding the fold only
+ * the appended tail keeps a growing session's map current in O(new events)
+ * instead of re-scanning the whole log per message.
+ *
+ * Semantics are exactly {@link computeTurnSpend}'s: a Turn is the
+ * `turn/start`..`turn/end` range (matched by the event's own turn coordinate),
+ * every priced event inside it contributes at its own timestamp's rate, and a
+ * message outside any bracket contributes nothing.
+ */
+export class SessionTurnSpendFolder {
+  private readonly names: ReadonlyMap<string, string>
+  private readonly rows: DeepSeekTurnSpendRow[] = []
+  private ids: string[] = []
+  private total = 0
+  private open = false
+  /** Events already fed; a shorter log resets the fold. */
+  private cursor = 0
+
+  /**
+   * @param billing - resolved pricing with peak-hour windows.
+   * @param catalog - model display rows, in presentation order.
+   */
+  constructor(
+    private readonly billing: ResolvedBilling,
+    catalog: readonly { id: string; name: string }[],
+  ) {
+    this.names = new Map(catalog.map(model => [model.id, model.name]))
+  }
+
+  /** How many events have been folded so far (the host's incremental cursor). */
+  get processed(): number {
+    return this.cursor
+  }
+
+  /**
+   * Fold every event from the cursor to the end of the log. A log shorter than
+   * the cursor (rewritten session) restarts the fold from an empty state.
+   * @param events - the session's complete event log, in seq order.
+   */
+  feed(events: readonly SessionEvent[]): void {
+    if (events.length < this.cursor) this.reset()
+    for (let index = this.cursor; index < events.length; index += 1) {
+      const event = events[index]!
+      if (event.type === 'turn/start') {
+        this.open = true
+        this.ids = []
+        this.total = 0
+        continue
+      }
+      if (event.type === 'turn/end') {
+        if (this.open) for (const messageId of this.ids) this.rows.push({ messageId, total: this.total })
+        this.open = false
+        this.ids = []
+        continue
+      }
+      if (!this.open) continue
+      if (event.type === 'assistant/message') this.ids.push(event.data.message.id)
+      const priced = priceEvent(event, this.billing, this.names)
+      if (priced !== undefined) this.total += priced.cost
+    }
+    this.cursor = events.length
+  }
+
+  /** The folded map; the fold stays usable afterwards. */
+  finish(): DeepSeekSessionTurnSpends {
+    return { turns: [...this.rows] }
+  }
+
+  /** Drop the fold state so the next feed starts from the log's beginning. */
+  private reset(): void {
+    this.rows.length = 0
+    this.ids = []
+    this.total = 0
+    this.open = false
+    this.cursor = 0
+  }
+}
+
+/**
+ * Price every completed Turn of one session in a single pass (the pure
+ * equivalent of {@link SessionTurnSpendFolder}).
+ * @param events - one session's complete event log.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param catalog - model display rows, in presentation order.
+ * @returns one row per assistant message inside a completed Turn, in log order.
+ */
+export function computeSessionTurnSpends(
+  events: readonly SessionEvent[],
+  billing: ResolvedBilling,
+  catalog: readonly { id: string; name: string }[],
+): DeepSeekSessionTurnSpends {
+  const folder = new SessionTurnSpendFolder(billing, catalog)
+  folder.feed(events)
+  return folder.finish()
 }
 
 /**

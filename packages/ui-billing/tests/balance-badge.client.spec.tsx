@@ -2,10 +2,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from '@rayadesu/dsh-llm-billing/types'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { BalanceBadge, SESSION_RANKING_LIMIT, type BalanceBadgeProps } from '../src/client/BalanceBadge.tsx'
 import { TurnCostAction, type TurnCostActionProps } from '../src/client/TurnCostAction.tsx'
+import { createTurnCostStore, TURN_COST_STORE_LIMIT } from '../src/client/turnCostStore.ts'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(() => {
@@ -61,7 +62,6 @@ function balance(over: Partial<DeepSeekBalance> = {}): DeepSeekBalance {
 // badge's fetch effects on every rerender.
 const EMPTY_TODAY_SESSIONS: DeepSeekTodaySessionsSpend = { sessions: [] }
 const defaultGetTodaySessionsSpend = async (): Promise<DeepSeekTodaySessionsSpend> => EMPTY_TODAY_SESSIONS
-const defaultGetTurnSpend = async (): Promise<{ total: number }> => ({ total: 0 })
 
 function props(
   getBalance: () => Promise<DeepSeekBalance>,
@@ -69,14 +69,12 @@ function props(
   getTodaySpend: () => Promise<DeepSeekTodaySpend> = async () => TODAY_SPEND,
   useSession: (selector: (snapshot: { running: boolean }) => boolean) => boolean = () => false,
   getTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend> = defaultGetTodaySessionsSpend,
-  getTurnSpend: (sessionId: SessionId, messageId: string) => Promise<{ total: number }> = defaultGetTurnSpend,
 ): BalanceBadgeProps {
   return {
     getBalance,
     getSessionSpend,
     getTodaySpend,
     getTodaySessionsSpend,
-    getTurnSpend,
     useSession,
     sessionId: 'session-1',
     t,
@@ -388,69 +386,131 @@ describe('BalanceBadge', () => {
 describe('TurnCostAction', () => {
   const costT: TurnCostActionProps['t'] = makeTranslate(zh)
 
-  const TURN: DeepSeekTurnSpend = { total: 0.31 }
-
   function renderCost(
-    getTurnSpend: (sessionId: SessionId, messageId: string) => Promise<DeepSeekTurnSpend>,
+    getTurnCost: (sessionId: SessionId, messageId: string) => Promise<number | undefined>,
     messageId = 'm1',
   ) {
     return render(<TurnCostAction
       messageId={messageId}
       sessionId={'session-1' as SessionId}
-      getTurnSpend={getTurnSpend}
+      getTurnCost={getTurnCost}
       t={costT}
       useSession={() => false}
     /> as TurnCostActionProps)
   }
 
-  it('renders one plain ¥-amount span after the Remote settles, then memoizes the fetch', async () => {
-    const getTurnSpend = vi.fn(async () => TURN)
-    renderCost(getTurnSpend)
-    // Nothing renders until the Remote settles.
+  it('renders one plain ¥-amount span after the shared map resolves', async () => {
+    const getTurnCost = vi.fn(async () => 0.31)
+    renderCost(getTurnCost)
+    // Nothing renders until the map resolves.
     expect(screen.queryByText('¥0.31')).toBeNull()
     await waitFor(() => expect(screen.getByText('¥0.31')).toBeDefined())
     // The amount is a single non-interactive span: no button, no icon, and
-    // no label word (the same session/message pair rendered twice below).
+    // no label word.
     const amount = screen.getByText('¥0.31')
     expect(amount.tagName).toBe('SPAN')
     expect(amount.getAttribute('data-turn-cost')).not.toBeNull()
     expect(amount.querySelector('svg')).toBeNull()
     expect(screen.queryByText(/本轮花费|This turn/)).toBeNull()
-    expect(getTurnSpend).toHaveBeenCalledWith('session-1', 'm1')
-    expect(getTurnSpend).toHaveBeenCalledTimes(1)
-    // A second mount of the same (session, message) reuses the memo.
-    renderCost(getTurnSpend)
-    await waitFor(() => expect(screen.getAllByText('¥0.31')).toHaveLength(2))
-    expect(getTurnSpend).toHaveBeenCalledTimes(1)
+    expect(getTurnCost).toHaveBeenCalledWith('session-1', 'm1')
   })
 
   it('trims trailing zeros to four decimals at most', async () => {
-    const getTurnSpend = vi.fn(async () => ({ total: 8.5 } as DeepSeekTurnSpend))
-    renderCost(getTurnSpend, 'm-format')
+    const getTurnCost = vi.fn(async () => 8.5)
+    renderCost(getTurnCost, 'm-format')
     await waitFor(() => expect(screen.getByText('¥8.5')).toBeDefined())
     expect(screen.queryByText('¥8.5000')).toBeNull()
   })
 
   it('hides when the Turn priced to zero', async () => {
-    let resolveFetch!: (value: DeepSeekTurnSpend) => void
-    const getTurnSpend = vi.fn(
-      () => new Promise<DeepSeekTurnSpend>(resolve => { resolveFetch = resolve }),
+    let resolveFetch!: (value: number | undefined) => void
+    const getTurnCost = vi.fn(
+      () => new Promise<number | undefined>(resolve => { resolveFetch = resolve }),
     )
-    renderCost(getTurnSpend, 'm-zero')
-    // The component's fetch runs in a microtask after the effect commits.
-    await waitFor(() => expect(getTurnSpend).toHaveBeenCalledTimes(1))
-    await act(async () => { resolveFetch({ total: 0 }) })
+    renderCost(getTurnCost, 'm-zero')
+    // The component's read runs in a microtask after the effect commits.
+    await waitFor(() => expect(getTurnCost).toHaveBeenCalledTimes(1))
+    await act(async () => { resolveFetch(0) })
     expect(screen.queryByText(/^¥/)).toBeNull()
   })
 
-  it('stays hidden when the fetch fails', async () => {
+  it('hides when the shared map has no row for the message', async () => {
+    const getTurnCost = vi.fn(async () => undefined)
+    renderCost(getTurnCost, 'm-missing')
+    await waitFor(() => expect(getTurnCost).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(/^¥/)).toBeNull()
+  })
+
+  it('stays hidden when the read fails', async () => {
     let rejectFetch!: (reason: Error) => void
-    const getTurnSpend = vi.fn(
-      () => new Promise<DeepSeekTurnSpend>((_, reject) => { rejectFetch = reject }),
+    const getTurnCost = vi.fn(
+      () => new Promise<number | undefined>((_, reject) => { rejectFetch = reject }),
     )
-    renderCost(getTurnSpend, 'm-fail')
-    await waitFor(() => expect(getTurnSpend).toHaveBeenCalledTimes(1))
+    renderCost(getTurnCost, 'm-fail')
+    await waitFor(() => expect(getTurnCost).toHaveBeenCalledTimes(1))
     await act(async () => { rejectFetch(new Error('boom')) })
     expect(screen.queryByText(/^¥/)).toBeNull()
+  })
+})
+
+describe('createTurnCostStore', () => {
+  const sid = 'session-1' as SessionId
+
+  it('fetches the session map once for many rows and coalesces concurrent reads', async () => {
+    const fetch = vi.fn(async () => ({
+      turns: [{ messageId: 'm1', total: 1 }, { messageId: 'm2', total: 2 }],
+    }))
+    const store = createTurnCostStore(fetch)
+    const [first, second] = await Promise.all([store.get(sid, 'm1'), store.get(sid, 'm2')])
+    expect(first).toBe(1)
+    expect(second).toBe(2)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    // A hit never refetches.
+    await expect(store.get(sid, 'm1')).resolves.toBe(1)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('refetches once when a message id is missing (a newly completed Turn)', async () => {
+    let calls = 0
+    const fetch = vi.fn(async () => {
+      calls += 1
+      return {
+        turns: calls === 1
+          ? [{ messageId: 'm1', total: 1 }]
+          : [{ messageId: 'm1', total: 1 }, { messageId: 'm2', total: 2 }],
+      }
+    })
+    const store = createTurnCostStore(fetch)
+    await expect(store.get(sid, 'm1')).resolves.toBe(1)
+    await expect(store.get(sid, 'm2')).resolves.toBe(2)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('resolves undefined on a failed fetch and recovers on the next read', async () => {
+    let fail = true
+    const fetch = vi.fn(async () => {
+      if (fail) throw new Error('boom')
+      return { turns: [{ messageId: 'm1', total: 3 }] }
+    })
+    const store = createTurnCostStore(fetch)
+    await expect(store.get(sid, 'm1')).resolves.toBeUndefined()
+    fail = false
+    await expect(store.get(sid, 'm1')).resolves.toBe(3)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('evicts the oldest session map at the limit, and invalidate drops one', async () => {
+    const fetch = vi.fn(async () => ({ turns: [{ messageId: 'm1', total: 1 }] }))
+    const store = createTurnCostStore(fetch)
+    for (let index = 0; index <= TURN_COST_STORE_LIMIT; index += 1) {
+      await store.get(`session-${index}` as SessionId, 'm1')
+    }
+    expect(fetch).toHaveBeenCalledTimes(TURN_COST_STORE_LIMIT + 1)
+    // The oldest map was evicted, so reading it again refetches.
+    await store.get('session-0' as SessionId, 'm1')
+    expect(fetch).toHaveBeenCalledTimes(TURN_COST_STORE_LIMIT + 2)
+    store.invalidate('session-0' as SessionId)
+    await store.get('session-0' as SessionId, 'm1')
+    expect(fetch).toHaveBeenCalledTimes(TURN_COST_STORE_LIMIT + 3)
   })
 })
