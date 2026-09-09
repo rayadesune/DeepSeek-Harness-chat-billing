@@ -353,6 +353,49 @@ describe('apply / session spend cache', () => {
     await ctx.fiber.dispose()
   })
 
+  it('serves every completed Turn\'s cost in one call and folds only the appended tail', async () => {
+    /** One priced assistant message of the given Turn. */
+    const message = (seq: number, turn: number): SessionEvent => ({
+      type: 'assistant/message',
+      seq,
+      time: Date.now(),
+      data: {
+        turn,
+        step: 0,
+        message: {
+          id: `m${seq}` as never,
+          role: 'assistant',
+          content: [],
+          source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        },
+        usage: { inputTokens: 100, outputTokens: 100, cacheReadTokens: 100, cacheWriteTokens: 50 },
+      },
+    } as unknown as SessionEvent)
+    /** Turn brackets around one priced assistant message. */
+    const turn = (start: number): SessionEvent[] => [
+      { type: 'turn/start', seq: start, time: Date.now(), data: { turn: start, step: 0 } },
+      message(start + 1, start),
+      { type: 'turn/end', seq: start + 2, time: Date.now(), data: { turn: start, step: 0, reason: { kind: 'done' } } },
+    ] as unknown as SessionEvent[]
+    const ctx = new Context()
+    const events: SessionEvent[] = turn(0)
+    ctx.provide('sessionPersistence', {
+      listSnapshots: async () => [],
+      inspect: async () => ({ meta: {}, events }),
+    } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const first = await gateway.getSessionTurnSpends('session-turns' as SessionId)
+    expect(first.turns).toHaveLength(1)
+    expect(first.turns[0]?.messageId).toBe('m1')
+    events.push(...turn(3))
+    const second = await gateway.getSessionTurnSpends('session-turns' as SessionId)
+    // The first Turn is not re-priced; the appended one joins the map.
+    expect(second.turns.map(row => row.messageId)).toEqual(['m1', 'm4'])
+    expect(second.turns[1]?.total).toBeCloseTo(second.turns[0]!.total, 10)
+    await ctx.fiber.dispose()
+  })
+
   it('bills a forked child session from its own events only', async () => {
     const ctx = new Context()
     ctx.provide('sessionPersistence', {

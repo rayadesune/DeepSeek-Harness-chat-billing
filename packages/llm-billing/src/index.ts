@@ -37,9 +37,10 @@ import {
   forkBoundaryOf,
   mergeTodaySpend,
   resolveBilling,
+  SessionTurnSpendFolder,
 } from './billing.ts'
 import type { BillingConfig, BillingConfigModel, ResolvedBilling } from './billing.ts'
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
+import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekSessionTurnSpends, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 import { billingTodaySpendDefinition } from './projection.ts'
 import type { BillingUnitDefinition } from './projection.ts'
 import { liveSessionEvents, persistenceInspect, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
@@ -50,6 +51,7 @@ export {
   addEventContribution,
   beijingDayKey,
   computeSessionSpend,
+  computeSessionTurnSpends,
   computeTodaySpend,
   computeTurnSpend,
   DEFAULT_MODEL_PRICING,
@@ -61,6 +63,7 @@ export {
   mergeTodaySpend,
   priceEvent,
   resolveBilling,
+  SessionTurnSpendFolder,
   SpendAccumulator,
 } from './billing.ts'
 export type {
@@ -156,6 +159,8 @@ export const TODAY_SPEND_CACHE_MS = 60_000
 export const TODAY_SPEND_MAX_EVENTS = 200_000
 /** Max session-spend rows kept for incremental recompute before eviction. */
 export const SESSION_SPEND_CACHE_LIMIT = 1024
+/** Max session-id entries kept in the per-turn-cost fold cache before eviction. */
+export const SESSION_TURN_SPEND_CACHE_LIMIT = 64
 
 /**
  * Bounded-map eviction: drop the oldest inserted entry once `size` reached
@@ -377,6 +382,33 @@ function createTurnSpendFetcher(
 }
 
 /**
+ * Every completed Turn's cost in one session, folded incrementally per session
+ * (session logs are append-only, so only the appended tail is priced on a
+ * growing log). One call serves a whole transcript's per-message cost rows,
+ * replacing the per-message `getTurnSpend` fan-out.
+ */
+function createTurnSpendsFetcher(
+  ctx: Context,
+  facts: ResolvedFacts,
+): (sessionId: SessionId) => Promise<DeepSeekSessionTurnSpends> {
+  const folders = new Map<SessionId, { folder: SessionTurnSpendFolder; count: number }>()
+  return async (sessionId: SessionId): Promise<DeepSeekSessionTurnSpends> => {
+    const { events } = await sessionEvents(ctx, sessionId)
+    let entry = folders.get(sessionId)
+    if (entry === undefined || entry.count > events.length) {
+      entry = { folder: new SessionTurnSpendFolder(facts.billing, facts.catalog), count: 0 }
+      evictOldest(folders, SESSION_TURN_SPEND_CACHE_LIMIT)
+      folders.set(sessionId, entry)
+    }
+    if (entry.count !== events.length) {
+      entry.folder.feed(events)
+      entry.count = events.length
+    }
+    return entry.folder.finish()
+  }
+}
+
+/**
  * Register the `billing` Remote under the `billing` namespace. Assembly only:
  * facts resolve once, each loader owns its caches, and the gateway receives
  * the bound thunks.
@@ -400,5 +432,13 @@ export function apply(ctx: Context, config: Config): void {
   const fetchSessionSpend = createSessionSpendFetcher(ctx, facts)
   const { fetchTodaySpend, fetchTodaySessionsSpend } = createTodaySpendLoaders(ctx, facts, unit, ensureUnit)
   const fetchTurnSpend = createTurnSpendFetcher(ctx, facts)
-  new DeepSeekBalanceGateway(ctx, { fetchBalance, fetchSessionSpend, fetchTodaySpend, fetchTodaySessionsSpend, fetchTurnSpend })
+  const fetchTurnSpends = createTurnSpendsFetcher(ctx, facts)
+  new DeepSeekBalanceGateway(ctx, {
+    fetchBalance,
+    fetchSessionSpend,
+    fetchTodaySpend,
+    fetchTodaySessionsSpend,
+    fetchTurnSpend,
+    fetchTurnSpends,
+  })
 }

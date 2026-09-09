@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import {
   addEventContribution,
   computeSessionSpend,
+  computeSessionTurnSpends,
   computeTodaySpend,
   computeTurnSpend,
   emptyTodaySpend,
@@ -18,6 +19,7 @@ import {
   mergeTodaySpend,
   priceEvent,
   resolveBilling,
+  SessionTurnSpendFolder,
   SpendAccumulator,
 } from '../src/billing.ts'
 import type { BillingEventContribution, DeepSeekTodaySpend } from '../src/billing.ts'
@@ -486,6 +488,42 @@ describe('computeTurnSpend', () => {
       turnBoundary('turn/end', 0, 2, PEAK),
     ]
     expect(computeTurnSpend(log, BILLING, CATALOG, 'm0').total).toBe(0)
+  })
+
+  it('folds every Turn in one pass with exactly computeTurnSpend\'s totals', () => {
+    const spends = computeSessionTurnSpends(LOG, BILLING, CATALOG)
+    expect(spends.turns.map(row => row.messageId)).toEqual(['m0', 'm1', 'm2'])
+    for (const row of spends.turns) {
+      expect(row.total).toBeCloseTo(computeTurnSpend(LOG, BILLING, CATALOG, row.messageId).total, 10)
+    }
+    expect(spends.turns[0]?.total).toBeCloseTo(13.60, 10)
+    expect(spends.turns[1]?.total).toBeCloseTo(34.00, 10)
+    expect(spends.turns[2]?.total).toBeCloseTo(34.00, 10)
+  })
+
+  it('folds incrementally: only appended events are priced, a re-feed is a no-op', () => {
+    const folder = new SessionTurnSpendFolder(BILLING, CATALOG)
+    folder.feed(LOG.slice(0, 3))
+    expect(folder.processed).toBe(3)
+    const first = folder.finish()
+    expect(first.turns.map(row => row.messageId)).toEqual(['m0'])
+    expect(first.turns[0]?.total).toBeCloseTo(13.60, 10)
+    folder.feed(LOG)
+    const rows = folder.finish().turns
+    expect(rows.map(row => row.messageId)).toEqual(['m0', 'm1', 'm2'])
+    expect(rows[1]?.total).toBeCloseTo(34.00, 10)
+    expect(folder.processed).toBe(LOG.length)
+    // Re-feeding the same log changes nothing.
+    folder.feed(LOG)
+    expect(folder.finish().turns).toHaveLength(3)
+  })
+
+  it('resets the fold when the log is replaced by a shorter one', () => {
+    const folder = new SessionTurnSpendFolder(BILLING, CATALOG)
+    folder.feed(LOG)
+    expect(folder.finish().turns).toHaveLength(3)
+    folder.feed(LOG.slice(0, 3))
+    expect(folder.finish().turns.map(row => row.messageId)).toEqual(['m0'])
   })
 })
 
