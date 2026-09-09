@@ -94,6 +94,7 @@ export interface BillingModel {
 
 const DEFAULT_MODELS: BillingModel[] = [
   { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+  { id: 'deepseek-v4.1-flash-expires-on-0910', name: 'DeepSeek-V4.1-Flash' },
   { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
   { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp' },
   { id: 'mimo-v2.5-pro', name: 'MiMo-V2.5-Pro' },
@@ -111,7 +112,7 @@ export interface Config {
   apiKeyEnv?: string
   /** Endpoint base; defaults to `$DEEPSEEK_BASE_URL`, then `https://api.deepseek.com`. */
   baseURL?: string
-  /** Advisory display rows, in presentation order; defaults to V4 Flash, V4 Pro, and V4 Flash Vision Exp. */
+  /** Advisory display rows, in presentation order; defaults to V4 Flash, V4.1 Flash, V4 Pro, and V4 Flash Vision Exp. */
   models?: BillingModel[]
   /** Pricing table and peak-hour windows; omission uses the published defaults. Peak windows apply weekdays (Monday–Friday) only; weekends are always off-peak. */
   billing?: BillingConfig

@@ -59,7 +59,7 @@ export interface BillingConfig {
    * only; weekends (Saturday and Sunday) are always off-peak.
    */
   peakHours?: PeakHourWindow[]
-  /** Per-model pricing rows; omission uses the V4 Flash, V4 Pro, and V4 Flash Vision defaults. */
+  /** Per-model pricing rows; omission uses the V4 Flash, V4.1 Flash, V4 Pro, and V4 Flash Vision defaults. */
   models?: BillingConfigModel[]
 }
 
@@ -77,6 +77,14 @@ export const DEFAULT_PEAK_HOURS: readonly PeakHourWindow[] = [
 export const DEFAULT_MODEL_PRICING: readonly BillingConfigModel[] = [
   {
     model: 'deepseek-v4-flash',
+    peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
+    offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
+  },
+  // deepseek-v4.1-flash-expires-on-0910 bills at the same rates as
+  // deepseek-v4-flash; image inputs are converted to tokens at the same
+  // per-token price.
+  {
+    model: 'deepseek-v4.1-flash-expires-on-0910',
     peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
     offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
   },
@@ -274,8 +282,7 @@ export interface BillingEventContribution {
  * only; weekends are off-peak). Each `assistant/message` event with usage
  * contributes cache-hit input, cache-miss input (uncached input plus cache
  * writes), and output (reasoning included) tokens at the rate of its own
- * timestamp; a model with usage but no pricing row contributes nothing (the
- * published table prices only the two V4 rows).
+ * timestamp; a model with usage but no pricing row contributes nothing.
  * @param event - the event to price.
  * @param billing - resolved pricing with peak-hour windows.
  * @param names - model id → display label.
