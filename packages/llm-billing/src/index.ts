@@ -161,6 +161,10 @@ export const TODAY_SPEND_MAX_EVENTS = 200_000
 export const SESSION_SPEND_CACHE_LIMIT = 1024
 /** Max session-id entries kept in the per-turn-cost fold cache before eviction. */
 export const SESSION_TURN_SPEND_CACHE_LIMIT = 64
+/** How long one balance snapshot is reused before the host refetches it (15s). */
+export const BALANCE_CACHE_MS = 15_000
+/** Hard cap on one `/user/balance` request (5s); a hung endpoint never blocks the badge. */
+export const BALANCE_TIMEOUT_MS = 5_000
 
 /**
  * Bounded-map eviction: drop the oldest inserted entry once `size` reached
@@ -409,6 +413,38 @@ function createTurnSpendsFetcher(
 }
 
 /**
+ * Balance loader with a short host-side TTL and a hard request timeout: the
+ * credential resolves per call, a fresh snapshot is reused for
+ * {@link BALANCE_CACHE_MS} (so several badge mounts and several browsers share
+ * one `/user/balance` call), concurrent misses coalesce, and `force` bypasses
+ * the TTL for the manual refresh. A hung endpoint aborts after
+ * {@link BALANCE_TIMEOUT_MS} instead of holding the badge's fetch forever.
+ * @param ctx - plugin context carrying the credential seam.
+ * @param facts - resolved endpoint and credential facts.
+ * @returns the balance loader.
+ */
+function createBalanceFetcher(ctx: Context, facts: ResolvedFacts): (force?: boolean) => Promise<DeepSeekBalance> {
+  let cached: { at: number; value: DeepSeekBalance } | undefined
+  let inflight: Promise<DeepSeekBalance> | undefined
+  return async (force = false): Promise<DeepSeekBalance> => {
+    if (!force && cached !== undefined && Date.now() - cached.at < BALANCE_CACHE_MS) return cached.value
+    if (inflight !== undefined) return inflight
+    const run = (async (): Promise<DeepSeekBalance> => {
+      try {
+        const apiKey = await resolveApiKey(ctx, facts.apiKeyRef)
+        const value = await fetchDeepSeekBalance(facts.baseURL(), apiKey, AbortSignal.timeout(BALANCE_TIMEOUT_MS))
+        cached = { at: Date.now(), value }
+        return value
+      } finally {
+        inflight = undefined
+      }
+    })()
+    inflight = run
+    return run
+  }
+}
+
+/**
  * Register the `billing` Remote under the `billing` namespace. Assembly only:
  * facts resolve once, each loader owns its caches, and the gateway receives
  * the bound thunks.
@@ -425,10 +461,7 @@ export function apply(ctx: Context, config: Config): void {
   const ensureUnit = createUnitRegistrar(ctx, unit)
   ensureUnit()
   ctx.on('session/created', ensureUnit)
-  const fetchBalance = async (): Promise<DeepSeekBalance> => {
-    const apiKey = await resolveApiKey(ctx, facts.apiKeyRef)
-    return fetchDeepSeekBalance(facts.baseURL(), apiKey)
-  }
+  const fetchBalance = createBalanceFetcher(ctx, facts)
   const fetchSessionSpend = createSessionSpendFetcher(ctx, facts)
   const { fetchTodaySpend, fetchTodaySessionsSpend } = createTodaySpendLoaders(ctx, facts, unit, ensureUnit)
   const fetchTurnSpend = createTurnSpendFetcher(ctx, facts)

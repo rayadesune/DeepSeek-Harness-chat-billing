@@ -104,8 +104,11 @@ export async function fetchDeepSeekBalance(
 
 /** Thunks the plugin binds to its own resolution and history access. */
 export interface DeepSeekBalanceGatewayOptions {
-  /** Fetch one balance snapshot through the plugin's resolved facts. */
-  fetchBalance: () => Promise<DeepSeekBalance>
+  /**
+   * Fetch one balance snapshot through the plugin's resolved facts.
+   * `force` bypasses the host-side TTL (the manual refresh path).
+   */
+  fetchBalance: (force?: boolean) => Promise<DeepSeekBalance>
   /** Compute one session's billed spend through the plugin's resolved facts. */
   fetchSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
   /**
@@ -152,12 +155,15 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   }
 
   /**
-   * Read the current DeepSeek account balance.
+   * Read the current DeepSeek account balance. A snapshot younger than the
+   * host-side TTL is reused, so several badge mounts share one provider call;
+   * `force` bypasses the TTL for the manual refresh.
+   * @param force - bypass the host-side TTL; omitted means a cached read.
    * @returns the validated balance snapshot.
    */
   @Remote('getBalance')
-  getBalance(): Promise<DeepSeekBalance> {
-    return this.options.fetchBalance()
+  getBalance(force?: boolean): Promise<DeepSeekBalance> {
+    return this.options.fetchBalance(force ?? false)
   }
 
   /**

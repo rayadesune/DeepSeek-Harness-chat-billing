@@ -145,6 +145,9 @@ describe('DeepSeekBalanceGateway', () => {
     fetchBalance: async () => VALID_PUBLIC,
     fetchSessionSpend: async () => VALID_SPEND,
     fetchTodaySpend: async () => VALID_TODAY_SPEND,
+    fetchTodaySessionsSpend: async () => ({ sessions: [] }),
+    fetchTurnSpend: async () => ({ total: 0 }),
+    fetchTurnSpends: async () => ({ turns: [] }),
   }
 
   it('registers under the billing namespace and exports getBalance, getSessionSpend, and getTodaySpend', () => {
@@ -162,9 +165,11 @@ describe('DeepSeekBalanceGateway', () => {
     const ctx = new Context()
     const gateway = new DeepSeekBalanceGateway(ctx, options)
     await expect(gateway.getBalance()).resolves.toEqual(VALID_PUBLIC)
+    await expect(gateway.getBalance(true)).resolves.toEqual(VALID_PUBLIC)
     await expect(gateway.getSessionSpend('session-1' as SessionId)).resolves.toEqual(VALID_SPEND)
     await expect(gateway.getTodaySpend()).resolves.toEqual(VALID_TODAY_SPEND)
     await expect(gateway.getTodaySpend(true)).resolves.toEqual(VALID_TODAY_SPEND)
+    await expect(gateway.getSessionTurnSpends('session-1' as SessionId)).resolves.toEqual({ turns: [] })
   })
 
   it('is root-visible when constructed inside a plugin fiber', async () => {
@@ -178,6 +183,28 @@ describe('DeepSeekBalanceGateway', () => {
     await fiber.await()
     expect(root.get('billing')).toBeDefined()
     await root.fiber.dispose()
+  })
+})
+
+describe('apply / balance cache', () => {
+  it('reuses one snapshot inside the TTL, coalesces misses, and refetches only on force', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse(200, VALID_WIRE))
+    const ctx = new Context()
+    ctx.provide('credentials', { resolve: async () => ({ value: 'key' }) } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const first = await gateway.getBalance()
+    const second = await gateway.getBalance()
+    // The TTL-served read returns the same settled snapshot: one provider call.
+    expect(second).toBe(first)
+    expect(spy).toHaveBeenCalledTimes(1)
+    // Concurrent forced misses coalesce into the same request.
+    const [a, b] = await Promise.all([gateway.getBalance(true), gateway.getBalance(true)])
+    expect(a).toEqual(b)
+    expect(spy).toHaveBeenCalledTimes(2)
+    await gateway.getBalance(true)
+    expect(spy).toHaveBeenCalledTimes(3)
+    await ctx.fiber.dispose()
   })
 })
 

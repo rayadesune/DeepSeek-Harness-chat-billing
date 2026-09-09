@@ -186,12 +186,17 @@ describe('ui-billing browser half', () => {
     expect(headerEntryIds(ctx)).not.toContain('billing-balance')
   })
 
-  it('injects a getBalance face that unwraps the Remote result and reports failures', async () => {
+  it('injects a getBalance face that unwraps the Remote result, forwards force, and caches the last value', async () => {
     const { ctx, getBalance } = await bench()
     const entry = ctx.slots.entries('conversation.session.header.utilities')[0]!
     const injected = (entry.inject as unknown as () => BalanceBadgeInjected)()
+    expect(injected.getCachedBalance()).toBeNull()
     await expect(injected.getBalance()).resolves.toEqual(BALANCE)
-    expect(getBalance).toHaveBeenCalledOnce()
+    expect(getBalance).toHaveBeenCalledWith(undefined)
+    // The settled value is available synchronously for the next badge mount.
+    expect(injected.getCachedBalance()).toEqual(BALANCE)
+    await expect(injected.getBalance(true)).resolves.toEqual(BALANCE)
+    expect(getBalance).toHaveBeenLastCalledWith(true)
     getBalance.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
     await expect(injected.getBalance()).rejects.toThrow('billing.getBalance failed: internal: no key')
     await ctx.fiber.dispose()
