@@ -13,6 +13,7 @@
  * @module @rayadesu/dsh-llm-billing/billing
  */
 
+import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel, DeepSeekSessionTurnSpends, DeepSeekTodaySpend, DeepSeekTurnSpend, DeepSeekTurnSpendRow } from './types.ts'
 
@@ -316,14 +317,34 @@ export function priceEventAt(
   if (event.type !== 'assistant/message') return undefined
   const reported = event.data.usage
   if (reported === undefined) return undefined
-  const model = event.data.message.source.model
+  return priceUsage(parts, reported, event.data.message.source.model, billing, names)
+}
+
+/**
+ * Price one provider-reported usage sample for one model at the rates of the
+ * sample's own Beijing-time hour and weekday. `undefined` when the model has
+ * no pricing row.
+ * @param parts - the sample's Beijing-time view.
+ * @param usage - the reported token buckets.
+ * @param model - the wire model id the sample belongs to.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param names - model id → display label.
+ * @returns the priced contribution, or `undefined` when the model has no rate row.
+ */
+export function priceUsage(
+  parts: BeijingParts,
+  usage: TokenUsage,
+  model: string,
+  billing: ResolvedBilling,
+  names: ReadonlyMap<string, string>,
+): BillingEventContribution | undefined {
   const pricing = billing.models.get(model)
   if (pricing === undefined) return undefined
   const peak = isPeakParts(billing, parts.hour, parts.weekday)
   const price = peak ? pricing.peak : pricing.offPeak
-  const hit = reported.cacheReadTokens ?? 0
-  const miss = reported.inputTokens + (reported.cacheWriteTokens ?? 0)
-  const output = reported.outputTokens
+  const hit = usage.cacheReadTokens ?? 0
+  const miss = usage.inputTokens + (usage.cacheWriteTokens ?? 0)
+  const output = usage.outputTokens
   const hitCost = (hit * price.cacheHitInput) / 1_000_000
   const missCost = (miss * price.cacheMissInput) / 1_000_000
   const outputCost = (output * price.output) / 1_000_000
@@ -409,6 +430,256 @@ export class SpendAccumulator {
   }
 }
 
+/** The additive inverse of one spend (pure): used to replace a priced sample. */
+export function negateSpend(spend: DeepSeekTodaySpend): DeepSeekTodaySpend {
+  const negate = (value: number): number => -value
+  return {
+    total: negate(spend.total),
+    models: spend.models.map(row => ({
+      ...row,
+      cost: negate(row.cost),
+      peakCost: negate(row.peakCost),
+      offPeakCost: negate(row.offPeakCost),
+      cacheHitInputTokens: negate(row.cacheHitInputTokens),
+      cacheMissInputTokens: negate(row.cacheMissInputTokens),
+      outputTokens: negate(row.outputTokens),
+      cacheHitInputCost: negate(row.cacheHitInputCost),
+      cacheMissInputCost: negate(row.cacheMissInputCost),
+      outputCost: negate(row.outputCost),
+    })),
+  }
+}
+
+/**
+ * Subtract one spend from another (pure). Rows that cancel out completely are
+ * dropped so a replaced sample leaves no zero row behind.
+ * @param target - the spend to subtract from.
+ * @param source - the spend to remove.
+ * @returns the difference.
+ */
+export function subtractSpend(target: DeepSeekTodaySpend, source: DeepSeekTodaySpend): DeepSeekTodaySpend {
+  const rows = new Map<string, DeepSeekSessionSpendModel>()
+  for (const row of target.models) rows.set(row.model, row)
+  for (const row of source.models) {
+    const existing = rows.get(row.model)
+    if (existing === undefined) continue
+    const next = mergeModelRows(existing, negateSpend({ total: 0, models: [row] }).models[0]!)
+    if (next.cost === 0 && next.cacheHitInputTokens === 0 && next.cacheMissInputTokens === 0 && next.outputTokens === 0) {
+      rows.delete(row.model)
+    } else {
+      rows.set(row.model, next)
+    }
+  }
+  return { total: target.total - source.total, models: [...rows.values()] }
+}
+
+/**
+ * One priced attempt sample kept for same-step replacement: DSH can report the
+ * same `(turn, step)` twice (an `assistant/attempt` stream and the
+ * `assistant/message` that assembles from it), and a later sample replaces the
+ * earlier one instead of adding to it. `llm/retry-started` clears the slot, so
+ * a retried attempt adds rather than replaces (both requests were billed).
+ */
+export interface BillingFoldSample {
+  /** Turn of the producing attempt. */
+  turn: number
+  /** Step of the producing attempt. */
+  step: number
+  /** Beijing day of the sample's timestamp. */
+  dayKey: string
+  /** The sample's contribution as a one-row spend (subtracted on replacement). */
+  spend: DeepSeekTodaySpend
+}
+
+/**
+ * Plain-JSON fold state of one session's billed spend: the latest priced day,
+ * the whole-session total, the fork boundary, the model of the latest request
+ * (needed to price an `assistant/attempt`, which carries no route), and the
+ * last sample kept for replacement.
+ */
+export interface BillingFoldState {
+  /** Beijing-time calendar-day key of `spend`; `''` for no priced usage. */
+  dayKey: string
+  /** The spend of the session's latest priced Beijing day (own events only). */
+  spend: DeepSeekTodaySpend
+  /** The spend of the session's OWN events across every day. */
+  session: DeepSeekTodaySpend
+  /** Fork-inherited prefix length; events below it belong to the source session. */
+  inheritedEventCount: number
+  /** Wire model of the latest `request/header`; `''` before the first one. */
+  model: string
+  /** Latest priced attempt sample, for same-step replacement. */
+  last: BillingFoldSample | null
+}
+
+/** The empty fold state for one fork boundary. */
+export function emptyBillingFoldState(inheritedEventCount = 0): BillingFoldState {
+  return {
+    dayKey: '',
+    spend: emptyTodaySpend(),
+    session: emptyTodaySpend(),
+    inheritedEventCount,
+    model: '',
+    last: null,
+  }
+}
+
+/** Structural view of the newer event fields this fold reads (see the module note). */
+interface StructuralEvent {
+  readonly type: string
+  readonly seq: number
+  readonly time: number
+  readonly data?: unknown
+}
+
+/** Whether an unknown value looks like a provider usage report. */
+function isTokenUsage(value: unknown): value is TokenUsage {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as { inputTokens?: unknown; outputTokens?: unknown }
+  return typeof candidate.inputTokens === 'number' && typeof candidate.outputTokens === 'number'
+}
+
+/**
+ * The last `usage` sample embedded in an event's stream, if any. `assistant/
+ * attempt` and the embedded streams are newer than the plugin's npm baseline,
+ * so the stream is read structurally (a failed/retried attempt reports its
+ * usage only there).
+ */
+function streamUsageOf(event: SessionEvent): TokenUsage | undefined {
+  const stream = (event as StructuralEvent).data === undefined
+    ? undefined
+    : ((event as StructuralEvent).data as { stream?: unknown }).stream
+  if (!Array.isArray(stream)) return undefined
+  for (let index = stream.length - 1; index >= 0; index -= 1) {
+    const chunk = (stream[index] as { chunk?: { type?: unknown; usage?: unknown } } | undefined)?.chunk
+    if (chunk === undefined || chunk.type !== 'usage') continue
+    return isTokenUsage(chunk.usage) ? chunk.usage : undefined
+  }
+  return undefined
+}
+
+/** The contribution as a one-row spend (the shape a sample keeps for replacement). */
+function contributionSpend(priced: BillingEventContribution): DeepSeekTodaySpend {
+  return { total: priced.cost, models: [contributionModel(priced)] }
+}
+
+/**
+ * Fold one committed event into a session's billed-spend state.
+ *
+ * Priced samples come from `assistant/message` (its own reported usage, or the
+ * stream's last usage chunk) and `assistant/attempt` (the stream's last usage
+ * chunk, priced with the model of the latest `request/header`, since an
+ * attempt carries no route). A sample for the same `(turn, step)` replaces the
+ * previous one; `llm/retry-started` closes the replacement slot so a retried
+ * attempt adds. Every other event is inert and returns the same state
+ * reference.
+ * @param state - the previous fold state.
+ * @param event - the committed event.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param names - model id → display label.
+ * @returns the next state (the same reference when nothing was priced).
+ */
+export function applyBillingEvent(
+  state: BillingFoldState,
+  event: SessionEvent,
+  billing: ResolvedBilling,
+  names: ReadonlyMap<string, string>,
+): BillingFoldState {
+  if (event.seq < state.inheritedEventCount) return state
+  // `assistant/attempt`, `llm/retry-started`, and the embedded stream are all
+  // newer than the npm baseline this package builds against, so their fields
+  // are read structurally.
+  const type = (event as StructuralEvent).type
+  if (type === 'request/header') {
+    const model = ((event as StructuralEvent).data as { header?: { config?: { model?: unknown } } } | undefined)
+      ?.header?.config?.model
+    return typeof model === 'string' && model.length > 0 && model !== state.model ? { ...state, model } : state
+  }
+  const data = (event as StructuralEvent).data as
+    | { turn?: unknown; step?: unknown; usage?: unknown; message?: { source?: { model?: unknown } }; stream?: unknown }
+    | undefined
+  if (type === 'llm/retry-started') {
+    if (typeof data?.turn !== 'number' || typeof data.step !== 'number') return state
+    const last = state.last
+    if (last === null || last.turn !== data.turn || last.step !== data.step) return state
+    return { ...state, last: null }
+  }
+  if (type !== 'assistant/message' && type !== 'assistant/attempt') return state
+  const usage = (type === 'assistant/message' ? data?.usage : undefined) ?? streamUsageOf(event)
+  if (!isTokenUsage(usage)) return state
+  const model = type === 'assistant/message' ? data?.message?.source?.model : state.model
+  if (typeof model !== 'string' || model.length === 0) return state
+  const priced = priceUsage(beijingPartsOf(event.time), usage, model, billing, names)
+  if (priced === undefined) return state
+
+  let session = state.session
+  let spend = state.spend
+  let dayKey = state.dayKey
+  const last = state.last
+  const turn = typeof data?.turn === 'number' ? data.turn : 0
+  const step = typeof data?.step === 'number' ? data.step : 0
+  if (last !== null && last.turn === turn && last.step === step) {
+    session = subtractSpend(session, last.spend)
+    if (last.dayKey === dayKey) spend = subtractSpend(spend, last.spend)
+  }
+  session = addEventContribution(session, priced)
+  if (dayKey === priced.dayKey) {
+    spend = addEventContribution(spend, priced)
+  } else if (dayKey === '' || priced.dayKey > dayKey) {
+    // The session log is append-only and chronological, so a strictly older
+    // day cannot legally follow; ignore it for the latest-day state (the
+    // whole-session total still accrues).
+    dayKey = priced.dayKey
+    spend = addEventContribution(emptyTodaySpend(), priced)
+  }
+  return {
+    ...state,
+    dayKey,
+    spend,
+    session,
+    last: { turn, step, dayKey: priced.dayKey, spend: contributionSpend(priced) },
+  }
+}
+
+/**
+ * Mutable wrapper over {@link applyBillingEvent} for the pure pricing paths:
+ * feed events in order, read the folded spend.
+ */
+export class BillingFolder {
+  private state: BillingFoldState
+
+  /**
+   * @param billing - resolved pricing with peak-hour windows.
+   * @param catalog - model display rows, in presentation order.
+   * @param inheritedEventCount - fork boundary to skip (default 0).
+   */
+  constructor(
+    private readonly billing: ResolvedBilling,
+    catalog: readonly { id: string; name: string }[],
+    inheritedEventCount = 0,
+  ) {
+    this.names = new Map(catalog.map(model => [model.id, model.name]))
+    this.state = emptyBillingFoldState(inheritedEventCount)
+  }
+
+  private readonly names: ReadonlyMap<string, string>
+
+  /** Fold one event. */
+  add(event: SessionEvent): void {
+    this.state = applyBillingEvent(this.state, event, this.billing, this.names)
+  }
+
+  /** Fold every event, in order. */
+  addAll(events: readonly SessionEvent[]): void {
+    for (const event of events) this.add(event)
+  }
+
+  /** The folded state (live reference; do not mutate). */
+  get fold(): BillingFoldState {
+    return this.state
+  }
+}
+
 /**
  * Merge one priced event's contribution into an accumulator spend (pure:
  * returns a new spend, never mutates its input).
@@ -444,36 +715,11 @@ export function mergeTodaySpend(target: DeepSeekTodaySpend, source: DeepSeekToda
 }
 
 /**
- * Price a set of billed events (the shared sweep behind every scan path):
- * each event where `priceEvent` yields a contribution is folded, optionally
- * restricted to one Beijing calendar day and to `seq >= startSeq`.
- * @param events - the events to price.
- * @param billing - resolved pricing with peak-hour windows.
- * @param names - model id → display label.
- * @param dayKey - when provided, only events on this Beijing calendar day contribute.
- * @param startSeq - when provided, only events with `seq >= startSeq` contribute
- *   (a forked session's inherited prefix, `seq < startSeq`, is skipped).
- * @returns the total cost plus one row per priced model.
- */
-function priceEvents(
-  events: readonly SessionEvent[],
-  billing: ResolvedBilling,
-  names: ReadonlyMap<string, string>,
-  dayKey?: string,
-  startSeq = 0,
-): DeepSeekTodaySpend {
-  const accumulator = new SpendAccumulator()
-  for (const event of events) {
-    if (event.seq < startSeq) continue
-    const priced = priceEvent(event, billing, names)
-    if (priced === undefined || (dayKey !== undefined && priced.dayKey !== dayKey)) continue
-    accumulator.add(priced)
-  }
-  return accumulator.finish()
-}
-
-/**
- * Price one session's complete event log at the official per-model rates.
+ * Price one session's complete event log at the official per-model rates,
+ * with DSH's attempt semantics: every provider-reported sample (an
+ * `assistant/message`'s usage, or an `assistant/attempt`'s stream usage)
+ * contributes, a later sample for the same `(turn, step)` replaces the earlier
+ * one, and `llm/retry-started` makes the retried attempt add.
  * @param events - one session's complete event log.
  * @param billing - resolved pricing with peak-hour windows.
  * @param catalog - model display rows, in presentation order.
@@ -489,17 +735,19 @@ export function computeSessionSpend(
   catalog: readonly { id: string; name: string }[],
   startSeq = 0,
 ): DeepSeekSessionSpend {
-  const names = new Map(catalog.map(model => [model.id, model.name]))
-  return priceEvents(events, billing, names, undefined, startSeq)
+  const folder = new BillingFolder(billing, catalog, startSeq)
+  folder.addAll(events)
+  return folder.fold.session
 }
 
 /**
  * Price one completed Turn's billed usage, identified by its closing
  * assistant message id. The turn's events are those between its `turn/start`
  * and `turn/end` (both matched by the message's own turn coordinate), priced
- * per event as in {@link priceEvent}. A message that cannot be located, a
- * turn without bracketing `turn/start` / `turn/end` events (for example after
- * compaction), or a session with no priced usage prices to zero.
+ * with the same attempt semantics as {@link computeSessionSpend}. A message
+ * that cannot be located, a turn without bracketing `turn/start` / `turn/end`
+ * events (for example after compaction), or a session with no priced usage
+ * prices to zero.
  * @param events - one session's complete event log.
  * @param billing - resolved pricing with peak-hour windows.
  * @param catalog - model display rows, in presentation order.
@@ -512,7 +760,24 @@ export function computeTurnSpend(
   catalog: readonly { id: string; name: string }[],
   messageId: string,
 ): DeepSeekTurnSpend {
-  const names = new Map(catalog.map(model => [model.id, model.name]))
+  return { total: turnCostOf(events, billing, catalog, messageId) }
+}
+
+/**
+ * The total cost of the Turn containing `messageId`, folded with the shared
+ * attempt semantics (see {@link applyBillingEvent}).
+ * @param events - one session's complete event log.
+ * @param billing - resolved pricing with peak-hour windows.
+ * @param catalog - model display rows, in presentation order.
+ * @param messageId - one assistant message inside the Turn.
+ * @returns the Turn's total cost in CNY, or 0 when the Turn cannot be located.
+ */
+function turnCostOf(
+  events: readonly SessionEvent[],
+  billing: ResolvedBilling,
+  catalog: readonly { id: string; name: string }[],
+  messageId: string,
+): number {
   let turn: number | undefined
   for (const event of events) {
     if (event.type !== 'assistant/message') continue
@@ -520,8 +785,8 @@ export function computeTurnSpend(
     turn = event.data.turn
     break
   }
-  if (turn === undefined) return { total: 0 }
-  const accumulator = new SpendAccumulator()
+  if (turn === undefined) return 0
+  const folder = new BillingFolder(billing, catalog)
   let active = false
   for (const event of events) {
     if (event.type === 'turn/start' && event.data.turn === turn) {
@@ -530,10 +795,9 @@ export function computeTurnSpend(
     }
     if (event.type === 'turn/end' && event.data.turn === turn) break
     if (!active) continue
-    const priced = priceEvent(event, billing, names)
-    if (priced !== undefined) accumulator.add(priced)
+    folder.add(event)
   }
-  return { total: accumulator.finish().total }
+  return folder.fold.session.total
 }
 
 /**
@@ -548,10 +812,11 @@ export function computeTurnSpend(
  * message outside any bracket contributes nothing.
  */
 export class SessionTurnSpendFolder {
-  private readonly names: ReadonlyMap<string, string>
+  private readonly catalog: readonly { id: string; name: string }[]
   private readonly rows: DeepSeekTurnSpendRow[] = []
   private ids: string[] = []
-  private total = 0
+  /** Events of the open Turn, folded with the shared attempt semantics on close. */
+  private events: SessionEvent[] = []
   private open = false
   /** Events already fed; a shorter log resets the fold. */
   private cursor = 0
@@ -564,7 +829,7 @@ export class SessionTurnSpendFolder {
     private readonly billing: ResolvedBilling,
     catalog: readonly { id: string; name: string }[],
   ) {
-    this.names = new Map(catalog.map(model => [model.id, model.name]))
+    this.catalog = catalog
   }
 
   /** How many events have been folded so far (the host's incremental cursor). */
@@ -584,19 +849,24 @@ export class SessionTurnSpendFolder {
       if (event.type === 'turn/start') {
         this.open = true
         this.ids = []
-        this.total = 0
+        this.events = []
         continue
       }
       if (event.type === 'turn/end') {
-        if (this.open) for (const messageId of this.ids) this.rows.push({ messageId, total: this.total })
+        if (this.open) {
+          const folder = new BillingFolder(this.billing, this.catalog)
+          folder.addAll(this.events)
+          const total = folder.fold.session.total
+          for (const messageId of this.ids) this.rows.push({ messageId, total })
+        }
         this.open = false
         this.ids = []
+        this.events = []
         continue
       }
       if (!this.open) continue
       if (event.type === 'assistant/message') this.ids.push(event.data.message.id)
-      const priced = priceEvent(event, this.billing, this.names)
-      if (priced !== undefined) this.total += priced.cost
+      this.events.push(event)
     }
     this.cursor = events.length
   }
@@ -610,7 +880,7 @@ export class SessionTurnSpendFolder {
   private reset(): void {
     this.rows.length = 0
     this.ids = []
-    this.total = 0
+    this.events = []
     this.open = false
     this.cursor = 0
   }
@@ -635,11 +905,16 @@ export function computeSessionTurnSpends(
 }
 
 /**
- * Price every event whose Beijing-time calendar day is the day of `now`,
- * aggregating across every session's event log; events from other Beijing
- * days are ignored, so a caller passes the concatenated logs of all sessions.
- * Pricing per event as in {@link priceEvent}.
- * @param events - every session's complete event log, concatenated.
+ * Price one session's log for the Beijing-time calendar day of `now`. Events
+ * after the reference day are ignored; the fold's latest-day state then
+ * answers the query exactly (empty when the session's latest priced day is not
+ * the reference day). Pricing follows {@link applyBillingEvent} (attempt
+ * samples with same-step replacement).
+ *
+ * The fold's `(turn, step)` replacement slot is per session, so callers must
+ * pass ONE session's log; aggregate across sessions with
+ * {@link mergeTodaySpend}.
+ * @param events - one session's complete event log.
  * @param billing - resolved pricing with peak-hour windows.
  * @param catalog - model display rows, in presentation order.
  * @param now - the reference moment whose Beijing-time calendar day is "today".
@@ -652,6 +927,11 @@ export function computeTodaySpend(
   now: Date = new Date(),
 ): DeepSeekTodaySpend {
   const day = beijingDayKey(now)
-  const names = new Map(catalog.map(model => [model.id, model.name]))
-  return priceEvents(events, billing, names, day)
+  const folder = new BillingFolder(billing, catalog)
+  for (const event of events) {
+    // Only events up to the reference day can contribute.
+    if (beijingPartsOf(event.time).dayKey > day) continue
+    folder.add(event)
+  }
+  return folder.fold.dayKey === day ? folder.fold.spend : emptyTodaySpend()
 }

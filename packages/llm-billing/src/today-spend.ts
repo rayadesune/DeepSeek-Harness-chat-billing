@@ -44,8 +44,9 @@
 
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
-import type { BillingEventContribution, ResolvedBilling } from './billing.ts'
-import { beijingDayKey, beijingPartsOf, emptyTodaySpend, forkBoundaryOf, isSeededSession, mergeTodaySpend, priceEventAt, SpendAccumulator } from './billing.ts'
+import type { ResolvedBilling } from './billing.ts'
+import { beijingDayKey, beijingPartsOf, BillingFolder, emptyTodaySpend, forkBoundaryOf, isSeededSession, mergeTodaySpend } from './billing.ts'
+import type { BillingFoldState } from './billing.ts'
 import type { DeepSeekTodaySessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from './types.ts'
 import { BILLING_UNIT_KEY, foldOwnBilling, type BillingUnitFold, type BillingUnitState } from './projection.ts'
 
@@ -544,43 +545,41 @@ export class TodaySpendScanner {
 
   /**
    * Events-path collection shared by both aggregate and per-session scans:
-   * price today's events in a single pass (per-event Beijing-day filter during
-   * collection, one timezone parse per event, hard cap), gated by revisions —
-   * a persisted session whose log did not change since the last scan is
-   * skipped. A fork child's inherited prefix (`seq < seedLength`) is skipped,
-   * so each model output is priced only in its source session. Every session
-   * is announced before its events (so titles fold from the complete log),
-   * and the revision watermark only advances on a complete pass.
+   * fold each session's log with the shared pricing fold (attempt samples with
+   * same-step replacement) and announce the session's latest-day spend, gated
+   * by revisions — a persisted session whose log did not change since the last
+   * scan is skipped. A fork child's inherited prefix (`seq < seedLength`) is
+   * skipped, so each model output is priced only in its source session. The
+   * hard cap counts the queried day's events; the revision watermark only
+   * advances on a complete pass.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
-   * @param onEvent - fold one priced event of one session.
-   * @param onSession - called once per session before its events (title fold).
+   * @param onSession - fold one session's state plus its complete log.
    * @returns whether the hard cap truncated the scan.
    */
   private async collectTodayEvents(
     dayKey: string,
-    onEvent: (id: SessionId, priced: BillingEventContribution) => void,
-    onSession?: (id: SessionId, events: readonly SessionEvent[]) => void,
+    onSession: (id: SessionId, fold: BillingFoldState, events: readonly SessionEvent[]) => void,
   ): Promise<boolean> {
     const { sessions, persistence, maxEvents, logger, billing, catalog } = this.deps
-    const names = new Map(catalog.map(model => [model.id, model.name]))
     const liveIds = new Set<SessionId>()
     let collected = 0
     let truncated = false
     const collect = (id: SessionId, events: readonly SessionEvent[], seedLength: number): void => {
-      onSession?.(id, events)
+      const folder = new BillingFolder(billing, catalog, seedLength)
       for (const event of events) {
-        if (event.seq < seedLength) continue
-        // One timezone parse serves both the day filter and the pricing.
-        const parts = beijingPartsOf(event.time)
-        if (parts.dayKey !== dayKey) continue
-        collected += 1
-        if (collected > maxEvents) {
-          truncated = true
-          return
+        // The cap counts the queried day's events; the fold still sees every
+        // event up to the cap (model tracking and attempt replacement need
+        // the surrounding events).
+        if (beijingPartsOf(event.time).dayKey === dayKey) {
+          collected += 1
+          if (collected > maxEvents) {
+            truncated = true
+            break
+          }
         }
-        const priced = priceEventAt(parts, event, billing, names)
-        if (priced !== undefined) onEvent(id, priced)
+        folder.add(event)
       }
+      onSession(id, folder.fold, events)
     }
     if (sessions !== undefined) {
       const store = sessions()
@@ -669,25 +668,15 @@ export class TodaySpendScanner {
    * @returns the aggregate plus per-session rows, sorted by cost descending.
    */
   private async scanDetailEvents(dayKey: string): Promise<TodaySpendDetail> {
-    const aggregate = new SpendAccumulator()
-    const rows = new Map<SessionId, { title: string | null; spend: SpendAccumulator }>()
-    await this.collectTodayEvents(
-      dayKey,
-      (id, priced) => {
-        aggregate.add(priced)
-        rows.get(id)?.spend.add(priced)
-      },
-      (id, events) => {
-        rows.set(id, { title: foldSessionTitle(events), spend: new SpendAccumulator() })
-      },
-    )
+    let aggregate = emptyTodaySpend()
     const sessions: DeepSeekTodaySessionSpend[] = []
-    for (const [sessionId, row] of rows) {
-      const total = row.spend.finish().total
-      if (total > 0) sessions.push({ sessionId, title: row.title, total })
-    }
+    await this.collectTodayEvents(dayKey, (id, fold, events) => {
+      if (fold.dayKey !== dayKey) return
+      aggregate = mergeTodaySpend(aggregate, fold.spend)
+      sessions.push({ sessionId: id, title: foldSessionTitle(events), total: fold.spend.total })
+    })
     sessions.sort((left, right) => right.total - left.total)
-    return { aggregate: aggregate.finish(), sessions }
+    return { aggregate, sessions }
   }
 }
 

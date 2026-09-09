@@ -1,49 +1,41 @@
 /**
- * `billingTodaySpend` session-projection unit: per-session, per-Beijing-day
- * billed spend, folded eagerly by the DSH projection drive over committed
- * session events and checkpointed by the projection cache. The unit keeps only
- * the spend of the session's LATEST priced day (events are append-only and
- * chronological, so a day strictly older than the state's day never returns);
- * the aggregate "today" read sums the units whose `dayKey` matches the current
- * Beijing day — zero full-log scans once the fold is warm.
+ * `billingTodaySpend` session-projection unit: per-session billed spend,
+ * folded eagerly by the DSH projection drive over committed session events and
+ * checkpointed by the projection cache. The state keeps the session's LATEST
+ * priced Beijing day, its whole-session total, the fork boundary, the latest
+ * request model, and the last priced attempt sample (DSH's same-step
+ * replacement rule); the aggregate "today" read sums the units whose `dayKey`
+ * matches the current Beijing day — zero full-log scans once the fold is warm.
  *
- * The unit's fold shares {@link priceEvent} with the events-scan paths
- * (`computeTodaySpend`), so both price with the same table. The unit is
+ * The unit's fold IS the shared pricing fold ({@link applyBillingEvent}), so
+ * the projection path and the events-scan paths cannot drift. The unit is
  * client-visible (`wire` = identity) because the persisted-cache read ladder
- * (`sessionProjectionCache.coldSnapshot` / registry `restore`) serves only
- * wired units; the wire value is the state itself.
+ * (`sessionProjectionCache.cachedSnapshot` / registry `restore`) serves only
+ * wired units, and because the browser half reads this value through
+ * `useProjection` instead of polling a Remote; the wire value is the state
+ * itself.
  * @module @rayadesu/dsh-llm-billing/projection
  */
 
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { SessionEvent, SessionHeader, SessionLogOffset } from '@deepseek-ai/dsh-session'
-import type { ResolvedBilling } from './billing.ts'
-import { addEventContribution, emptyTodaySpend, priceEvent } from './billing.ts'
-import type { DeepSeekTodaySpend } from './types.ts'
+import type { BillingFoldState, ResolvedBilling } from './billing.ts'
+import { applyBillingEvent, emptyBillingFoldState } from './billing.ts'
 
 /** The projection key this unit owns. */
 export const BILLING_UNIT_KEY = 'billingTodaySpend'
 
 /**
- * Per-session unit state: the Beijing day of the session's latest priced
- * event, that day's billed spend, and the session's whole-log spend. `dayKey`
- * is `''` while the session has no priced usage, and `spend` only ever
- * describes ONE day (the latest) — plain JSON, as the persisted-cache
- * contract requires. The unit is boundary-aware: it folds only the session's
- * OWN events (a fork child's inherited prefix is skipped), so both totals
- * match the Remote paths and the client can read them without a Remote call.
+ * The unit's state is the shared billing fold state: the latest priced
+ * Beijing day, the whole-session total, the fork boundary, the latest request
+ * model, and the last priced attempt sample. Plain JSON, as the
+ * persisted-cache contract requires. The fold is boundary-aware: it prices
+ * only the session's OWN events (a fork child's inherited prefix is skipped),
+ * so both totals match the Remote paths and the client can read them without
+ * a Remote call.
  */
-export interface BillingUnitState {
-  /** Beijing-time calendar-day key of the state's spend; `''` for no priced usage. */
-  dayKey: string
-  /** The spend of the session's latest priced Beijing day (own events only). */
-  spend: DeepSeekTodaySpend
-  /** The spend of the session's OWN events across every day. */
-  session: DeepSeekTodaySpend
-  /** Fork-inherited prefix length; events below it belong to the source session. */
-  inheritedEventCount: number
-}
+export type BillingUnitState = BillingFoldState
 
 const modelRowSchema = z.object({
   model: z.string(),
@@ -69,6 +61,13 @@ const billingUnitSchema = z.object({
   spend: todaySpendSchema,
   session: todaySpendSchema,
   inheritedEventCount: z.number().int().nonnegative(),
+  model: z.string(),
+  last: z.object({
+    turn: z.number().int().nonnegative(),
+    step: z.number().int().nonnegative(),
+    dayKey: z.string(),
+    spend: todaySpendSchema,
+  }).strict().nullable(),
 }).strict()
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -108,35 +107,15 @@ export function billingTodaySpendDefinition(
   const names = new Map(catalog.map(model => [model.id, model.name]))
   return {
     key: BILLING_UNIT_KEY,
-    // v2: boundary-aware fold + the whole-session total (`session`) beside the
-    // latest-day spend; older checkpoint rows are discarded and refolded.
-    stateVersion: 2,
+    // v3: DSH-aligned attempt pricing (assistant/attempt samples, same-step
+    // replacement, `llm/retry-started` closes the slot) on top of v2's
+    // boundary-aware fold and whole-session total; older checkpoint rows are
+    // discarded and refolded.
+    stateVersion: 3,
     stateSchema: billingUnitSchema,
-    init: (_header?: SessionHeader, inheritedEventCount?: SessionLogOffset) => ({
-      dayKey: '',
-      spend: emptyTodaySpend(),
-      session: emptyTodaySpend(),
-      inheritedEventCount: Number(inheritedEventCount ?? 0),
-    }),
-    apply: (state, event) => {
-      // A fork child's inherited prefix was billed in its source session.
-      if (event.seq < state.inheritedEventCount) return state
-      const priced = priceEvent(event, billing, names)
-      if (priced === undefined) return state
-      const session = addEventContribution(state.session, priced)
-      if (state.dayKey === priced.dayKey) {
-        return { ...state, session, spend: addEventContribution(state.spend, priced) }
-      }
-      // The session log is append-only and chronological, so an event whose
-      // Beijing day is strictly older than the state's day cannot legally
-      // follow it; ignore defensively to keep the persisted fold
-      // deterministic under reordered or clock-skewed timestamps (the
-      // whole-session total still accrues).
-      if (state.dayKey !== '' && priced.dayKey < state.dayKey) return { ...state, session }
-      // First priced event, or the session's first priced event of a new day:
-      // the latest-day state resets to that day's spend.
-      return { ...state, dayKey: priced.dayKey, spend: addEventContribution(emptyTodaySpend(), priced), session }
-    },
+    init: (_header?: SessionHeader, inheritedEventCount?: SessionLogOffset) =>
+      emptyBillingFoldState(Number(inheritedEventCount ?? 0)),
+    apply: (state, event) => applyBillingEvent(state, event, billing, names),
     wire: { viewSchema: billingUnitSchema, view: state => state },
   }
 }
