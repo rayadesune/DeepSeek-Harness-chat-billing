@@ -1,4 +1,23 @@
-# HANDOFF — 全量性能优化（DSH 0.1.5 冷读回归修复 + 传输/渲染重排 · 2026-09-09 已实施，未发布）
+# HANDOFF — 发布记录（2026-09-09 · v0.3.9）
+
+* 提交：`98bad2a`（release: v0.3.9，含本轮 8 个优化提交与 `a6c0367` 的 V4.1 Flash 计费）
+* tag：`v0.3.9` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.9
+* npm `dist-tags.latest`：`@rayadesu/dsh-llm-billing` / `@rayadesu/dsh-client-ui-billing` /
+  `@rayadesu/dsh-billing` 均为 **0.3.9**（发布顺序 llm-billing → client-ui-billing → dsh-billing；
+  `dsh-client-ui-billing` 首次 PUT 被 npm 暂存（"being processed"），约 5 分钟后自动落库，
+  已从 registry 拉回 tarball 复核新代码在包内）
+* 发布内容：DSH 0.1.5 冷读回归修复 + 全量性能优化（P0/P1/P2，见下一节）+ V4.1 Flash 计费
+* **用户重启后已验证（主机侧证据）**：DSH 进程于 13:33:43 重启；`session_projcache` 中新写入的
+  `billingTodaySpend` 行为 `ver: 3`（含 `session` / `inheritedEventCount` / `last` 字段），
+  且当前会话的 `seq` 实时推进 → 新投影单元已注册、折叠并在每个 `turn/end` 落检查点。
+  客户端观感（徽标即时渲染、行尾金额补齐）需用户目视确认。
+* 本机 web profile 仍为 local-tarballs 的 0.3.8 `file:` 引用（与 0.3.9 同代码，仅版本号不同）；
+  如需换 npm 版本：`dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
+  后重启 `dsh web`。
+
+---
+
+# HANDOFF — 全量性能优化（DSH 0.1.5 冷读回归修复 + 传输/渲染重排 · 2026-09-09 已实施，已随 v0.3.9 发布）
 
 ## 问题与根因（先看这段）
 
