@@ -89,13 +89,15 @@ export type BillingUnitDefinition =
   & { wire: NonNullable<ProjectionDefinition<'billingTodaySpend', BillingUnitState>['wire']> }
 
 /**
- * Build the `billingTodaySpend` unit for one resolved pricing table. The
- * pricing closure is fixed at registration; a pricing-table change therefore
- * prices only events folded after the change (historical spend keeps its
- * historical rates), unlike the events-scan paths which re-price the whole
- * log. Bump {@link ProjectionDefinition.stateVersion} whenever the state
- * shape or fold semantics change, so persisted checkpoint rows are discarded
- * instead of folded forward.
+ * Build the `billingTodaySpend` unit for one resolved pricing table. Published
+ * rate revisions travel inside the closure and are resolved per sample
+ * timestamp, so a re-priced series bills its own history correctly however late
+ * a log is folded; only a configuration change (editing `billing.models`) is
+ * fixed at registration, and it re-prices just the events folded afterwards
+ * (the events-scan paths re-price the whole log). Bump
+ * {@link ProjectionDefinition.stateVersion} whenever the state shape or fold
+ * semantics change, so persisted checkpoint rows are discarded instead of
+ * folded forward.
  * @param billing - resolved pricing with peak-hour windows.
  * @param catalog - model display rows, in presentation order.
  * @returns the unit definition to register on `ctx.sessionProjections`.
@@ -107,11 +109,13 @@ export function billingTodaySpendDefinition(
   const names = new Map(catalog.map(model => [model.id, model.name]))
   return {
     key: BILLING_UNIT_KEY,
-    // v3: DSH-aligned attempt pricing (assistant/attempt samples, same-step
-    // replacement, `llm/retry-started` closes the slot) on top of v2's
-    // boundary-aware fold and whole-session total; older checkpoint rows are
-    // discarded and refolded.
-    stateVersion: 3,
+    // v4: rate revisions resolved per sample timestamp (the V4 Flash series is
+    // re-priced from 2026-09-10 12:00 Beijing), on top of v3's DSH-aligned
+    // attempt pricing, v2's boundary-aware fold, and the whole-session total.
+    // A row checkpointed by the previous version priced every sample at one
+    // flat pair of rates, so rows folded after the re-pricing instant would
+    // keep the superseded rates: bumping discards them and refolds.
+    stateVersion: 4,
     stateSchema: billingUnitSchema,
     init: (_header?: SessionHeader, inheritedEventCount?: SessionLogOffset) =>
       emptyBillingFoldState(Number(inheritedEventCount ?? 0)),

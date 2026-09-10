@@ -27,22 +27,43 @@ export interface DeepSeekTokenPrice {
   output: number
 }
 
-/** Peak and off-peak price pair for one model. */
-export interface DeepSeekModelPricing {
+/**
+ * One published peak/off-peak rate revision of a model: the price pair plus the
+ * instant it took effect. A provider re-prices a series without repricing its
+ * history, so the table keeps every revision and prices each sample at the
+ * rates of the sample's own timestamp.
+ */
+export interface DeepSeekRateRevision {
   /** Price during peak hours. */
   peak: DeepSeekTokenPrice
   /** Price during off-peak hours. */
   offPeak: DeepSeekTokenPrice
+  /**
+   * Inclusive epoch ms this revision takes effect: it prices every sample at or
+   * after that instant. `undefined` on a model's base revision, which also
+   * covers every earlier instant.
+   */
+  effectiveFrom?: number
+}
+
+/** Resolved pricing for one model: its published rate revisions, oldest first. */
+export interface DeepSeekModelPricing {
+  /** Peak-hour price of the newest revision (the rates in effect now). */
+  peak: DeepSeekTokenPrice
+  /** Off-peak price of the newest revision (the rates in effect now). */
+  offPeak: DeepSeekTokenPrice
+  /**
+   * Every published revision of this model, ascending by `effectiveFrom` (an
+   * undated base revision first); always at least one. {@link priceUsage} picks
+   * the revision in effect at the priced sample's own timestamp.
+   */
+  revisions: readonly DeepSeekRateRevision[]
 }
 
 /** One model's pricing-table row in configuration form. */
-export interface BillingConfigModel {
+export interface BillingConfigModel extends DeepSeekRateRevision {
   /** Wire model id. */
   model: string
-  /** Peak-hour price. */
-  peak: DeepSeekTokenPrice
-  /** Off-peak price. */
-  offPeak: DeepSeekTokenPrice
 }
 
 /** One peak-hour window on a 24h Beijing-time clock, applied weekdays only. */
@@ -60,7 +81,11 @@ export interface BillingConfig {
    * only; weekends (Saturday and Sunday) are always off-peak.
    */
   peakHours?: PeakHourWindow[]
-  /** Per-model pricing rows; omission uses the V4 Flash, V4.1 Flash, V4 Pro, and V4 Flash Vision defaults. */
+  /**
+   * Per-model pricing rows; omission uses the published V4 and MiMo rates.
+   * Several rows for one model declare that model's rate history, priced per
+   * sample by `effectiveFrom` (see {@link BillingConfigModel}).
+   */
   models?: BillingConfigModel[]
 }
 
@@ -74,21 +99,47 @@ export const DEFAULT_PEAK_HOURS: readonly PeakHourWindow[] = [
   { start: 14, end: 18 },
 ]
 
-/** Official peak/off-peak rates (CNY per 1M tokens), effective 2026-08-17. */
+/**
+ * Inclusive epoch ms of the published V4 Flash series re-pricing:
+ * 2026-09-10 12:00 Beijing time (UTC+8, no DST) = 04:00 UTC. Samples before
+ * this instant keep the base rates; samples at or after it bill at the second
+ * revision.
+ */
+export const FLASH_SERIES_RATE_CHANGE_AT = Date.UTC(2026, 8, 10, 4, 0, 0)
+
+/** The V4 Flash series' base rates (effective 2026-08-17), CNY per 1M tokens. */
+const FLASH_BASE_RATES: DeepSeekRateRevision = {
+  peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
+  offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
+}
+
+/**
+ * The V4 Flash series' second revision (effective
+ * {@link FLASH_SERIES_RATE_CHANGE_AT}): off-peak 0.02 / 1.0 / 4.0, peak at
+ * twice those prices.
+ */
+const FLASH_REPRICED_RATES: DeepSeekRateRevision = {
+  effectiveFrom: FLASH_SERIES_RATE_CHANGE_AT,
+  peak: { cacheHitInput: 0.04, cacheMissInput: 2.0, output: 8.0 },
+  offPeak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 4.0 },
+}
+
+/**
+ * Official peak/off-peak rates (CNY per 1M tokens) per model, as dated
+ * revisions. Base rows are the schedule effective 2026-08-17; the V4 Flash
+ * series (V4 Flash, V4.1 Flash, V4 Flash Vision Exp) additionally carries the
+ * second revision effective 2026-09-10 12:00 Beijing, which leaves V4 Pro and
+ * the MiMo-V2.5 series untouched. Rows sharing a model are that model's rate
+ * history.
+ */
 export const DEFAULT_MODEL_PRICING: readonly BillingConfigModel[] = [
-  {
-    model: 'deepseek-v4-flash',
-    peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
-    offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
-  },
+  { model: 'deepseek-v4-flash', ...FLASH_BASE_RATES },
+  { model: 'deepseek-v4-flash', ...FLASH_REPRICED_RATES },
   // deepseek-v4.1-flash-expires-on-0910 bills at the same rates as
   // deepseek-v4-flash; image inputs are converted to tokens at the same
   // per-token price.
-  {
-    model: 'deepseek-v4.1-flash-expires-on-0910',
-    peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
-    offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
-  },
+  { model: 'deepseek-v4.1-flash-expires-on-0910', ...FLASH_BASE_RATES },
+  { model: 'deepseek-v4.1-flash-expires-on-0910', ...FLASH_REPRICED_RATES },
   {
     model: 'deepseek-v4-pro',
     peak: { cacheHitInput: 0.30, cacheMissInput: 9.0, output: 27.0 },
@@ -96,11 +147,8 @@ export const DEFAULT_MODEL_PRICING: readonly BillingConfigModel[] = [
   },
   // deepseek-v4-flash-vision-exp bills at the same rates as deepseek-v4-flash;
   // images are converted to tokens at the same per-token price.
-  {
-    model: 'deepseek-v4-flash-vision-exp',
-    peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
-    offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
-  },
+  { model: 'deepseek-v4-flash-vision-exp', ...FLASH_BASE_RATES },
+  { model: 'deepseek-v4-flash-vision-exp', ...FLASH_REPRICED_RATES },
   // MiMo-V2.5 series (Xiaomi): flat rate, no peak/off-peak distinction.
   {
     model: 'mimo-v2.5-pro',
@@ -126,8 +174,14 @@ export interface ResolvedBilling {
  * `z.array` as `[]` rather than `undefined`, so emptiness — not just absence —
  * selects the defaults. Explicit non-empty rows override the same model; a
  * supplied non-empty `models` list is authoritative.
+ *
+ * Rows sharing a model are that model's rate revisions, kept in ascending
+ * `effectiveFrom` order (an undated base revision first). Two rows declaring
+ * the same effective instant are one revision and the later row wins — the
+ * historical override rule — so re-declaring a model can neither duplicate a
+ * revision nor install a second undated base.
  * @param config - optional raw billing configuration.
- * @returns the resolved table and peak-hour windows.
+ * @returns the resolved table (per model: its revisions plus the newest rates) and peak-hour windows.
  */
 export function resolveBilling(config: BillingConfig | undefined): ResolvedBilling {
   const peakHours = config?.peakHours !== undefined && config.peakHours.length > 0
@@ -136,13 +190,57 @@ export function resolveBilling(config: BillingConfig | undefined): ResolvedBilli
   const rows = config?.models !== undefined && config.models.length > 0
     ? config.models
     : DEFAULT_MODEL_PRICING
+  const schedules = new Map<string, DeepSeekRateRevision[]>()
+  for (const row of rows) {
+    // Spelled out per branch: `exactOptionalPropertyTypes` forbids handing an
+    // explicit `undefined` to an optional field.
+    const revision: DeepSeekRateRevision = row.effectiveFrom === undefined
+      ? { peak: row.peak, offPeak: row.offPeak }
+      : { effectiveFrom: row.effectiveFrom, peak: row.peak, offPeak: row.offPeak }
+    const revisions = schedules.get(row.model)
+    if (revisions === undefined) {
+      schedules.set(row.model, [revision])
+      continue
+    }
+    const duplicate = revisions.findIndex(candidate => candidate.effectiveFrom === revision.effectiveFrom)
+    if (duplicate >= 0) revisions[duplicate] = revision
+    else revisions.push(revision)
+  }
   const models = new Map<string, DeepSeekModelPricing>()
-  for (const row of rows) models.set(row.model, { peak: row.peak, offPeak: row.offPeak })
+  for (const [model, revisions] of schedules) {
+    revisions.sort(
+      (left, right) => (left.effectiveFrom ?? Number.NEGATIVE_INFINITY) - (right.effectiveFrom ?? Number.NEGATIVE_INFINITY),
+    )
+    const newest = revisions[revisions.length - 1]!
+    models.set(model, { peak: newest.peak, offPeak: newest.offPeak, revisions })
+  }
   return { peakHours, models }
+}
+
+/**
+ * The rate revision in effect at one instant: the newest revision that took
+ * effect at or before it. Revisions are ascending, so the scan stops at the
+ * first future one. An instant before the earliest dated revision bills at that
+ * earliest revision — a model with only dated rows is never left unpriced.
+ */
+function ratesAt(revisions: readonly DeepSeekRateRevision[], time: number): DeepSeekRateRevision {
+  let chosen = revisions[0]!
+  for (let index = 1; index < revisions.length; index += 1) {
+    const revision = revisions[index]!
+    if (revision.effectiveFrom === undefined || revision.effectiveFrom > time) break
+    chosen = revision
+  }
+  return chosen
 }
 
 /** One shifted-timestamp view of a Beijing (UTC+8, no DST) instant. */
 export interface BeijingParts {
+  /**
+   * The instant in epoch milliseconds. Pricing needs it back to resolve the
+   * rate revision in effect at the sample's own timestamp (see
+   * {@link ratesAt}), so the view carries it instead of a second parse.
+   */
+  time: number
   /** Beijing hour, `0`–`23`. */
   hour: number
   /** Beijing weekday as `getUTCDay()`: `0` is Sunday, `6` is Saturday. */
@@ -204,6 +302,7 @@ export function beijingPartsOf(time: number): BeijingParts {
   const msOfDay = shifted - epochDay * DAY_MS
   const civil = civilDateOf(epochDay)
   return {
+    time,
     hour: Math.floor(msOfDay / 3_600_000),
     // 1970-01-01 was a Thursday (4).
     weekday: ((epochDay + 4) % 7 + 7) % 7,
@@ -323,7 +422,8 @@ export interface BillingEventContribution {
 /**
  * Price one event at the official per-model rates, applying the peak/off-peak
  * table by its Beijing-time hour and weekday (peak windows apply Monday–Friday
- * only; weekends are off-peak). Each `assistant/message` event with usage
+ * only; weekends are off-peak) and the rate revision in effect at its own
+ * timestamp. Each `assistant/message` event with usage
  * contributes cache-hit input, cache-miss input (uncached input plus cache
  * writes), and output (reasoning included) tokens at the rate of its own
  * timestamp; a model with usage but no pricing row contributes nothing.
@@ -365,8 +465,10 @@ export function priceEventAt(
 
 /**
  * Price one provider-reported usage sample for one model at the rates of the
- * sample's own Beijing-time hour and weekday. `undefined` when the model has
- * no pricing row.
+ * sample's own Beijing-time hour and weekday — the peak or off-peak price of
+ * the rate revision in effect at the sample's own timestamp (a re-priced series
+ * bills its history at the rates that applied then). `undefined` when the model
+ * has no pricing row.
  * @param parts - the sample's Beijing-time view.
  * @param usage - the reported token buckets.
  * @param model - the wire model id the sample belongs to.
@@ -384,7 +486,8 @@ export function priceUsage(
   const pricing = billing.models.get(model)
   if (pricing === undefined) return undefined
   const peak = isPeakParts(billing, parts.hour, parts.weekday)
-  const price = peak ? pricing.peak : pricing.offPeak
+  const revision = ratesAt(pricing.revisions, parts.time)
+  const price = peak ? revision.peak : revision.offPeak
   const hit = usage.cacheReadTokens ?? 0
   const miss = usage.inputTokens + (usage.cacheWriteTokens ?? 0)
   const output = usage.outputTokens
