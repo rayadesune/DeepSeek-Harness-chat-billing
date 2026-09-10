@@ -48,6 +48,9 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
 - **README 双语**：每个 README 遵循 DSH 结构 `README.md`(EN) + `README.zh.md`(ZH) +
   `README.i18n.yaml`（记录两文件 git blob hash，改动后需更新）。
 - **版本对齐**：根 bundle 与两个包统一版本号（当前 0.3.10），`pnpm-lock.yaml` 随依赖变更更新。
+- **提交与发布流程**：见 `.agents/skills/dsh-release/SKILL.md` —— 阶段 A（改代码 → test/build →
+  本地 pack 安装 → 交用户验证）**不提交**，改动留在工作区；用户说「发布」进入阶段 B 才 bump 版本、
+  **按类型分别提交**、推送、发 npm 与 GitHub Release。
 - **文本规范**：LF 换行、文件末尾一个换行（`.editorconfig`/`.gitattributes` 已声明）。
 
 ## 常用命令
