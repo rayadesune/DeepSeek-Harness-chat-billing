@@ -1,8 +1,18 @@
 import ts from 'typescript'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 const decoratorSyntax = /^\s*@[A-Za-z_$][\w$]*/m
+
+/**
+ * The same build-time stamp the browser bundle gets (see
+ * packages/tsdown.client.ts): suites then assert the version a release ships
+ * instead of a placeholder.
+ */
+const uiBillingVersion: string = JSON.parse(
+  readFileSync(new URL('./packages/ui-billing/package.json', import.meta.url), 'utf8'),
+).version
 
 /** Local copies of the renderer src files the published test-runtime imports. */
 const rendererSrcClient = fileURLToPath(
@@ -40,6 +50,9 @@ function standardDecoratorPlugin() {
 }
 
 export default defineConfig({
+  define: {
+    __DSH_PLUGIN_VERSION__: JSON.stringify(uiBillingVersion),
+  },
   plugins: [standardDecoratorPlugin()],
   resolve: {
     // The linked DSH package sources resolve their own react copies from the

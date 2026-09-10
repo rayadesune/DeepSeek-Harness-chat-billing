@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -8,6 +10,16 @@ import { BalanceBadge, SESSION_RANKING_LIMIT, type BalanceBadgeProps } from '../
 import { TurnCostAction, type TurnCostActionProps } from '../src/client/TurnCostAction.tsx'
 import { createTurnCostStore, TURN_COST_STORE_LIMIT } from '../src/client/turnCostStore.ts'
 import { en, zh } from '../src/client/locales.ts'
+import { PLUGIN_VERSION } from '../src/client/version.ts'
+
+/**
+ * The manifest the build reads its version stamp from (see
+ * packages/tsdown.client.ts). Resolved from the workspace root because vitest
+ * serves test modules over an http URL, so `import.meta.url` is not a file URL.
+ */
+const packageVersion: string = JSON.parse(
+  readFileSync(join(process.cwd(), 'packages/ui-billing/package.json'), 'utf8'),
+).version
 
 afterEach(() => {
   cleanup()
@@ -128,7 +140,7 @@ describe('BalanceBadge', () => {
     expect(await screen.findByRole('button', { name: zh['info.aria'] })).toBeDefined()
   })
 
-  it('shows the spend hint below the info button (the side the bubble can flip)', async () => {
+  it('shows the spend hint below the info button, version on the next line', async () => {
     render(<BalanceBadge {...props(async () => balance())} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     const info = await screen.findByRole('button', { name: zh['info.aria'] })
@@ -137,14 +149,22 @@ describe('BalanceBadge', () => {
     // bottom/top sides; `right` would leave a tall bubble clipped above.
     const bubble = await screen.findByRole('tooltip')
     expect(bubble.getAttribute('data-side')).toBe('bottom')
-    expect(bubble.textContent).toBe(zh['info.hint'])
+    // The primitive takes a plain string label, so the version rides the hint
+    // text: its own line, flush with the left edge, from the build-time stamp.
+    expect(bubble.textContent).toBe(zh['info.hint'].replace('{version}', PLUGIN_VERSION))
+    expect(bubble.textContent).toContain(`\nv${packageVersion}`)
+    expect(bubble.textContent).not.toContain('\n\n')
+    expect(bubble.textContent).not.toContain('\u00A0')
+    expect(PLUGIN_VERSION).toBe(packageVersion)
   })
 
   it('holds the spend hint to a tooltip-sized label in both dictionaries', () => {
     // The DSH Tooltip bubble clamps neither height nor hover: an over-long
     // label is clipped at the viewport edge and vanishes as soon as the
     // pointer leaves the button, so the rate schedule lives in the READMEs.
-    expect(zh['info.hint'].length).toBeLessThanOrEqual(80)
+    // The budget covers the trailing `{version}` line (≈4 rendered lines at
+    // the bubble's 300px cap).
+    expect(zh['info.hint'].length).toBeLessThanOrEqual(100)
     expect(en['info.hint'].length).toBeLessThanOrEqual(200)
   })
 

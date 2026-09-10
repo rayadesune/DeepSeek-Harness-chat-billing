@@ -100,6 +100,7 @@ function cssModulesPlugin(id: string) {
 
 interface WorkspaceManifest {
   readonly name?: string
+  readonly version?: string
   readonly dependencies?: Record<string, string>
   readonly peerDependencies?: Record<string, string>
   readonly optionalDependencies?: Record<string, string>
@@ -184,6 +185,11 @@ function clientConfig(id: string, entry: string): UserConfig {
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+      // The browser half reports its own version (the spend-hint bubble), and a
+      // browser bundle must not read a manifest at runtime: stamp it here from
+      // the package's own manifest. tools/verify-packages.mjs rejects a
+      // published bundle that still carries the unreplaced placeholder.
+      __DSH_PLUGIN_VERSION__: JSON.stringify(workspaceManifest(id).version ?? '0.0.0'),
     },
     plugins: [cssModulesPlugin(id)],
     outputOptions: {
