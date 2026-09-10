@@ -35,7 +35,13 @@ export function BalancePanel({ amount, spend, todaySpend, sessionsSpend, refresh
       <div className={css.amountRow}>
         <span className={css.amountLabel}>{t('label.amount', { amount })}</span>
         <span className={css.amountActions}>
-          <Tooltip label={t('info.hint')} delayMs={200} maxWidth={340}>
+          {/*
+            `side="bottom"`: the DSH bubble's viewport fit only corrects the
+            vertical axis for the bottom/top sides, so the (short) hint flips
+            above the anchor instead of being clipped when it does not fit
+            below — the right side would leave a tall bubble cut off.
+          */}
+          <Tooltip label={t('info.hint')} side="bottom" delayMs={200} maxWidth={300}>
             <button type="button" className={css.infoButton} aria-label={t('info.aria')}>
               <IconQuestionOutline14 className={css.inlineIcon} />
             </button>

@@ -7,7 +7,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { BalanceBadge, SESSION_RANKING_LIMIT, type BalanceBadgeProps } from '../src/client/BalanceBadge.tsx'
 import { TurnCostAction, type TurnCostActionProps } from '../src/client/TurnCostAction.tsx'
 import { createTurnCostStore, TURN_COST_STORE_LIMIT } from '../src/client/turnCostStore.ts'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
 afterEach(() => {
   cleanup()
@@ -126,6 +126,26 @@ describe('BalanceBadge', () => {
     render(<BalanceBadge {...props(async () => balance())} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     expect(await screen.findByRole('button', { name: zh['info.aria'] })).toBeDefined()
+  })
+
+  it('shows the spend hint below the info button (the side the bubble can flip)', async () => {
+    render(<BalanceBadge {...props(async () => balance())} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    const info = await screen.findByRole('button', { name: zh['info.aria'] })
+    fireEvent.mouseEnter(info)
+    // The DSH bubble's viewport fit only corrects the vertical axis on the
+    // bottom/top sides; `right` would leave a tall bubble clipped above.
+    const bubble = await screen.findByRole('tooltip')
+    expect(bubble.getAttribute('data-side')).toBe('bottom')
+    expect(bubble.textContent).toBe(zh['info.hint'])
+  })
+
+  it('holds the spend hint to a tooltip-sized label in both dictionaries', () => {
+    // The DSH Tooltip bubble clamps neither height nor hover: an over-long
+    // label is clipped at the viewport edge and vanishes as soon as the
+    // pointer leaves the button, so the rate schedule lives in the READMEs.
+    expect(zh['info.hint'].length).toBeLessThanOrEqual(80)
+    expect(en['info.hint'].length).toBeLessThanOrEqual(200)
   })
 
   it('renders the unavailable word when the fetch rejects', async () => {
