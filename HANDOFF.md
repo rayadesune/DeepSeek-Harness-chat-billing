@@ -1,12 +1,21 @@
-# HANDOFF — V4 Flash 系列调价（按事件时刻取费率版本 · 2026-09-10 已实施，未发布）
+# HANDOFF — Flash 系列 9/10 12:00 调价 + V4.1 Flash 上线 + V4 Pro 9/14 切价（按事件时刻取费率版本 · 2026-09-10 已实施，未发布）
 
 ## 需求与决策
 
-* 官方通知：**北京时间 2026-09-10 12:00 起**调整 flash 系列定价——空闲时段（低谷）缓存命中输入 **0.02** 元、
-  未命中输入 **1** 元、输出 **4** 元（元/百万 token）；高峰时段为空闲时段的 **2 倍**（0.04 / 2 / 8）。
-* **用户决策（已确认）**：**按事件时刻取对应费率版本**——该时刻之前的事件与历史记录仍按 8 月 17 日的旧价
+* 官方通知一：**北京时间 2026-09-10 12:00 起**调整 flash 系列定价——空闲时段（低谷）缓存命中输入 **0.02** 元、
+  未命中输入 **1** 元、输出 **4** 元（元/百万 token）；高峰时段为空闲时段的 **2 倍**（0.04 / 2 / 8）；
+  高峰窗口不变（周一至周五 9:00–12:00、14:00–18:00）。
+* 官方通知二（同日补充截图）：**9 月 10 日正式发布 V4.1 Flash 模型**并执行上述新 Flash 定价（同一时刻生效）；
+  **9 月 14 日 12:00 下线 V4 Pro 服务**，届时 V4 Pro 路由由 V4.1 Flash 承接并按 V4.1 Flash 计费；
+  「V4 Pro 服务期间价格不变」。
+* 用户要求：把 **DSH 新增的默认模型**也加进插件（模型名以 DSH 源码/配置界面为准）。核对 DSH checkout
+  `packages/llm/llm-deepseek/src/index.ts` 的 `DEFAULT_MODELS`（提交 `bc5fd3b8dc` / `441385fe38`）：
+  新增 **`deepseek-flash`（显示名 `DeepSeek-V41-Flash`，text+image，1M 上下文）**，且已退役的预览 id
+  `deepseek-v4.1-flash-expires-on-0910` 从目录移除；用户 `~/.dsh/settings.yaml` 的 `agent-default-model`
+  正是 `deepseek-flash`，5 个 `subagent-model-selection.allowedModels` 仍是 8 月的旧 id。
+* **用户决策（已确认）**：**按事件时刻取对应费率版本**——各调价时刻之前的事件与历史记录仍按 8 月 17 日的旧价
   （峰 0.10 / 3.0 / 9.0、谷 0.05 / 1.5 / 4.5），12:00 起按新价；这样「今日共花费」与官方账单一致
-  （实施时正是 12:00 刚过，当天上午的用量必须仍按旧价计）。V4 Pro 与 MiMo 系列不在调价范围内，保持原价。
+  （实施时正是 12:00 刚过，当天上午的用量必须仍按旧价计）。
 
 ## 改动
 
@@ -14,9 +23,13 @@
   - 新增 `DeepSeekRateRevision`（峰/谷单价 + 可选 `effectiveFrom`，**含**该时刻）；`DeepSeekModelPricing`
     改为 `{ peak, offPeak, revisions }`（`peak`/`offPeak` = 最新版本，供展示与兼容读取）；
     `BillingConfigModel` 继承 `DeepSeekRateRevision`，配置面因此新增 `effectiveFrom`。
-  - 新增 `FLASH_SERIES_RATE_CHANGE_AT = Date.UTC(2026, 8, 10, 4, 0, 0)`（= 北京时间 2026-09-10 12:00）。
-  - `DEFAULT_MODEL_PRICING` 扩为 9 行：V4 Flash / V4.1 Flash / V4 Flash Vision Exp 各「基础版 + 新版」两行
-    （共享 `FLASH_BASE_RATES` / `FLASH_REPRICED_RATES`，三者按构造同价），V4 Pro、MiMo 两行不变。
+  - 新增 `FLASH_SERIES_RATE_CHANGE_AT = Date.UTC(2026, 8, 10, 4, 0, 0)`（= 北京时间 2026-09-10 12:00）
+    与 `V4_PRO_ROUTE_SWITCH_AT = Date.UTC(2026, 8, 14, 4, 0, 0)`（= 北京时间 2026-09-14 12:00）。
+  - `DEFAULT_MODEL_PRICING` 现为 **12 行 / 6 个模型**：`deepseek-flash`（V4.1 Flash，新增）、
+    `deepseek-v4-flash`、`deepseek-v4.1-flash-expires-on-0910`（退役预览 id，留作历史计价）、
+    `deepseek-v4-flash-vision-exp` 各「基础版 + 新版」两行（共享 `FLASH_BASE_RATES` / `FLASH_REPRICED_RATES`）；
+    `deepseek-v4-pro` 两行（自身费率 + 自 `V4_PRO_ROUTE_SWITCH_AT` 起改用 V4.1 Flash 费率，见
+    `V4_PRO_SWITCHED_RATES`）；MiMo 两行不变。
   - `resolveBilling` 按模型聚合成费率版本表：按 `effectiveFrom` 升序（无日期的基础版本最前），
     同一生效时刻的多行**后者覆盖前者**（沿用「显式行覆盖同一模型」的既有语义，避免重复版本或第二个基础版本）。
   - `BeijingParts` 新增 `time`（epoch 毫秒，`beijingPartsOf` 一次解析即带回，不新增解析）；
@@ -25,39 +38,56 @@
 * `projection.ts`：`stateVersion` 3 → 4——旧检查点行是按「单一费率」折出来的，12:00 之后折叠进旧行的样本会
   留着被取代的旧价，故提升版本丢弃重折（每会话一次性重折，非全量冷读）；同时把「投影计价对历史冻结」的说明
   改为「官方费率版本随闭包按样本时刻解析，只有手工改 `billing.models` 才只影响之后折叠的事件」。
-* `index.ts`：导出 `FLASH_SERIES_RATE_CHANGE_AT` 与 `DeepSeekRateRevision`；配置 schema 把行 schema 抽成
+* `index.ts`：`DEFAULT_MODELS` 与 DSH `llm-deepseek` 目录对齐——新增 `deepseek-flash` / `DeepSeek-V41-Flash`
+  置于最前（DSH 当前默认路由），保留退役预览 id 供历史会话显示可读标签；导出 `FLASH_SERIES_RATE_CHANGE_AT`、
+  `V4_PRO_ROUTE_SWITCH_AT` 与 `DeepSeekRateRevision`；配置 schema 把行 schema 抽成
   具名 `billingRateRow: z<BillingConfigModel>` 并加 `effectiveFrom: z.number().min(0)`（具名标注同时解决
   schemastery `ObjectT` 要求字段必填、与 `effectiveFrom` 可选之间的类型冲突）。
-* `types.ts`：模块头的计费口径补「费率版本按样本自身时刻取」。
+* `types.ts`：模块头的计费口径补「费率版本按样本自身时刻取，含 V4 Pro 9/14 起改用 V4.1 Flash 费率」。
 * 未改版本号（0.3.9），未推送、未发布。
 
 ## 验证
 
-* `billing.spec.ts`：默认费率断言改为新价并新增「费率版本历史」用例；`beijingPartsOf` 断言补 `time`；
-  新增 `rate revisions` 组 **8 条**用例——切点前 1 毫秒按旧价、切点整按新谷价、切点后峰时按新峰价、
-  flash 三模型同价、V4 Pro 跨调价点不变、同一北京日两段费率求和、配置化版本表（行序颠倒也正确）、
-  仅带日期版本时的兜底。**全套 185 用例全绿**（+11）。
+* **语料核对**（对 `%DSH_HOME%\sessions` 近 3 天日志按 zstd 帧解码——每文件数百帧——扫描，5750 条模型引用）：
+  `deepseek-flash` **120 条，最早一条 2026-09-10 11:56:31**——新路由在 12:00 前确有用量（本会话自身就跑在
+  `deepseek-flash` 上），所以它的「基础版本行」是必需的，不是冗余；其余 `deepseek-v4-flash-vision-exp` 3077、
+  `deepseek-v4.1-flash-expires-on-0910` 1580、`deepseek-v4-flash` 848、`deepseek-v4-pro` 2 条，全部有费率行；
+  `dots3-note-prev` 123 条无费率行（第三方 Dots，插件本就不预估非 DeepSeek/MiMo 模型，面板文案已声明）。
+* `billing.spec.ts`：默认费率、目录覆盖、费率版本历史断言重写；`beijingPartsOf` 断言补 `time`；
+  `rate revisions` 两组共 **12 条**用例——flash 切点前 1 毫秒 / 切点整 / 切点后峰时、flash 四个路由同价且
+  标签正确、新增路由 `deepseek-flash` 跨切点、V4 Pro 在 flash 切点不变而在自身切点（09-14 12:00）改按
+  V4.1 Flash 计费、同一北京日两段费率求和、配置化版本表（行序颠倒、同刻后者覆盖）、仅带日期版本的兜底。
+  **全套 191 用例全绿**（185 → 191）。
 * typecheck / build / lint / verify 全绿。
-* 用**构建产物**做了一次运行期核对（临时脚本，核对后删除）：`Config({})` → `billing.models` 9 行，
-  flash 2 个版本、pro 1 个；切点打印 `2026-09-10T04:00:00.000Z`；切点前 13.60、切点起 5.52；
-  显式配置两行（旧价 / 带 `effectiveFrom` 新价）→ 8 月事件 7.00、9 月事件 17.50。
-* 文档：根 README 与 llm-billing README 双语（费率版本口径、配置表 `effectiveFrom`、9/10 调价说明、
-  已知限制改写），两份 `README.i18n.yaml` blob hash 已重算；ui-billing `info.hint`（中英）补调价说明。
+* **构建产物运行期核对**（临时脚本，核对后删除）：`Config({})` → 目录 7 行（首行
+  `deepseek-flash=DeepSeek-V41-Flash`）、`billing.models` **12 行**；`deepseek-flash` / `deepseek-v4-flash` /
+  `deepseek-v4-pro` 各 2 个版本、`mimo-v2.5` 1 个；两切点分别打印 `2026-09-10T04:00:00.000Z` 与
+  `2026-09-14T04:00:00.000Z`；`deepseek-v4-pro` 09-14 11:59:59 → 40.80（自身峰价）、12:00:00 → 5.52
+  （V4.1 Flash 谷价）。
+* 文档：根 README 与 llm-billing README 双语（模型目录对齐 DSH、两轮调整、配置表 `effectiveFrom`、
+  已知限制改写），两份 `README.i18n.yaml` blob hash 已重算；ui-billing `info.hint`（中英）补
+  V4.1 Flash 上线与 V4 Pro 9/14 切价说明。
 
 ## 本地安装（已完成）
 
 * `npm pack` 三包 0.3.9 → `%DSH_HOME%\local-tarballs\`；
-  `dsh plugin --profile web remove`（三个 @rayadesu 包）后 `add` 三个 `file:` 0.3.9 tarball。
+  `dsh plugin --profile web remove`（三个 @rayadesu 包）后 `add` 三个 `file:` 0.3.9 tarball（本轮共装两次，
+  第二次含 V4.1 Flash 路由与 V4 Pro 切价）。
 * 装后核对：profile `package.json` 三行均为 0.3.9 tarball 且 bundle 行恢复；宿主 `lib/index.js` 含
-  `FLASH_SERIES_RATE_CHANGE_AT` / `effectiveFrom`；客户端 `lib/client.js` 含新 hint 文案。
-  （`dsh: warning: ... declares no dsh.bundle` 两条为既有正常提示。）
+  `FLASH_SERIES_RATE_CHANGE_AT` / `V4_PRO_ROUTE_SWITCH_AT` / `deepseek-flash` / `effectiveFrom`；
+  客户端 `lib/client.js` 含新 hint 文案。（`dsh: warning: ... declares no dsh.bundle` 两条为既有正常提示。）
 
 ## 用户待办
 
-1. **重启 `dsh web` 并硬刷新**（当前进程仍是旧插件，且从 12:00 起会用旧价折新事件）。
-2. 今日共花费覆盖 09-10 全天：上午按旧价、12:00 起按新价，与官方账单口径一致；「本会话花费」跨 12:00 的
-   会话同样分段。首次读取因投影 `stateVersion` 4 会重折一次缓存行（略慢，不是错误）。
-3. 详情面板下方说明文字应显示「V4 Flash 系列自 9 月 10 日 12:00 起执行新价（谷时 0.02 / 1.0 / 4.0…）」。
+1. **重启 `dsh web` 并硬刷新**（当前进程仍是旧插件：既没有 `deepseek-flash` 费率行，也会在 12:00 之后继续
+   按旧价折新事件）。
+2. 今日共花费覆盖 09-10 全天：上午按旧价、12:00 起按新价，与官方账单口径一致；**本会话（默认模型就是
+   `deepseek-flash`）**跨 12:00，正好用来核对分段。首次读取因投影 `stateVersion` 4 会重折一次缓存行
+   （略慢，不是错误）。
+3. 面板说明文字应显示「flash 系列自 9 月 10 日 12:00 起执行新价…V4 Pro 自 9 月 14 日 12:00 起改由
+   V4.1 Flash 服务」。
+4. 09-14 12:00 之后如仍能选到 V4 Pro 并用它聊天，核对金额是否已按 V4.1 Flash 费率计（届时 DSH 可能已把
+   该路由从目录移除，那就只影响历史日志的计价）。
 
 ---
 

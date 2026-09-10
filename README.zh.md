@@ -212,7 +212,7 @@ npm publish   # @rayadesu/dsh-billing bundle（仓库根）
 | --- | --- | --- |
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | 每次调用时解析的凭据引用（环境变量）名。 |
 | `baseURL` | `$DEEPSEEK_BASE_URL`，其次 `https://api.deepseek.com` | 端点基础地址；会追加 `/user/balance`。 |
-| `models` | V4 Flash + V4.1 Flash + V4 Pro + V4 Flash Vision Exp + MiMo-V2.5 系列 | 展示用的模型行，按展示顺序。 |
+| `models` | V4.1 Flash（`deepseek-flash`）+ V4 Flash + V4 Pro + V4 Flash Vision Exp + MiMo-V2.5 系列 | 展示用的模型行，按展示顺序；与 DSH `llm-deepseek` 目录对齐。 |
 | `billing.peakHours` | 09:00–12:00、14:00–18:00（北京，仅工作日） | 高峰时段窗口，仅周一至周五适用；周末与其余时段均为低谷。 |
 | `billing.models` | 官方 V4 + MiMo 费率 | 每个模型的单价行（`cacheHitInput`、`cacheMissInput`、`output`，单位：元/百万 token），可带生效时刻 `effectiveFrom`（含该时刻）；同一模型的多行即其费率版本。 |
 
@@ -223,7 +223,7 @@ npm publish   # @rayadesu/dsh-billing bundle（仓库根）
 - **今日共花费**按同一个计价规则汇总当天（北京时间自然日）所有会话的事件；事件归属的日期同样按北京时间计算。
 - **本轮花费**按同一规则计价该回合 `turn/start`..`turn/end` 区间内的事件（定位到收尾消息的会话 id + 消息 id），整会话一趟折出 `messageId → 金额` 映射后下发。
 - **今日会话花费排行**按同一规则按会话汇总今日花费（跨天会话只统计今天的部分），从高到低排序；会话名取日志中最后一条 `session/title` 事件（自动生成的中文标题或用户重命名的新标题）。
-- 没有费率行的模型不计入（内置价目表目前含四个 V4 行：V4 Flash、V4.1 Flash、V4 Pro、V4 Flash Vision Exp；V4.1 Flash 按 V4 Flash 的费率计费）。每份样本取**自身时刻生效的费率版本**：基础价目为 DeepSeek **8 月 17 日实行**的费率；**V4 Flash 系列**（V4 Flash、V4.1 Flash、V4 Flash Vision Exp）自 **9 月 10 日 12:00（北京时间）** 起降为谷时 0.02 / 1.0 / 4.0 元每百万 token、峰时为其两倍，V4 Pro 与 MiMo-V2.5 系列不变；**周末按低谷价计费**的规则按 **8 月 23 日**生效的调整执行。
+- 没有费率行的模型不计入（内置价目表覆盖 DSH `llm-deepseek` 目录——V4.1 Flash `deepseek-flash`、V4 Flash、V4 Pro、V4 Flash Vision Exp——外加已退役的 `deepseek-v4.1-flash-expires-on-0910` 预览 id 与 MiMo-V2.5 系列；flash 系列各路由同价）。每份样本取**自身时刻生效的费率版本**：基础价目为 DeepSeek **8 月 17 日实行**的费率；**flash 系列**（V4.1 Flash、V4 Flash、V4 Flash Vision Exp 及退役 id）自 **9 月 10 日 12:00（北京时间）** 起降为谷时 0.02 / 1.0 / 4.0 元每百万 token、峰时为其两倍——该时刻之前的样本（含 V4.1 Flash 路由自身的早先用量的）沿用被取代的旧价；**V4 Pro** 路由公告于 **9 月 14 日 12:00（北京时间）** 改由 V4.1 Flash 服务并按其实施费率计费；MiMo-V2.5 系列不受影响。**周末按低谷价计费**的规则按 **8 月 23 日**生效的调整执行。
 
 ## 已知限制
 

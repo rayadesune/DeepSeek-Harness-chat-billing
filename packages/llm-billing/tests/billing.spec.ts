@@ -26,6 +26,7 @@ import {
   SessionTurnSpendFolder,
   SpendAccumulator,
   subtractSpend,
+  V4_PRO_ROUTE_SWITCH_AT,
 } from '../src/billing.ts'
 import type { BillingEventContribution, DeepSeekTodaySpend } from '../src/billing.ts'
 
@@ -51,14 +52,22 @@ function assistantMessage(model: string, usage: TokenUsage, time = 0, seq = 0): 
 }
 
 const FLASH = 'deepseek-v4-flash'
+/** The V4.1 Flash route id DSH's `llm-deepseek` catalog defaults to. */
+const V41_FLASH_ROUTE = 'deepseek-flash'
+/** The retired V4.1 Flash preview id, kept for the logs that used it. */
 const V41_FLASH = 'deepseek-v4.1-flash-expires-on-0910'
 const PRO = 'deepseek-v4-pro'
+const VISION_EXP = 'deepseek-v4-flash-vision-exp'
 const MIMO_PRO = 'mimo-v2.5-pro'
 const MIMO = 'mimo-v2.5'
+/** Every route billed at the V4 Flash series rates. */
+const FLASH_SERIES = [V41_FLASH_ROUTE, FLASH, V41_FLASH, VISION_EXP] as const
 const CATALOG = [
+  { id: V41_FLASH_ROUTE, name: 'DeepSeek-V41-Flash' },
   { id: FLASH, name: 'DeepSeek-V4-Flash' },
   { id: V41_FLASH, name: 'DeepSeek-V4.1-Flash' },
   { id: PRO, name: 'DeepSeek-V4-Pro' },
+  { id: VISION_EXP, name: 'DeepSeek-V4-Flash-Vision-Exp' },
   { id: MIMO_PRO, name: 'MiMo-V2.5-Pro' },
   { id: MIMO, name: 'MiMo-V2.5' },
 ]
@@ -77,28 +86,30 @@ const REPRICED_RATES = {
   peak: { cacheHitInput: 0.04, cacheMissInput: 2.0, output: 8.0 },
   offPeak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 4.0 },
 }
+/** V4 Pro's own rates, in force until its announced 2026-09-14 route switch. */
+const PRO_RATES = {
+  peak: { cacheHitInput: 0.30, cacheMissInput: 9.0, output: 27.0 },
+  offPeak: { cacheHitInput: 0.15, cacheMissInput: 4.5, output: 13.5 },
+}
 
 describe('resolveBilling', () => {
   it('uses the published defaults when no config is supplied', () => {
     const billing = resolveBilling(undefined)
     expect(billing.peakHours).toEqual([{ start: 9, end: 12 }, { start: 14, end: 18 }])
-    // `peak`/`offPeak` are the newest revision: the V4 Flash series was
-    // re-priced effective 2026-09-10 12:00 Beijing (off-peak 0.02 / 1.0 / 4.0,
-    // peak at twice those prices).
-    expect(billing.models.get(FLASH)?.peak).toEqual({ cacheHitInput: 0.04, cacheMissInput: 2.0, output: 8.0 })
-    expect(billing.models.get(FLASH)?.offPeak).toEqual({ cacheHitInput: 0.02, cacheMissInput: 1.0, output: 4.0 })
-    // V4 Pro is untouched by the 2026-09-10 adjustment.
-    expect(billing.models.get(PRO)?.offPeak).toEqual({ cacheHitInput: 0.15, cacheMissInput: 4.5, output: 13.5 })
-    // deepseek-v4.1-flash-expires-on-0910 bills at the same published rates as flash.
-    expect(billing.models.get(V41_FLASH)?.peak)
-      .toEqual({ cacheHitInput: 0.04, cacheMissInput: 2.0, output: 8.0 })
-    expect(billing.models.get(V41_FLASH)?.offPeak)
-      .toEqual({ cacheHitInput: 0.02, cacheMissInput: 1.0, output: 4.0 })
-    // deepseek-v4-flash-vision-exp bills at the same published rates as flash.
-    expect(billing.models.get('deepseek-v4-flash-vision-exp')?.peak)
-      .toEqual({ cacheHitInput: 0.04, cacheMissInput: 2.0, output: 8.0 })
-    expect(billing.models.get('deepseek-v4-flash-vision-exp')?.offPeak)
-      .toEqual({ cacheHitInput: 0.02, cacheMissInput: 1.0, output: 4.0 })
+    // `peak`/`offPeak` are the newest revision: every flash-series route (V4.1
+    // Flash — also DSH's current default route — V4 Flash, the retired preview
+    // id, and V4 Flash Vision Exp) was re-priced effective 2026-09-10 12:00
+    // Beijing to off-peak 0.02 / 1.0 / 4.0, peak at twice those prices.
+    for (const model of FLASH_SERIES) {
+      expect(billing.models.get(model)?.peak).toEqual(REPRICED_RATES.peak)
+      expect(billing.models.get(model)?.offPeak).toEqual(REPRICED_RATES.offPeak)
+      expect(billing.models.get(model)?.revisions).toHaveLength(2)
+    }
+    // V4 Pro keeps its own rates until the announced 2026-09-14 12:00 route
+    // switch, which is why the exposed pair is now the V4.1 Flash one.
+    expect(billing.models.get(PRO)?.peak).toEqual(REPRICED_RATES.peak)
+    expect(billing.models.get(PRO)?.offPeak).toEqual(REPRICED_RATES.offPeak)
+    expect(billing.models.get(PRO)?.revisions?.[0]).toEqual({ effectiveFrom: undefined, ...PRO_RATES })
     // MiMo-V2.5 series: flat rate (peak === offPeak).
     expect(billing.models.get(MIMO_PRO)?.peak)
       .toEqual({ cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 })
@@ -110,32 +121,33 @@ describe('resolveBilling', () => {
       .toEqual({ cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 })
   })
 
+  it('prices every route of the DSH llm-deepseek default catalog', () => {
+    const billing = resolveBilling(undefined)
+    // The catalog DSH ships today: V4.1 Flash (its default route), V4 Flash,
+    // V4 Pro, and V4 Flash Vision Exp.
+    for (const id of ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp']) {
+      expect(billing.models.has(id)).toBe(true)
+      expect(billing.models.get(id)?.revisions.length).toBeGreaterThan(0)
+    }
+  })
+
   it('keeps the published rate history per model, oldest first', () => {
     const billing = resolveBilling(undefined)
     const flash = billing.models.get(FLASH)?.revisions
     expect(flash).toHaveLength(2)
-    expect(flash?.[0]).toEqual({
-      effectiveFrom: undefined,
-      peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
-      offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
-    })
-    expect(flash?.[1]).toEqual({
-      effectiveFrom: FLASH_SERIES_RATE_CHANGE_AT,
-      peak: { cacheHitInput: 0.04, cacheMissInput: 2.0, output: 8.0 },
-      offPeak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 4.0 },
-    })
-    // The re-pricing instant is 2026-09-10 12:00 Beijing time (04:00 UTC).
+    expect(flash?.[0]).toEqual({ effectiveFrom: undefined, ...BASE_RATES })
+    expect(flash?.[1]).toEqual({ effectiveFrom: FLASH_SERIES_RATE_CHANGE_AT, ...REPRICED_RATES })
+    // The re-pricing instant is 2026-09-10 12:00 Beijing time (04:00 UTC), and
+    // it covered the whole flash series, V4.1 Flash included.
     expect(FLASH_SERIES_RATE_CHANGE_AT).toBe(Date.parse('2026-09-10T12:00:00+08:00'))
-    // The adjustment covered the whole flash series, V4.1 Flash and the vision
-    // experiment included.
-    expect(billing.models.get(V41_FLASH)?.revisions).toEqual(flash)
-    expect(billing.models.get('deepseek-v4-flash-vision-exp')?.revisions).toEqual(flash)
-    // A model the adjustment skipped carries one undated revision.
-    expect(billing.models.get(PRO)?.revisions).toEqual([{
-      effectiveFrom: undefined,
-      peak: { cacheHitInput: 0.30, cacheMissInput: 9.0, output: 27.0 },
-      offPeak: { cacheHitInput: 0.15, cacheMissInput: 4.5, output: 13.5 },
-    }])
+    for (const model of FLASH_SERIES) expect(billing.models.get(model)?.revisions).toEqual(flash)
+    // V4 Pro carries its own pair plus the V4.1 Flash pair from the announced
+    // route switch (2026-09-14 12:00 Beijing = 04:00 UTC).
+    expect(V4_PRO_ROUTE_SWITCH_AT).toBe(Date.parse('2026-09-14T12:00:00+08:00'))
+    expect(billing.models.get(PRO)?.revisions).toEqual([
+      { effectiveFrom: undefined, ...PRO_RATES },
+      { effectiveFrom: V4_PRO_ROUTE_SWITCH_AT, ...REPRICED_RATES },
+    ])
     expect(billing.models.get(MIMO)?.revisions).toHaveLength(1)
   })
 
@@ -180,8 +192,8 @@ describe('resolveBilling', () => {
 
   it('falls back to the defaults for empty arrays (schemastery materializes absent z.array as [])', () => {
     const billing = resolveBilling({ models: [], peakHours: [] })
-    expect(billing.models.get(FLASH)?.peak).toEqual({ cacheHitInput: 0.04, cacheMissInput: 2.0, output: 8.0 })
-    expect(billing.models.get(PRO)?.offPeak).toEqual({ cacheHitInput: 0.15, cacheMissInput: 4.5, output: 13.5 })
+    expect(billing.models.get(FLASH)?.peak).toEqual(REPRICED_RATES.peak)
+    expect(billing.models.get(PRO)?.offPeak).toEqual(REPRICED_RATES.offPeak)
     expect(billing.peakHours).toEqual([{ start: 9, end: 12 }, { start: 14, end: 18 }])
   })
 })
@@ -326,17 +338,25 @@ describe('computeSessionSpend', () => {
     expect(spend.models[0]?.offPeakCost).toBeCloseTo(6.80, 10)
   })
 
-  it('prices deepseek-v4.1-flash-expires-on-0910 exactly like flash, peak and off-peak', () => {
+  it('prices every flash-series route exactly like flash, with its own label', () => {
     const billing = resolveBilling(undefined)
+    const labels: Record<string, string> = {
+      [FLASH]: 'DeepSeek-V4-Flash',
+      [V41_FLASH_ROUTE]: 'DeepSeek-V41-Flash',
+      [V41_FLASH]: 'DeepSeek-V4.1-Flash',
+      [VISION_EXP]: 'DeepSeek-V4-Flash-Vision-Exp',
+    }
     for (const [time, expected] of [[PEAK, 13.60], [OFF_PEAK, 6.80]] as const) {
-      const v41 = computeSessionSpend([assistantMessage(V41_FLASH, USAGE, time)], billing, CATALOG)
       const flash = computeSessionSpend([assistantMessage(FLASH, USAGE, time)], billing, CATALOG)
-      expect(v41.total).toBeCloseTo(expected, 10)
-      expect(v41.total).toBeCloseTo(flash.total, 10)
-      expect(v41.models[0]?.displayName).toBe('DeepSeek-V4.1-Flash')
-      expect(v41.models[0]?.cacheHitInputTokens).toBe(flash.models[0]?.cacheHitInputTokens)
-      expect(v41.models[0]?.cacheMissInputTokens).toBe(flash.models[0]?.cacheMissInputTokens)
-      expect(v41.models[0]?.outputTokens).toBe(flash.models[0]?.outputTokens)
+      for (const model of FLASH_SERIES) {
+        const spend = computeSessionSpend([assistantMessage(model, USAGE, time)], billing, CATALOG)
+        expect(spend.total).toBeCloseTo(expected, 10)
+        expect(spend.total).toBeCloseTo(flash.total, 10)
+        expect(spend.models[0]?.displayName).toBe(labels[model])
+        expect(spend.models[0]?.cacheHitInputTokens).toBe(flash.models[0]?.cacheHitInputTokens)
+        expect(spend.models[0]?.cacheMissInputTokens).toBe(flash.models[0]?.cacheMissInputTokens)
+        expect(spend.models[0]?.outputTokens).toBe(flash.models[0]?.outputTokens)
+      }
     }
   })
 
@@ -431,14 +451,25 @@ describe('rate revisions (V4 Flash series re-priced 2026-09-10 12:00 Beijing)', 
   })
 
   it('re-prices every model of the flash series, not only V4 Flash', () => {
-    for (const model of [V41_FLASH, 'deepseek-v4-flash-vision-exp']) {
+    for (const model of FLASH_SERIES) {
       const spend = computeSessionSpend([assistantMessage(model, USAGE, AT)], BILLING, CATALOG)
       expect(spend.total).toBeCloseTo(REPRICED_OFF_PEAK_COST, 10)
     }
   })
 
+  it('prices the V4.1 Flash route (DSH\'s default deepseek-flash) across the change', () => {
+    // The route DSH defaults to since the release: its usage from before 12:00
+    // today keeps the base rates, later usage takes the new ones.
+    const before = computeSessionSpend([assistantMessage(V41_FLASH_ROUTE, USAGE, BEFORE)], BILLING, CATALOG)
+    const after = computeSessionSpend([assistantMessage(V41_FLASH_ROUTE, USAGE, AT)], BILLING, CATALOG)
+    expect(before.models[0]?.displayName).toBe('DeepSeek-V41-Flash')
+    expect(before.total).toBeCloseTo(BASE_PEAK_COST, 10)
+    expect(after.total).toBeCloseTo(REPRICED_OFF_PEAK_COST, 10)
+  })
+
   it('leaves V4 Pro on its base rates across the change', () => {
-    // Pro peak base: 0.30 + 9.00 × 1.5 + 27.00 = 40.80 at either instant.
+    // V4 Pro is untouched by the 2026-09-10 re-pricing (its own route switch
+    // comes later, on 2026-09-14): peak 0.30 + 9.00 × 1.5 + 27.00 = 40.80.
     const before = computeSessionSpend([assistantMessage(PRO, USAGE, BASE_PEAK)], BILLING, CATALOG)
     const after = computeSessionSpend([assistantMessage(PRO, USAGE, NEXT_PEAK)], BILLING, CATALOG)
     expect(after.total).toBeCloseTo(40.80, 10)
@@ -477,6 +508,55 @@ describe('rate revisions (V4 Flash series re-priced 2026-09-10 12:00 Beijing)', 
     })
     expect(computeSessionSpend([assistantMessage(FLASH, USAGE, BASE_PEAK)], billing, CATALOG).total)
       .toBeCloseTo(REPRICED_PEAK_COST, 10)
+  })
+})
+
+describe('rate revisions (V4 Pro route switch 2026-09-14 12:00 Beijing)', () => {
+  // 2026-09-14 is a Monday. 03:59:59.999Z = 11:59:59.999 Beijing, the last
+  // instant of a peak window on V4 Pro's own rates; 04:00:00Z = 12:00 Beijing,
+  // the first instant served by V4.1 Flash and billed at its rates (inside the
+  // off-peak window); 2026-09-15 02:00Z = Tuesday 10:00 Beijing, a peak hour.
+  const BEFORE = Date.parse('2026-09-14T03:59:59.999Z')
+  const AT = Date.parse('2026-09-14T04:00:00Z')
+  const AFTER_PEAK = Date.parse('2026-09-15T02:00:00Z')
+  const USAGE: TokenUsage = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 500_000 }
+  const BILLING = resolveBilling(undefined)
+  // Pro peak 0.30 + 9.00 × 1.5 + 27.00 = 40.80; V4.1 Flash off-peak 5.52 and
+  // peak 11.04 for the same usage.
+  const PRO_PEAK_COST = 40.80
+
+  it('bills the V4 Pro route at its own rates right up to the switch', () => {
+    const spend = computeSessionSpend([assistantMessage(PRO, USAGE, BEFORE)], BILLING, CATALOG)
+    expect(spend.total).toBeCloseTo(PRO_PEAK_COST, 10)
+    expect(spend.models[0]?.displayName).toBe('DeepSeek-V4-Pro')
+  })
+
+  it('bills the routed route at the V4.1 Flash rates from the switch instant', () => {
+    const spend = computeSessionSpend([assistantMessage(PRO, USAGE, AT)], BILLING, CATALOG)
+    expect(spend.total).toBeCloseTo(5.52, 10)
+    expect(spend.models[0]?.offPeakCost).toBeCloseTo(5.52, 10)
+    expect(spend.models[0]?.cacheHitInputCost).toBeCloseTo(0.02, 10)
+    expect(spend.models[0]?.cacheMissInputCost).toBeCloseTo(1.50, 10)
+    expect(spend.models[0]?.outputCost).toBeCloseTo(4.00, 10)
+  })
+
+  it('applies the V4.1 Flash peak prices to the routed route', () => {
+    const spend = computeSessionSpend([assistantMessage(PRO, USAGE, AFTER_PEAK)], BILLING, CATALOG)
+    expect(spend.total).toBeCloseTo(11.04, 10)
+    expect(spend.models[0]?.peakCost).toBeCloseTo(11.04, 10)
+  })
+
+  it('splits one Beijing day across the switch', () => {
+    // 2026-09-14 11:00 Beijing (03:00Z, peak, V4 Pro's own rates) and 13:00
+    // Beijing (05:00Z, off-peak, V4.1 Flash rates) are both on the switch day.
+    const spend = computeTodaySpend([
+      assistantMessage(PRO, USAGE, Date.parse('2026-09-14T03:00:00Z'), 0),
+      assistantMessage(PRO, USAGE, Date.parse('2026-09-14T05:00:00Z'), 1),
+    ], BILLING, CATALOG, new Date('2026-09-14T06:00:00Z'))
+    expect(spend.total).toBeCloseTo(PRO_PEAK_COST + 5.52, 10)
+    expect(spend.models).toHaveLength(1)
+    expect(spend.models[0]?.peakCost).toBeCloseTo(PRO_PEAK_COST, 10)
+    expect(spend.models[0]?.offPeakCost).toBeCloseTo(5.52, 10)
   })
 })
 
