@@ -72,6 +72,7 @@ export {
   SessionTurnSpendFolder,
   SpendAccumulator,
   subtractSpend,
+  V4_PRO_ROUTE_SWITCH_AT,
 } from './billing.ts'
 export type {
   BillingConfig,
@@ -106,7 +107,15 @@ export interface BillingModel {
   name?: string
 }
 
+/**
+ * Advisory display rows mirroring the DSH `llm-deepseek` catalog (V4.1 Flash
+ * first, its current default route), plus the MiMo-V2.5 series. The retired
+ * preview id `deepseek-v4.1-flash-expires-on-0910` stays so the logs that used
+ * it keep a readable label; rows never restrict which models are priced — the
+ * pricing table does.
+ */
 const DEFAULT_MODELS: BillingModel[] = [
+  { id: 'deepseek-flash', name: 'DeepSeek-V41-Flash' },
   { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
   { id: 'deepseek-v4.1-flash-expires-on-0910', name: 'DeepSeek-V4.1-Flash' },
   { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },

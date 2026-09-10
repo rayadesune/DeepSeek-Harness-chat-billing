@@ -47,11 +47,17 @@
 | --- | --- | --- |
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | 每次调用时解析的凭据引用（环境变量）名。 |
 | `baseURL` | `$DEEPSEEK_BASE_URL`，其次 `https://api.deepseek.com` | 端点基础地址；会追加 `/user/balance`。 |
-| `models` | V4 Flash + V4.1 Flash + V4 Pro + V4 Flash Vision Exp + MiMo-V2.5 系列 | 展示用的模型行，按展示顺序。 |
+| `models` | V4.1 Flash（`deepseek-flash`）+ V4 Flash + V4 Pro + V4 Flash Vision Exp + MiMo-V2.5 系列 | 展示用的模型行，按展示顺序；与 DSH `llm-deepseek` 目录对齐（另保留已退役的 `deepseek-v4.1-flash-expires-on-0910` 预览 id，让历史日志仍有可读标签）。 |
 | `billing.peakHours` | 09:00–12:00、14:00–18:00（北京，仅工作日） | 高峰时段窗口，仅周一至周五适用；周末与其余时段均为低谷。 |
 | `billing.models` | 官方 V4 + MiMo 费率 | 每个模型的单价行（`cacheHitInput`、`cacheMissInput`、`output`，单位：元/百万 token），可带生效时刻 `effectiveFrom`（epoch 毫秒，含该时刻）。 |
 
-只想覆盖某个模型而不丢其它，就提供一个非空的 `billing.models` 列表；空或省略则回退到官方默认费率。同一个模型可以有多行：每行是一个费率版本，用量样本按**样本自身时刻**生效的那一版取峰/谷单价（不带 `effectiveFrom` 的行是该模型的基础版本，同时覆盖更早的一切时刻）。内置价目表已包含 DeepSeek **2026-09-10 12:00（北京时间）** 的调价（`FLASH_SERIES_RATE_CHANGE_AT`）：V4 Flash 系列降为谷时 0.02 / 1.0 / 4.0，峰时为其两倍；V4 Pro 与 MiMo-V2.5 系列仍按 2026-08-17 实行的费率。该时刻之前的样本沿用被取代的旧价，因此跨越调价点的会话或自然日也能精确计价。
+只想覆盖某个模型而不丢其它，就提供一个非空的 `billing.models` 列表；空或省略则回退到官方默认费率。同一个模型可以有多行：每行是一个费率版本，用量样本按**样本自身时刻**生效的那一版取峰/谷单价（不带 `effectiveFrom` 的行是该模型的基础版本，同时覆盖更早的一切时刻）。
+
+内置价目表已包含 DeepSeek 的两轮调整，跨越任一变更点的会话或自然日都能精确计价：
+
+- **2026-09-10 12:00（北京时间）**（`FLASH_SERIES_RATE_CHANGE_AT`）：整个 flash 系列——V4.1 Flash 路由 `deepseek-flash`（当日发布，现为 DSH 默认模型）、V4 Flash、V4 Flash Vision Exp 以及已退役的预览 id——降为谷时 0.02 / 1.0 / 4.0，峰时为其两倍；更早的样本（含该路由 12:00 之前的自身用量）沿用被取代的旧价。
+- **2026-09-14 12:00（北京时间）**（`V4_PRO_ROUTE_SWITCH_AT`）：V4 Pro 路由按公告改由 V4.1 Flash 服务并按 V4.1 Flash 计费，该行因此带有第二个费率版本。
+- MiMo-V2.5 系列不受两轮调整影响（统一费率）。
 
 ## 模型体验
 

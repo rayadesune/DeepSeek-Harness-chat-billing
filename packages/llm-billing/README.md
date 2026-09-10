@@ -47,11 +47,17 @@ The projection-cache reader likewise targets the current seam: `cachedSnapshot(h
 | --- | --- | --- |
 | `apiKeyEnv` | `DEEPSEEK_API_KEY` | Credential-reference (environment-variable) name resolved per call. |
 | `baseURL` | `$DEEPSEEK_BASE_URL` then `https://api.deepseek.com` | Endpoint base; `/user/balance` is appended. |
-| `models` | V4 Flash + V4.1 Flash + V4 Pro + V4 Flash Vision Exp + MiMo-V2.5 series | Advisory display rows, in presentation order. |
+| `models` | V4.1 Flash (`deepseek-flash`) + V4 Flash + V4 Pro + V4 Flash Vision Exp + MiMo-V2.5 series | Advisory display rows, in presentation order; they mirror DSH's `llm-deepseek` catalog (plus the retired `deepseek-v4.1-flash-expires-on-0910` preview id, kept for readable historical labels). |
 | `billing.peakHours` | 09:00–12:00, 14:00–18:00 (Beijing, weekdays) | Peak-hour windows, applied weekdays (Mon–Fri) only; weekends and all other hours are off-peak. |
 | `billing.models` | Published V4 + MiMo rates | Per-model price rows (`cacheHitInput`, `cacheMissInput`, `output`, in CNY per 1M tokens) with an optional inclusive `effectiveFrom` (epoch ms). |
 
-Override one model without dropping the others by supplying a non-empty `billing.models` list; an empty or omitted list falls back to the published defaults. Several rows may share one model: each row is a rate revision, and a usage sample is priced at the peak/off-peak pair of the revision in effect at the sample's own timestamp (a row without `effectiveFrom` is that model's base revision and also covers every earlier instant). The published table already ships the DeepSeek adjustment of **2026-09-10 12:00 Beijing** (`FLASH_SERIES_RATE_CHANGE_AT`): the V4 Flash series drops to off-peak 0.02 / 1.0 / 4.0 with peak at twice those prices, while V4 Pro and the MiMo-V2.5 series keep the rates effective 2026-08-17. Samples before that instant keep the superseded rates, so a session or a day spanning the change is priced exactly.
+Override one model without dropping the others by supplying a non-empty `billing.models` list; an empty or omitted list falls back to the published defaults. Several rows may share one model: each row is a rate revision, and a usage sample is priced at the peak/off-peak pair of the revision in effect at the sample's own timestamp (a row without `effectiveFrom` is that model's base revision and also covers every earlier instant).
+
+The published table already ships DeepSeek's adjustments, so a session or a day spanning a change is priced exactly:
+
+- **2026-09-10 12:00 Beijing** (`FLASH_SERIES_RATE_CHANGE_AT`): the whole flash series — the V4.1 Flash route `deepseek-flash` (released that day and now DSH's default), V4 Flash, V4 Flash Vision Exp, and the retired preview id — drops to off-peak 0.02 / 1.0 / 4.0 with peak at twice those prices. Earlier samples, including this route's own usage from before that instant, keep the superseded rates.
+- **2026-09-14 12:00 Beijing** (`V4_PRO_ROUTE_SWITCH_AT`): the V4 Pro route is announced to be served by V4.1 Flash and billed at the V4.1 Flash rates; its row carries that second revision.
+- MiMo-V2.5 series: untouched by either adjustment (flat rate).
 
 ## Model Experience
 
