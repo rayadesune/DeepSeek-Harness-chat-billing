@@ -7,8 +7,11 @@
  * and weekday, with peak windows Monday–Friday 09:00–12:00 / 14:00–18:00 and
  * weekends always off-peak; cache-hit input, cache-miss input (including
  * cache writes), and output (including reasoning) are billed separately at
- * per-1M-token rates. The published table prices the DeepSeek V4 rows and
- * the MiMo-V2.5 series (flat rate, no peak/off-peak distinction).
+ * per-1M-token rates, taking the rate revision in effect at that same instant
+ * (the V4 Flash series was re-priced from 2026-09-10 12:00 Beijing, its
+ * earlier samples keeping the superseded rates). The published table prices
+ * the DeepSeek V4 rows and the MiMo-V2.5 series (flat rate, no peak/off-peak
+ * distinction).
  * @module @rayadesu/dsh-llm-billing/types
  */
 

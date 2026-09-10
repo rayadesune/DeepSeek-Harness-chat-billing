@@ -1,3 +1,66 @@
+# HANDOFF — V4 Flash 系列调价（按事件时刻取费率版本 · 2026-09-10 已实施，未发布）
+
+## 需求与决策
+
+* 官方通知：**北京时间 2026-09-10 12:00 起**调整 flash 系列定价——空闲时段（低谷）缓存命中输入 **0.02** 元、
+  未命中输入 **1** 元、输出 **4** 元（元/百万 token）；高峰时段为空闲时段的 **2 倍**（0.04 / 2 / 8）。
+* **用户决策（已确认）**：**按事件时刻取对应费率版本**——该时刻之前的事件与历史记录仍按 8 月 17 日的旧价
+  （峰 0.10 / 3.0 / 9.0、谷 0.05 / 1.5 / 4.5），12:00 起按新价；这样「今日共花费」与官方账单一致
+  （实施时正是 12:00 刚过，当天上午的用量必须仍按旧价计）。V4 Pro 与 MiMo 系列不在调价范围内，保持原价。
+
+## 改动
+
+* `billing.ts`
+  - 新增 `DeepSeekRateRevision`（峰/谷单价 + 可选 `effectiveFrom`，**含**该时刻）；`DeepSeekModelPricing`
+    改为 `{ peak, offPeak, revisions }`（`peak`/`offPeak` = 最新版本，供展示与兼容读取）；
+    `BillingConfigModel` 继承 `DeepSeekRateRevision`，配置面因此新增 `effectiveFrom`。
+  - 新增 `FLASH_SERIES_RATE_CHANGE_AT = Date.UTC(2026, 8, 10, 4, 0, 0)`（= 北京时间 2026-09-10 12:00）。
+  - `DEFAULT_MODEL_PRICING` 扩为 9 行：V4 Flash / V4.1 Flash / V4 Flash Vision Exp 各「基础版 + 新版」两行
+    （共享 `FLASH_BASE_RATES` / `FLASH_REPRICED_RATES`，三者按构造同价），V4 Pro、MiMo 两行不变。
+  - `resolveBilling` 按模型聚合成费率版本表：按 `effectiveFrom` 升序（无日期的基础版本最前），
+    同一生效时刻的多行**后者覆盖前者**（沿用「显式行覆盖同一模型」的既有语义，避免重复版本或第二个基础版本）。
+  - `BeijingParts` 新增 `time`（epoch 毫秒，`beijingPartsOf` 一次解析即带回，不新增解析）；
+    新增私有 `ratesAt(revisions, time)` 取「生效 ≤ 样本时刻」的最新版本；`priceUsage` 用它取代原来的
+    单一 `pricing.peak/offPeak`。样本早于最早的带日期版本时**按该版本计价**（不静默不计费）。
+* `projection.ts`：`stateVersion` 3 → 4——旧检查点行是按「单一费率」折出来的，12:00 之后折叠进旧行的样本会
+  留着被取代的旧价，故提升版本丢弃重折（每会话一次性重折，非全量冷读）；同时把「投影计价对历史冻结」的说明
+  改为「官方费率版本随闭包按样本时刻解析，只有手工改 `billing.models` 才只影响之后折叠的事件」。
+* `index.ts`：导出 `FLASH_SERIES_RATE_CHANGE_AT` 与 `DeepSeekRateRevision`；配置 schema 把行 schema 抽成
+  具名 `billingRateRow: z<BillingConfigModel>` 并加 `effectiveFrom: z.number().min(0)`（具名标注同时解决
+  schemastery `ObjectT` 要求字段必填、与 `effectiveFrom` 可选之间的类型冲突）。
+* `types.ts`：模块头的计费口径补「费率版本按样本自身时刻取」。
+* 未改版本号（0.3.9），未推送、未发布。
+
+## 验证
+
+* `billing.spec.ts`：默认费率断言改为新价并新增「费率版本历史」用例；`beijingPartsOf` 断言补 `time`；
+  新增 `rate revisions` 组 **8 条**用例——切点前 1 毫秒按旧价、切点整按新谷价、切点后峰时按新峰价、
+  flash 三模型同价、V4 Pro 跨调价点不变、同一北京日两段费率求和、配置化版本表（行序颠倒也正确）、
+  仅带日期版本时的兜底。**全套 185 用例全绿**（+11）。
+* typecheck / build / lint / verify 全绿。
+* 用**构建产物**做了一次运行期核对（临时脚本，核对后删除）：`Config({})` → `billing.models` 9 行，
+  flash 2 个版本、pro 1 个；切点打印 `2026-09-10T04:00:00.000Z`；切点前 13.60、切点起 5.52；
+  显式配置两行（旧价 / 带 `effectiveFrom` 新价）→ 8 月事件 7.00、9 月事件 17.50。
+* 文档：根 README 与 llm-billing README 双语（费率版本口径、配置表 `effectiveFrom`、9/10 调价说明、
+  已知限制改写），两份 `README.i18n.yaml` blob hash 已重算；ui-billing `info.hint`（中英）补调价说明。
+
+## 本地安装（已完成）
+
+* `npm pack` 三包 0.3.9 → `%DSH_HOME%\local-tarballs\`；
+  `dsh plugin --profile web remove`（三个 @rayadesu 包）后 `add` 三个 `file:` 0.3.9 tarball。
+* 装后核对：profile `package.json` 三行均为 0.3.9 tarball 且 bundle 行恢复；宿主 `lib/index.js` 含
+  `FLASH_SERIES_RATE_CHANGE_AT` / `effectiveFrom`；客户端 `lib/client.js` 含新 hint 文案。
+  （`dsh: warning: ... declares no dsh.bundle` 两条为既有正常提示。）
+
+## 用户待办
+
+1. **重启 `dsh web` 并硬刷新**（当前进程仍是旧插件，且从 12:00 起会用旧价折新事件）。
+2. 今日共花费覆盖 09-10 全天：上午按旧价、12:00 起按新价，与官方账单口径一致；「本会话花费」跨 12:00 的
+   会话同样分段。首次读取因投影 `stateVersion` 4 会重折一次缓存行（略慢，不是错误）。
+3. 详情面板下方说明文字应显示「V4 Flash 系列自 9 月 10 日 12:00 起执行新价（谷时 0.02 / 1.0 / 4.0…）」。
+
+---
+
 # HANDOFF — 发布记录（2026-09-09 · v0.3.9）
 
 * 提交：`98bad2a`（release: v0.3.9，含本轮 8 个优化提交与 `a6c0367` 的 V4.1 Flash 计费）

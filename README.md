@@ -238,16 +238,16 @@ Both packages ship sane defaults; everything below is optional.
 | `baseURL` | `$DEEPSEEK_BASE_URL` then `https://api.deepseek.com` | Endpoint base; `/user/balance` is appended. |
 | `models` | V4 Flash + V4.1 Flash + V4 Pro + V4 Flash Vision Exp + MiMo-V2.5 series | Advisory display rows, in presentation order. |
 | `billing.peakHours` | 09:00–12:00, 14:00–18:00 (Beijing, weekdays) | Peak-hour windows, applied weekdays (Mon–Fri) only; weekends and all other hours are off-peak. |
-| `billing.models` | Published V4 + MiMo rates | Per-model peak/off-peak price rows (`cacheHitInput`, `cacheMissInput`, `output`, in CNY per 1M tokens). |
+| `billing.models` | Published V4 + MiMo rates | Per-model price rows (`cacheHitInput`, `cacheMissInput`, `output`, in CNY per 1M tokens) with an optional inclusive `effectiveFrom`; several rows sharing a model are its rate revisions. |
 
 ## How session spend is computed
 
 - Each `assistant/message` event reports three billed token buckets: **cache-hit input**, **cache-miss input** (uncached input + cache writes), and **output** (including reasoning). A failed or retried `assistant/attempt` reports its usage only in its embedded stream; that sample is priced too (with the model of the latest `request/header`), a later sample for the same `(turn, step)` **replaces** the earlier one, and `llm/retry-started` makes the retried attempt **add** — the same accounting DSH's own turn-usage disclosure uses.
-- Each sample is priced at the peak/off-peak rate of its own **Beijing-time** hour, the three buckets are billed separately (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), then summed per model. Peak windows apply weekdays (Monday–Friday) only; weekends are always off-peak.
+- Each sample is priced at the peak/off-peak rate of its own **Beijing-time** hour — and of the rate revision in effect at its own timestamp — the three buckets are billed separately (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), then summed per model. Peak windows apply weekdays (Monday–Friday) only; weekends are always off-peak.
 - **Today's spend** aggregates every session's events on the current Beijing-time calendar day with the same pricing rules; event dates are also assigned in Beijing time.
 - **Turn cost** prices the events inside the turn's `turn/start`..`turn/end` range with the same rules (located by the closing message's session id + message id), folded in one pass for the whole session and served as a `messageId → cost` map.
 - **Today session ranking** aggregates today's spend per session with the same rules (a cross-day session counts only today's part), sorted descending; names come from the log's latest `session/title` event (the auto-generated Chinese title or a user rename).
-- Models without a rate row are not priced (the built-in catalog currently has the four V4 rows: V4 Flash, V4.1 Flash, V4 Pro, and V4 Flash Vision Exp; V4.1 Flash bills at the V4 Flash rates). Rates follow the DeepSeek pricing effective **August 17**; the weekend-off-peak rule (weekends billed at off-peak prices all day) follows the adjustment effective **August 23**.
+- Models without a rate row are not priced (the built-in catalog currently has the four V4 rows: V4 Flash, V4.1 Flash, V4 Pro, and V4 Flash Vision Exp; V4.1 Flash bills at the V4 Flash rates). Each sample takes the rate revision in effect at its own timestamp: the base schedule is the DeepSeek pricing effective **August 17**; the **V4 Flash series** (V4 Flash, V4.1 Flash, V4 Flash Vision Exp) was re-priced effective **September 10, 12:00 Beijing time** to off-peak 0.02 / 1.0 / 4.0 CNY per 1M tokens with peak at twice those prices, while V4 Pro and the MiMo-V2.5 series are unchanged; the weekend-off-peak rule (weekends billed at off-peak prices all day) follows the adjustment effective **August 23**.
 
 ## Known limitations
 

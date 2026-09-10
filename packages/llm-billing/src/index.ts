@@ -60,6 +60,7 @@ export {
   DEFAULT_PEAK_HOURS,
   emptyBillingFoldState,
   emptyTodaySpend,
+  FLASH_SERIES_RATE_CHANGE_AT,
   forkBoundaryOf,
   isPeak,
   isSeededSession,
@@ -79,6 +80,7 @@ export type {
   BillingFoldSample,
   BillingFoldState,
   DeepSeekModelPricing,
+  DeepSeekRateRevision,
   DeepSeekTokenPrice,
   PeakHourWindow,
   ResolvedBilling,
@@ -126,7 +128,12 @@ export interface Config {
   baseURL?: string
   /** Advisory display rows, in presentation order; defaults to V4 Flash, V4.1 Flash, V4 Pro, and V4 Flash Vision Exp. */
   models?: BillingModel[]
-  /** Pricing table and peak-hour windows; omission uses the published defaults. Peak windows apply weekdays (Monday–Friday) only; weekends are always off-peak. */
+  /**
+   * Pricing table and peak-hour windows; omission uses the published defaults
+   * (including the V4 Flash series re-pricing effective 2026-09-10 12:00
+   * Beijing). Peak windows apply weekdays (Monday–Friday) only; weekends are
+   * always off-peak.
+   */
   billing?: BillingConfig
 }
 
@@ -141,17 +148,23 @@ const tokenPrice: z<BillingConfigModel['peak']> = z.object({
   output: z.number().min(0),
 })
 
+const billingRateRow: z<BillingConfigModel> = z.object({
+  model: z.string().required(),
+  peak: tokenPrice,
+  offPeak: tokenPrice,
+  // Several rows may share one model: each is a rate revision, and samples are
+  // priced by the revision in effect at their own timestamp (epoch ms,
+  // inclusive).
+  effectiveFrom: z.number().min(0),
+})
+
 const billingConfig: z<BillingConfig> = z.object({
   // Copies of the readonly published tables, taken once at module load.
   peakHours: z.array(z.object({
     start: z.number().step(1).min(0).max(23),
     end: z.number().step(1).min(0).max(24),
   })).default([...DEFAULT_PEAK_HOURS]),
-  models: z.array(z.object({
-    model: z.string().required(),
-    peak: tokenPrice,
-    offPeak: tokenPrice,
-  })).default([...DEFAULT_MODEL_PRICING]),
+  models: z.array(billingRateRow).default([...DEFAULT_MODEL_PRICING]),
 })
 
 export const Config: z<Config> = z.object({

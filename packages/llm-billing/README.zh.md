@@ -16,7 +16,7 @@
     # baseURL: https://api.deepseek.com
 ```
 
-插件注册 `billing` Remote，含六个方法：`getBalance(force?)`（解析后的 `/user/balance` 快照；15 秒宿主 TTL 内复用，`force` 绕过，单次请求 5 秒超时）、`getSessionSpend(sessionId)`（单个会话的计费花费）、`getTodaySpend(force?)`（当前北京时间自然日内所有会话的计费花费合计；`force` 绕过宿主侧缓存，供徽标手动刷新使用）、`getTodaySessionsSpend(force?)`（今日按会话的计费花费，按花费从高到低排序，每行带会话的持久标题）、`getTurnSpend(sessionId, messageId)`（单个已完成回合的计费花费，按收尾助手消息 id 定位）与 `getSessionTurnSpends(sessionId)`（该会话所有已完成回合的 `messageId → 金额` 映射，一趟折叠——对话每个消息行都要显示金额，客户端因此每会话只拉一次，而不是逐行调用 `getTurnSpend`）。计价的样本来源有两处：`assistant/message` 自身的 usage，以及失败/重试的 `assistant/attempt` 内嵌 stream 里的 usage（后者用最近一条 `request/header` 的模型），各按样本自身发生时刻（北京时间）所在的峰/谷单价计价——高峰窗口仅周一至周五适用，周末全天按低谷价。同一 `(turn, step)` 的后一份样本替换前一份，`llm/retry-started` 之后重试的那次累加，与 DSH 自己的回合用量口径一致；随后按模型汇总。一个回合即收尾消息所在的 `turn/start`..`turn/end` 区间；排行从每个会话日志里最后一条 `session/title` 事件折叠标题（last-wins，重命名事件一旦提交、会话被重新读取即反映新名字）。
+插件注册 `billing` Remote，含六个方法：`getBalance(force?)`（解析后的 `/user/balance` 快照；15 秒宿主 TTL 内复用，`force` 绕过，单次请求 5 秒超时）、`getSessionSpend(sessionId)`（单个会话的计费花费）、`getTodaySpend(force?)`（当前北京时间自然日内所有会话的计费花费合计；`force` 绕过宿主侧缓存，供徽标手动刷新使用）、`getTodaySessionsSpend(force?)`（今日按会话的计费花费，按花费从高到低排序，每行带会话的持久标题）、`getTurnSpend(sessionId, messageId)`（单个已完成回合的计费花费，按收尾助手消息 id 定位）与 `getSessionTurnSpends(sessionId)`（该会话所有已完成回合的 `messageId → 金额` 映射，一趟折叠——对话每个消息行都要显示金额，客户端因此每会话只拉一次，而不是逐行调用 `getTurnSpend`）。计价的样本来源有两处：`assistant/message` 自身的 usage，以及失败/重试的 `assistant/attempt` 内嵌 stream 里的 usage（后者用最近一条 `request/header` 的模型），各按样本自身发生时刻（北京时间）所在的峰/谷单价、以及该时刻生效的官方费率版本计价——高峰窗口仅周一至周五适用，周末全天按低谷价。同一 `(turn, step)` 的后一份样本替换前一份，`llm/retry-started` 之后重试的那次累加，与 DSH 自己的回合用量口径一致；随后按模型汇总。一个回合即收尾消息所在的 `turn/start`..`turn/end` 区间；排行从每个会话日志里最后一条 `session/title` 事件折叠标题（last-wins，重命名事件一旦提交、会话被重新读取即反映新名字）。
 
 ### 今日花费读取路径（消息触发不再全量扫描）
 
@@ -27,7 +27,7 @@
 
 进程内首次解析之后，稳态读取只花在日志确实变化过的会话上。日志无法读取的会话带警告跳过（并被记住），而不是让整日合计失败。
 
-注意：投影路径对每个会话的历史只计价一次，按事件被折叠时的费率——修改 `billing.models` 只影响变更后折叠的事件（事件路径会重算整个日志）。
+注意：投影路径对每个会话的历史只计价一次，按事件被折叠时的费率。官方费率版本随定价闭包一起进入折叠，并按样本自身时刻解析，因此被调价的系列无论日志多晚折叠都能正确计价自身历史；只有**手工修改配置**（`billing.models`）才只影响变更后折叠的事件（事件路径会重算整个日志），而该解析口径变化时单元 `stateVersion` 会一并提升，使已落检查点被丢弃重折而不是沿用旧值。
 
 ## 分叉会话
 
@@ -49,9 +49,9 @@
 | `baseURL` | `$DEEPSEEK_BASE_URL`，其次 `https://api.deepseek.com` | 端点基础地址；会追加 `/user/balance`。 |
 | `models` | V4 Flash + V4.1 Flash + V4 Pro + V4 Flash Vision Exp + MiMo-V2.5 系列 | 展示用的模型行，按展示顺序。 |
 | `billing.peakHours` | 09:00–12:00、14:00–18:00（北京，仅工作日） | 高峰时段窗口，仅周一至周五适用；周末与其余时段均为低谷。 |
-| `billing.models` | 官方 V4 + MiMo 费率 | 每个模型的峰/谷单价行（`cacheHitInput`、`cacheMissInput`、`output`，单位：元/百万 token）。 |
+| `billing.models` | 官方 V4 + MiMo 费率 | 每个模型的单价行（`cacheHitInput`、`cacheMissInput`、`output`，单位：元/百万 token），可带生效时刻 `effectiveFrom`（epoch 毫秒，含该时刻）。 |
 
-只想覆盖某个模型而不丢其它，就提供一个非空的 `billing.models` 列表；空或省略则回退到官方默认费率。
+只想覆盖某个模型而不丢其它，就提供一个非空的 `billing.models` 列表；空或省略则回退到官方默认费率。同一个模型可以有多行：每行是一个费率版本，用量样本按**样本自身时刻**生效的那一版取峰/谷单价（不带 `effectiveFrom` 的行是该模型的基础版本，同时覆盖更早的一切时刻）。内置价目表已包含 DeepSeek **2026-09-10 12:00（北京时间）** 的调价（`FLASH_SERIES_RATE_CHANGE_AT`）：V4 Flash 系列降为谷时 0.02 / 1.0 / 4.0，峰时为其两倍；V4 Pro 与 MiMo-V2.5 系列仍按 2026-08-17 实行的费率。该时刻之前的样本沿用被取代的旧价，因此跨越调价点的会话或自然日也能精确计价。
 
 ## 模型体验
 
@@ -66,5 +66,5 @@
 - **有费率行才计价** —— 会话花费与今日花费只统计价目表（`billing.models`）里有的模型；没有费率行的模型不计入。`assistant/attempt` 用最近一条 `request/header` 的模型计价，因此首条 header 之前的 attempt 不计入。
 - **最多 60 秒延迟** —— `getTodaySpend()` 由宿主侧缓存服务最多 60 秒；只有手动刷新（`force`）立即重算（仍受 revision 门控，日志未变则零成本）。浏览器端「本会话花费」读的是推送的投影值，因此不会滞后。
 - **额度带 TTL 缓存** —— 一份 `/user/balance` 快照最多复用 15 秒，单次请求 5 秒超时；`force`（手动刷新）绕过 TTL。
-- **投影计价对历史冻结** —— 投影路径生效时，修改计价表只影响变更后折叠的事件；重启（或事件路径回退）才会重算整个日志。
+- **投影计价跟随官方费率版本** —— 投影折叠按样本时刻解析费率版本，官方调价因此无需重折；手工改 `billing.models` 则只影响变更后折叠的事件，直到状态版本或进程重置（事件路径回退会重算整个日志）。
 - **冷缓存行可能滞后于日志** —— 冷会话若缓存行覆盖查询日，会重读日志以求精确；若缓存行自身的日期不是查询日则直接采信、不读日志，因此进程在最后一次检查点之后、最后一条事件之前崩溃的会话，其尾部可能暂时少算，直到该会话被重新读取。
