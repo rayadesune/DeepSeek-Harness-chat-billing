@@ -1,3 +1,86 @@
+# HANDOFF — 花费说明气泡超限修复（精简悬停文案 + 底部弹出 · 2026-09-10 已实施，未发布）
+
+## 流程变更（2026-09-10，第三次修订 · 立即生效）
+
+* **阶段 A 不再本地提交**：改代码 → test/build → 本地 pack 安装 → 交给用户重启验证，**改动留在工作区**，
+  不 `git add` / `commit` / `stash` / `reset`。
+* **阶段 B（用户说「发布」）才提交**：bump 版本 → test/build/verify → **把工作区改动按类型分别提交**
+  （`feat` / `fix` / `perf` / `refactor` / `style` / `docs` / `chore`；用例跟代码走；同一文件多意图用
+  `git add -p` 分块）→ 最后一条 `release: vX.Y.Z` → 推送 → npm 顺序发布 → tag + GitHub Release
+  → HANDOFF 发布记录。
+* 理由：用户在阶段 A 常反复试错（本轮气泡布局就来回改了四轮），逐次提交会把中间形态留在历史里；
+  阶段 A 不提交、阶段 B 一次性按类型归拢，历史只留最终形态。
+* 细则见 `.agents/skills/dsh-release/SKILL.md`；本文件下方历史记录里「阶段 A = 改代码后直接本地提交」
+  的说法自本条起作废（历史条目本身不改写）。
+
+## 问题与根因
+
+* 用户反馈：详情面板「?」的花费说明**超出气泡容量**（截图里上半截被裁掉），且**鼠标一离开「?」按钮就消失**
+  （即使指针还在说明文字上）。
+* 根因（全在 DSH `@deepseek-ai/dsh-client-ui-primitives` 的 `Tooltip`；本仓库不改 DSH 源码）：
+  1. 气泡 `.bubble` 只有 `max-width`（50vw 或 `maxWidth`），**没有任何限高**；`side='right'` 时纵向按锚点
+     居中（`translateY(-50%)`），而视口适配函数对 `side === 'right'` **提前 return**、不做纵向修正
+     —— 锚点靠上时高气泡的上半截被裁到视口外。
+  2. 气泡是 `pointer-events: none`，显示/隐藏挂在**锚点**的 `mouseenter/mouseleave` 上 —— 指针离开按钮
+     （包括移向气泡本身）立即 `setPos(null)`。
+  上一轮把费率历史写进 `info.hint`（~230 字）后正好触发了这两点。
+* **用户决策（本轮已确认）**：只大幅精简悬停文案、保留 DSH 自带 Tooltip；不改点击展开、也不自绘悬停卡片。
+
+## 改动
+
+* `locales.ts`：`info.hint` 由 ~230 字压到 **~55 字（zh）/ ~150 字符（en）**——只留三件事：只估算
+  DeepSeek 与 MiMo 模型、按每条消息自身时刻的峰谷官方单价、高峰窗口（工作日 9:00–12:00、14:00–18:00）；
+  费率明细（8/17 基准表、9/10 flash 调价、9/14 V4 Pro 切价）本就在两个 README 里，不再塞进气泡。
+  中英两处都补了「Tooltip 无限高、不能悬停，故必须保持短」的维护注释。
+* `BalancePanel.tsx`：`Tooltip` 改 `side="bottom"`、`maxWidth` 340 → 300 —— 只有 bottom/top 侧才做纵向适配
+  （放不下会翻到另一侧），`right` 侧不会，这正是上一版被裁的原因。
+* `tests/balance-badge.client.spec.tsx`：+2 用例（35 → 37）——① 悬停「?」后气泡 `data-side="bottom"` 且
+  文本等于 `zh['info.hint']`（真实 primitives 的 Tooltip 在 jsdom 里渲染，不是桩）；② 文案长度守卫
+  （zh ≤ 80 字、en ≤ 200 字符），防止再次写出超限文案。
+* `packages/ui-billing/README{,.zh}.md`：说明「?」现在是一句短说明及其原因；
+  `packages/ui-billing/README.i18n.yaml` blob hash 重算。
+
+## 验证
+
+* `pnpm run test`：全套 **193 用例全绿**（191 → 193，新增的 2 条在 ui-billing 面）。
+* typecheck / build / lint / verify 全绿。
+* 本地 `npm pack` 三包 0.3.10 → `%DSH_HOME%\local-tarballs\`，remove + add 装入 web profile。
+
+## 用户待办
+
+1. **重启 `dsh web` 并硬刷新**。
+2. 悬停「?」：气泡应出现在按钮**下方**、完整两三行、不再被裁切，末行是纯版本号（如 `v0.3.10`）；
+   鼠标移开即消失——DSH 气泡本身 `pointer-events: none` 且不能悬停，这是本轮选择的取舍（要完整费率口径请看
+   llm-billing README）。
+
+## 补记：气泡里显示插件版本（同日，已实施）
+
+* 需求：用户要求在气泡里显示版本号（便于反馈时指明所用构建）。
+* 做法——**构建期注入**，浏览器包不读 manifest：
+  - `packages/tsdown.client.ts`：`clientConfig` 的 `define` 增加
+    `__DSH_PLUGIN_VERSION__`（值取该包 `package.json` 的 `version`；`WorkspaceManifest` 补 `version` 字段）。
+  - 新文件 `packages/ui-billing/src/client/version.ts`：`declare const __DSH_PLUGIN_VERSION__` +
+    导出 `PLUGIN_VERSION`（`typeof` 守卫，未注入时回落 `dev`，源码直跑不抛错）。
+  - `vitest.config.ts`：同源定义同一常量（读 `packages/ui-billing/package.json`），使用例看到的就是发布值。
+  - `locales.ts`：`info.hint` 末尾换行后**顶格**接纯版本号 `v{version}`（无缩进、无空行），左对齐。
+  - **布局经过多轮试错**（右对齐 → 空一行 → 紧接下一行 → 同排空隙 → 下一行缩进 → 下一行顶格），
+    中间形态按用户要求逐次撤回；这些来回提交**已合并成本轮的这一条提交**（不再单独保留在历史里），
+    最终形态就是 `\nv{version}`。留档的取舍：DSH `Tooltip` 的 `label` 只接受 `string | (() => string)`
+    （不能用 JSX，气泡是单一文本节点），「右对齐」只能靠
+    `.amountActions > :global([role='tooltip'])::after` + 自定义属性（依赖「气泡与按钮同级 DOM、无 portal」）
+    实现——既然撤回，该 CSS 与自定义属性一并删除，不留残迹。
+  - `scripts/verify-packages.mjs`：发布门新增两条检查——`lib/client.js` **不得**残留未替换的
+    `__DSH_PLUGIN_VERSION__`（先剔除注释再判定，因为 version.ts 的 JSDoc 会合法地提到该名字），
+    且必须含本包版本字面量；通过时打印 `client bundle stamps version x.y.z`。
+* 测试：悬停用例断言——气泡文本 == `zh['info.hint'].replace('{version}', PLUGIN_VERSION)`、
+  含 `\nv<manifest 版本>`、**无空行**且**无不换行空格**（缩进已取消）、
+  `PLUGIN_VERSION` == manifest 版本；文案长度守卫沿用（zh ≤ 100）。
+* 验证：全套 **193 用例全绿**；typecheck / lint / build / verify 全绿；构建产物核对——
+  `lib/client.js` 内 `PLUGIN_VERSION = "0.3.10"`、label 为 `…\nv{version}`，且不再含 `::after` 规则。
+* 文档：根 README 与 ui-billing README 双语补「「?」说明附当前插件版本」，两份 `README.i18n.yaml` hash 重算。
+
+---
+
 # HANDOFF — 发布记录（2026-09-10 · v0.3.10）
 
 * 提交：`2561922`（按事件时刻取费率版本）+ `a8a4d84`（V4.1 Flash 路由与 V4 Pro 9/14 切价）
