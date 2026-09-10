@@ -1,4 +1,23 @@
-# HANDOFF — Flash 系列 9/10 12:00 调价 + V4.1 Flash 上线 + V4 Pro 9/14 切价（按事件时刻取费率版本 · 2026-09-10 已实施，未发布）
+# HANDOFF — 发布记录（2026-09-10 · v0.3.10）
+
+* 提交：`2561922`（按事件时刻取费率版本）+ `a8a4d84`（V4.1 Flash 路由与 V4 Pro 9/14 切价）
+  + `5caa388`（release: v0.3.10），已推送 origin/main
+* tag：`v0.3.10` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.10
+* npm `dist-tags.latest`：`@rayadesu/dsh-llm-billing` / `@rayadesu/dsh-client-ui-billing` /
+  `@rayadesu/dsh-billing` 均为 **0.3.10**（发布顺序 llm-billing → client-ui-billing → dsh-billing；
+  `dsh-client-ui-billing` 首次 PUT 后 registry 仍显示 0.3.9 —— npm 的 "being processed" 暂存，
+  约 3 分钟后落库，已复核为 0.3.10）
+* 版本对齐：三包 0.3.9 → **0.3.10**（根 bundle peerDeps 与 ui-billing peer/dev 同步 `^0.3.10`），
+  `pnpm-lock.yaml` 随 `pnpm install` 刷新；`AGENTS.md` 版本行同步
+* 发布前校验：`pnpm run test`（**191 用例全绿**）/ `build` / `verify` 全绿；`prepublishOnly`
+  （verify-packages.mjs）随发布自动运行并通过
+* token 由用户提供，**仅内联传参，未写入仓库任何文件**
+* 本机 web profile 仍是 local-tarballs 的 0.3.9 `file:` 引用（与 0.3.10 同代码，仅版本号不同）；
+  如需换 npm 版本：`dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
+
+---
+
+# HANDOFF — Flash 系列 9/10 12:00 调价 + V4.1 Flash 上线 + V4 Pro 9/14 切价（按事件时刻取费率版本 · 2026-09-10 已实施，随 v0.3.10 发布）
 
 ## 需求与决策
 
@@ -44,7 +63,7 @@
   具名 `billingRateRow: z<BillingConfigModel>` 并加 `effectiveFrom: z.number().min(0)`（具名标注同时解决
   schemastery `ObjectT` 要求字段必填、与 `effectiveFrom` 可选之间的类型冲突）。
 * `types.ts`：模块头的计费口径补「费率版本按样本自身时刻取，含 V4 Pro 9/14 起改用 V4.1 Flash 费率」。
-* 未改版本号（0.3.9），未推送、未发布。
+* 本轮改动已随 **v0.3.10** 发布（提交 `2561922` + `a8a4d84`，见上一条发布记录）。
 
 ## 验证
 
