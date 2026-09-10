@@ -11,9 +11,12 @@ import { IconQuestionOutline14, IconRefreshOutline14, Tooltip } from '@deepseek-
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { formatSpend } from './format.ts'
 import { NS } from './locales.ts'
+import { PLUGIN_VERSION } from './version.ts'
 import css from './BalanceBadge.module.css'
 
-/** How many per-session ranking rows the panel shows before the overflow hint. */
+/**
+ * How many per-session ranking rows the panel shows before the overflow hint.
+ */
 export const SESSION_RANKING_LIMIT = 10
 
 /** Panel props: precomputed amount plus the same spend values the badge holds. */
@@ -40,8 +43,12 @@ export function BalancePanel({ amount, spend, todaySpend, sessionsSpend, refresh
             vertical axis for the bottom/top sides, so the (short) hint flips
             above the anchor instead of being clipped when it does not fit
             below — the right side would leave a tall bubble cut off.
+
+            The label is a plain string (the primitive takes no JSX), so the
+            version rides the hint text itself as its own line after a blank
+            one (`\n\nv{version}`).
           */}
-          <Tooltip label={t('info.hint')} side="bottom" delayMs={200} maxWidth={300}>
+          <Tooltip label={t('info.hint', { version: PLUGIN_VERSION })} side="bottom" delayMs={200} maxWidth={300}>
             <button type="button" className={css.infoButton} aria-label={t('info.aria')}>
               <IconQuestionOutline14 className={css.inlineIcon} />
             </button>

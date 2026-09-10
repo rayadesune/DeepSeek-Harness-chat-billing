@@ -56,6 +56,24 @@ for (const packageDir of readdirSync(join(ROOT, 'packages'))) {
 
   const lib = join(dir, 'lib')
   if (!existsSync(lib)) continue
+  // The browser half stamps its own package version into the spend hint at
+  // build time (`__DSH_PLUGIN_VERSION__` in packages/tsdown.client.ts). A
+  // shipped bundle that still carries the placeholder — or that cannot name
+  // the version it was built from — must not be published.
+  const clientBundle = join(lib, 'client.js')
+  if (existsSync(clientBundle)) {
+    const bundle = readFileSync(clientBundle, 'utf8')
+    // Comments survive bundling and may legitimately name the constant (the
+    // version module documents it), so judge code positions only.
+    const code = bundle.replace(/\/\*[\s\S]*?\*\//g, '')
+    if (code.includes('__DSH_PLUGIN_VERSION__')) {
+      failures.push(`${manifest.name}: lib/client.js still carries the unstamped __DSH_PLUGIN_VERSION__ placeholder`)
+    } else if (!bundle.includes(JSON.stringify(manifest.version))) {
+      failures.push(`${manifest.name}: lib/client.js does not embed the package version ${manifest.version}`)
+    } else {
+      notices.push(`${manifest.name}: client bundle stamps version ${manifest.version}`)
+    }
+  }
   const files = []
   walk(lib, files)
   for (const file of files) {

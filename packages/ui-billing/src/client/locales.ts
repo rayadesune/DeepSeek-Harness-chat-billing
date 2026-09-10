@@ -20,8 +20,9 @@ export const zh = {
   'info.aria': '花费说明',
   // The hint rides a DSH `Tooltip`: its bubble has no height clamp, so a long
   // label is clipped at the viewport edge, and the bubble cannot be hovered.
-  // Keep this SHORT — the full rate schedule lives in the package READMEs.
-  'info.hint': '估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。',
+  // Keep this SHORT — the full rate schedule lives in the package READMEs. The
+  // version is the label's last line, flush with the bubble's left edge.
+  'info.hint': '估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nv{version}',
   'badge.aria': 'DeepSeek 额度：{amount}',
   'panel.aria': 'DeepSeek 额度详情',
   'label.sessionRanking': '今日会话花费',
@@ -44,8 +45,8 @@ export const en: Record<BillingKey, string> = {
   'action.refresh': 'Refresh',
   'info.aria': 'About this spend',
   // Keep the hint short (see the Chinese dictionary note): the Tooltip bubble
-  // clamps neither height nor hover.
-  'info.hint': "Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).",
+  // clamps neither height nor hover, and the version is the line under the text.
+  'info.hint': 'Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).\nv{version}',
   'badge.aria': 'DeepSeek balance {amount}',
   'panel.aria': 'DeepSeek balance details',
   'label.sessionRanking': 'Today session spend',
