@@ -9,13 +9,13 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 ## What it shows
 
 - **Session-header badge** — two lines: remaining balance (`剩余额度：¥X`) and this conversation's billed spend (`本轮对话花费：¥X`).
-- **Detail panel** — the remaining amount, this session's spend (`本会话花费`) with today's all-session spend beside it (`今日共花费`), one priced row per model (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), plus a manual refresh action and a spend disclaimer on the `?` button (whose next line carries the running plugin version, e.g. `v0.3.10`). The panel ends with a **today session-spend ranking**: sessions sorted by today's spend, highest first (names come from the log's Chinese titles and follow renames automatically; at most the top 10 rows, with a "…N more sessions" hint).
+- **Detail panel** — the remaining amount, this session's spend (`本会话花费`, with this session's own share of today as a bare parenthesized amount `（¥X）` right after it) with today's all-session spend beside it (`今日`), one priced row per model (`缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z`), plus a manual refresh action and a spend disclaimer on the `?` button (whose next line carries the running plugin version, e.g. `v0.3.10`). The panel ends with a **today session-spend ranking**: sessions sorted by today's spend, highest first (names come from the log's Chinese titles and follow renames automatically; at most the top 10 rows, with a "…N more sessions" hint).
 - **Turn cost amount** — each completed turn's closing message shows a plain static `¥X` at the **end** of the actions row, after the clock: non-interactive (no icon, no "cost" word, no card), its typography replicates the clock text (13px secondary tier, tertiary tone, nowrap), and it is **always visible** (not hover-revealed like the clock text — the row's own hover reveal shows both together); turns without DeepSeek usage (zero cost) or failed loads stay hidden.
 - **Failures and empty states** — a session or day without priced usage shows "no usage recorded" instead of a fabricated figure; a missing key, rejected credential, or transport error renders a muted "Balance unavailable" whose tooltip carries the Remote's own error message.
 
 ## Data update mechanics
 
-- **Session spend follows the conversation** — the host prices every committed event into a per-session projection (`billingTodaySpend`) and pushes it to the browser, so **this session's spend** updates live with no Remote call; the Remote read remains the fallback when the projection registry is absent. **Today's spend** is recomputed on turn settle (one shared scan serves both the aggregate and the ranking), and each turn's cost comes from **one batch fetch per session** instead of one call per rendered message.
+- **Session spend follows the conversation** — the host prices every committed event into a per-session projection (`billingTodaySpend`) and pushes it to the browser, so **this session's spend** updates live with no Remote call; the Remote read remains the fallback when the projection registry is absent. **Today's spend** is recomputed on turn settle (one shared scan serves both the aggregate and the ranking), and the parenthesized today share on that same session row reads that same ranking fetch (no extra request, at the cost of moving with it); each turn's cost comes from **one batch fetch per session** instead of one call per rendered message.
 - **Balance is cached, not polled** — the host reuses one `/user/balance` snapshot for 15 seconds (manual refresh forces a fresh one) and caps each request at 5 seconds; the browser keeps the last settled value so a session switch renders the amount immediately and revalidates in the background. There is still no polling.
 - **Old values survive refreshes** — a failed refresh keeps the last good value instead of blanking it.
 
@@ -25,7 +25,7 @@ A real session: the session-header badge, the detail panel (remaining amount, th
 
 <img width="1200" alt="Billing plugin overview: session header badge, detail panel with per-model rows and today's session ranking, and the turn-cost row" src="preview-overview.png" />
 
-Close-up of the detail panel — the `API 剩余金额` figure, `本会话花费` next to `今日共花费`, the per-model breakdown (`缓存命中 · 未命中输入 · 输出`), and the today session-spend ranking:
+Close-up of the detail panel — the `API 剩余金额` figure, `本会话花费` (with its parenthesized today share) next to `今日`, the per-model breakdown (`缓存命中 · 未命中输入 · 输出`), and the today session-spend ranking:
 
 <img width="640" alt="Detail panel close-up: API remaining amount, this session's spend next to today's all-session spend, per-model rows and today's session ranking" src="preview-detail.png" />
 
@@ -252,7 +252,7 @@ Both packages ship sane defaults; everything below is optional.
 ## Known limitations
 
 - **Priced rows only** — the session, turn, and today spends only price models that have a `billing.models` row.
-- **On-demand aggregation** — today's spend and the session ranking are computed on the host behind a 60-second cache and share ONE scan; a miss resolves live sessions from their eager projection cells and cold sessions from the zero-I/O projection-cache row when that row's own day is not the queried one, reading a log only for sessions whose persisted revision changed (or whose cached row covers the queried day). A failed resolution is remembered by revision instead of being retried every scan.
+- **On-demand aggregation** — today's spend and the session ranking are computed on the host behind a 60-second cache and share ONE scan; a miss resolves live sessions from their eager projection cells and cold sessions from the zero-I/O projection-cache row when that row's own day is not the queried one, reading a log only for sessions whose persisted revision changed (or whose cached row covers the queried day). A failed resolution is remembered by revision instead of being retried every scan. The ranking is also fetched only on demand — see the next bullet — and the parenthesized today share on the 本会话花费 row rides that same fetch, so it costs no extra request (（—） until the first one settles, and up to 60 seconds behind afterwards).
 - **Ranking is fetched on demand** — the panel loads the ranking when it is opened (and on refresh), so a badge that stays closed never pays for the all-session scan.
 - **Ranking capped at 10** — the panel shows at most the top 10 sessions, with a "…N more sessions" hint.
 - **Turn cost needs a finalized closing message** — interrupted turns have no actions row, so no turn cost; cold sessions served straight from the projection cache may rank with an "Untitled" name until their log is read again.
