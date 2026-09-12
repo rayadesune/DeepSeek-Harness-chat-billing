@@ -1,4 +1,29 @@
-# HANDOFF — 面板花费文案精简 +「本会话花费」今日份金额（2026-09-10 已实施，未发布）
+# HANDOFF — 发布记录（2026-09-12 · v0.3.11）
+
+* 提交：`d5f9770`（feat：面板「今日」与括号内的本会话今日份金额）+ `acb9e2b`（docs：双语文档同步）
+  + `0d27dc1`（release: v0.3.11），已推送 origin/main；本条发布记录为随后的 `docs:` 提交
+* tag：`v0.3.11` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.11
+* npm `dist-tags.latest`：`@rayadesu/dsh-llm-billing` / `@rayadesu/dsh-client-ui-billing` /
+  `@rayadesu/dsh-billing` 均为 **0.3.11**（发布顺序 llm-billing → client-ui-billing → dsh-billing；
+  `dsh-client-ui-billing` 首次查询仍是 0.3.10 —— npm 的 "being processed" 暂存，约 3 分钟后落库，已复核）
+* 覆盖范围：**v0.3.10 tag 之后累积的全部未发布改动**，除本轮面板改动外还含上一轮阶段 A 留在工作区的两笔
+  —— `343b73a`（fix：气泡超限，改短文案 + 下方弹出）与 `6e061b3`（feat：气泡末行显示插件版本号），
+  两者此前只在本机 tarball 里验证过，本次随 0.3.11 正式发布
+* 版本对齐：三包 0.3.10 → **0.3.11**（根 bundle peerDeps 与 ui-billing peer/dev 同步 `^0.3.11`），
+  `pnpm-lock.yaml` 随 `pnpm install` 刷新（3 个 specifier 行）；`AGENTS.md` 版本行与两份 README 的
+  版本示例（`v0.3.11`）同步，`README.i18n.yaml` hash 重算
+* 发布前校验：`pnpm run test`（**195 用例全绿**）/ `build` / `verify` 全绿；`prepublishOnly`
+  （verify-packages.mjs）随发布自动运行并通过（`client bundle stamps version 0.3.11`）
+* 踩坑记录：bump 时先改了根 peer 范围却漏改 `packages/ui-billing/package.json` 的 version，
+  `pnpm install` 报 `ERR_PNPM_NO_MATCHING_VERSION … @rayadesu/dsh-client-ui-billing@^0.3.11`
+  （workspace 链接要求本地版本先满足范围）——补上后 7 秒装完。**下次 bump 记得三个包一起改**
+* token 由用户提供，**仅内联传参，未写入仓库任何文件**（用户自己的 `~/.npmrc` 早已存有该 token，不属本次改动）
+* 本机 web profile 仍是 local-tarballs 的 `file:` 引用；如需换 npm 版本：
+  `dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
+
+---
+
+# HANDOFF — 面板花费文案精简 +「本会话花费」今日份金额（2026-09-10 已实施，随 v0.3.11 发布）
 
 ## 需求（用户原话，含两处补正）
 
@@ -42,8 +67,9 @@
 
 * `pnpm run test`：**195 用例全绿**（193 → 195，新增 2 条在 ui-billing 面）。
 * `pnpm run build`：host + client 两个编译面全绿；`pnpm run verify` 通过。
-* 本地 `npm pack` 三包 0.3.10 → `%DSH_HOME%\local-tarballs\`，remove + add 装入 web profile；
+* 本地 `npm pack` 三包 → `%DSH_HOME%\local-tarballs\`，remove + add 装入 web profile；
   核对 profile 内 `node_modules/@rayadesu/dsh-client-ui-billing/lib/client.js` 已含新文案、无旧文案。
+  （阶段 A 期间沿用 0.3.10 打包验证；发布时随 0.3.11 重新 pack 并复核，见上方发布记录。）
 
 ## 用户待办
 
