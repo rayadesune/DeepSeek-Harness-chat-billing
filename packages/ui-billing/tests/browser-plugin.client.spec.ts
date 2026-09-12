@@ -268,6 +268,13 @@ describe('ui-billing browser half', () => {
     expect(actionsEntryIds(ctx)).not.toContain('billing-turn-cost')
   })
 
+  // The composer spend card has its own suite (spend-card.client.spec.tsx). Its
+  // dock registration is deliberately disabled for now — a dock entry can only
+  // be a row of its own, which could never sit beside ui-chat's own pills — so
+  // there is no entry here to assert until the host offers a real seat for it.
+  // When the registration in src/client/index.ts is re-enabled, restore the
+  // dock declaration in `bench()` and the two ledger assertions with it.
+
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
     const { ctx, fiber } = await bench()
     const translate = ctx.locale.bind(NS)

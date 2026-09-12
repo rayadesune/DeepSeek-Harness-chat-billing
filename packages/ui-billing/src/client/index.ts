@@ -20,6 +20,7 @@ import { createTurnCostStore } from './turnCostStore.ts'
 import { en, NS, zh, type BillingKey } from './locales.ts'
 
 export type { BalanceBadgeInjected, BalanceBadgeProps } from './BalanceBadge.tsx'
+export type { SpendCardInjected, SpendCardProps } from './SpendCard.tsx'
 export type { TurnCostActionInjected, TurnCostActionProps } from './TurnCostAction.tsx'
 export { createTurnCostStore, TURN_COST_STORE_LIMIT, type TurnCostStore } from './turnCostStore.ts'
 export type { BillingKey } from './locales.ts'
@@ -122,4 +123,31 @@ export async function apply(ctx: ClientContext): Promise<void> {
       inject: () => turnCostInjected,
     }, TurnCostAction),
   )
+
+  // The spend card owns `SpendCard.tsx` (pill + cost card) and its tests, but
+  // its registration is DISABLED for now: a composer-dock entry can only be a
+  // row of its own, and the composer stacks rows, so the pill could never sit
+  // beside ui-chat's own token/time pills — it rendered as a second centred row
+  // under them. The card comes back when the host offers a real seat for it (a
+  // child slot inside the stats row, or row grouping on the dock's list spec).
+  // Re-enabling therefore takes two edits: an import of `SpendCard` from
+  // './SpendCard.tsx' (dropped here so no module is imported only by dead code)
+  // and this block uncommented as-is.
+  //
+  // Kept for that return: the amounts need no Remote call of their own — the
+  // host already prices every session into the client-visible
+  // `billingTodaySpend` projection, and the card sums that value's three
+  // billing buckets. `getSessionSpend` is injected only as the fallback an
+  // assembly without the projection registry reads — the same face, and the
+  // same ladder, the header badge uses.
+  // ctx.slots.inject(
+  //   'conversation.composer.dock',
+  //   () => ctx.slots.register({
+  //     name: 'conversation.composer.dock',
+  //     id: 'billing-spend',
+  //     order: 20,
+  //     locale: NS,
+  //     inject: () => injected,
+  //   }, SpendCard),
+  // )
 }

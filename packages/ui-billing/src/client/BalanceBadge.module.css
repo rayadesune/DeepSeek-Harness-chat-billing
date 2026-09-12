@@ -105,7 +105,7 @@
 }
 
 /* The API-remaining row is the panel headline: clearly larger than the spend
-   rows below it (本会话花费 / 今日 stay at 13px). */
+   rows below it (今日 Token / 今日花费, and 本会话花费 on its own line). */
 .amountRow > .amountLabel {
   font-size: 15px;
   line-height: 22px;
@@ -113,7 +113,8 @@
 
 /* This session's share of today, riding the 本会话花费 row: the panel's secondary
    tone one step down from the row itself, so the two amounts stay apart
-   without a label of their own (the row already names the session). The
+   without a label of their own (the row already names the session). It renders
+   only when the session crossed a Beijing day — see BalancePanel. The
    parentheses carry their own spacing, so no margin is needed. */
 .spendToday {
   color: var(--dsw-alias-label-tertiary);
@@ -231,7 +232,7 @@
 }
 
 /* The rank, the middot separator, and the name all share the cost-breakdown
-   font format (缓存命中 ¥X · 未命中输入 ¥Y · 输出 ¥Z: 11px tertiary
+   font format (未缓存输入 ¥X · 缓存读取 ¥Y · 输出 ¥Z: 11px tertiary
    tabular-nums), so the row reads as "1 · 会话标题". The rank keeps its
    fixed right-aligned column, so the title stays indented as before; the
    middot follows right after the column. */
