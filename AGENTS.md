@@ -1,7 +1,7 @@
 # AGENTS.md
 
 DeepSeek-Harness-chat-billing 是 DeepSeek Harness 的计费插件仓库：在 Web 会话头部显示
-DeepSeek 账户余额、本轮对话花费与今日共花费。本仓库是插件的**唯一分发来源**——
+DeepSeek 账户余额、本轮对话花费与今日花费。本仓库是插件的**唯一分发来源**——
 deepseek-harness 官方仓库（[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)）
 不含计费插件；插件曾短暂集成于本用户的 fork，现已回退到官方提交版本（`141eb6fef8`），
 本仓库不再依赖任何 fork。

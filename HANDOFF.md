@@ -1,3 +1,60 @@
+# HANDOFF — 面板花费文案精简 +「本会话花费」今日份金额（2026-09-10 已实施，未发布）
+
+## 需求（用户原话，含两处补正）
+
+* 「今日共花费」改为「今日」。
+* 在会话金额后面加一个**今日的本会话花费**，金额用括号括起来。
+* **补正 1**：括号里**不显示**「今日」文案，只显示数字金额。
+* **补正 2**：会话标签在「本会话花费 → 此会话 → 本会话」之间来回后，**最终定回「本会话花费」**（即原标签不变；
+  阶段 A 未提交，故中间形态一律不留痕，最终形态才落进代码）。
+* 语义经用户二选一确认：括号内是**本会话自己今天的花费**，右侧独立的「今日」项保留（仍是所有会话今日合计）。
+
+## 问题与根因
+
+* 面板那一行原先只有两个数：本会话**整个会话**的总花费（可跨天）与今日**所有会话**的合计。
+  「本会话今天花了多少」这个中间量无处可看——用户今天新花的钱被混进会话总额里，两个数字都不回答它。
+
+## 改动
+
+* `packages/ui-billing/src/client/locales.ts`：
+  - `label.sessionSpend`：文案**保持** `本会话花费：{amount}`（en 同样不变：`This session: {amount}`）。
+  - `label.todaySpend`：`今日共花费：{amount}` → `今日：{amount}`（en：`Today total: {amount}` → `Today: {amount}`）。
+  - 新增 `label.sessionSpend.today`：zh `（{amount}）` / en ` ({amount})` —— **只有金额**，无「今日」字样。
+* `packages/ui-billing/src/client/BalancePanel.tsx`：
+  - 新增 `sessionId` prop，在已拉取的今日会话排行里按 id 取本会话的今日份金额：
+    `sessionsSpend === null ? undefined : find(...)?.total ?? 0`。**不新增任何 Remote 调用**——
+    排行本来就在面板打开时拉取（徽标关着就不付费）。
+  - 该金额作为嵌套 `span` 渲染在「本会话花费」金额之后：外层 span 直接文本仍是 `本会话花费：¥X`，
+    因此既有的 `getByText('本会话花费：¥X')` 断言依然成立（testing-library 只比直接文本子节点）。
+  - 三态：排行未落定 → `（—）`（与「今日」行的占位符同一套口径）；落定但没有本会话的行 →
+    `（¥0）`（排行只列出今天真的计价过的会话，缺席即今天确实为 0）；否则 → `（¥Y）`。
+* `packages/ui-billing/src/client/BalanceBadge.tsx`：把 `sessionId` 透传给面板（组合根不变，仍无新增数据流）。
+* `packages/ui-billing/src/client/BalanceBadge.module.css`：新增 `.spendToday`（12px、tertiary），
+  比所在行的 13px 主色低一档；括号自带间距，故不加 margin；顶部注释同步说明新的「今日」行名。
+* `tests/balance-badge.client.spec.tsx`：该 spec 37 → 39 用例（全套 193 → 195）——① 括号金额按**当前会话 id**匹配
+  （排行里另一会话 ¥0.29、当前会话 ¥0.02，断言只出 ¥0.02，且不泄漏当日合计 ¥0.31）；
+  ② 排行未落定先 `（—）`、落定无本行后 `（¥0）`；另把「今日共花费」的全部旧断言改为「今日：」。
+* 文档：根 `README{,.zh}.md`、`packages/ui-billing/README{,.zh}.md`（面板行描述 + 更新机制一节：括号金额复用排行那次读取，
+  代价是与排行同进同退、最多滞后 60 秒）、`packages/llm-billing/README{,.zh}.md`（60 秒滞后一条补注）、
+  `AGENTS.md`（仓库一句话描述里的指标名），三份 `README.i18n.yaml` blob hash 重算。
+
+## 验证
+
+* `pnpm run test`：**195 用例全绿**（193 → 195，新增 2 条在 ui-billing 面）。
+* `pnpm run build`：host + client 两个编译面全绿；`pnpm run verify` 通过。
+* 本地 `npm pack` 三包 0.3.10 → `%DSH_HOME%\local-tarballs\`，remove + add 装入 web profile；
+  核对 profile 内 `node_modules/@rayadesu/dsh-client-ui-billing/lib/client.js` 已含新文案、无旧文案。
+
+## 用户待办
+
+1. **重启 `dsh web` 并硬刷新**（插件在进程启动时加载）。
+2. 打开面板该行应显示：`本会话花费：¥X（¥Y）` 与 `今日：¥Z`——括号里只有金额，X 是整个会话的总额、
+   Y 是本会话今天的部分、Z 是今天所有会话的合计；刚打开面板、排行还没回来时括号先显示 `（—）`。
+3. 根 README 里的截图 `preview-detail.png` 仍是旧界面（图内文案为「本会话花费 / 今日共花费」），
+   需要的话重启后重拍替换。
+
+---
+
 # HANDOFF — 花费说明气泡超限修复（精简悬停文案 + 底部弹出 · 2026-09-10 已实施，未发布）
 
 ## 流程变更（2026-09-10，第三次修订 · 立即生效）
