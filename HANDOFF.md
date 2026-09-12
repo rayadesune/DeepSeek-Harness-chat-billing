@@ -1,4 +1,28 @@
-# HANDOFF — 面板加「今日 Token」、本会话花费下移一行、括号金额改为跨天才显示（2026-09-12 已实施，阶段 A 未提交）
+# HANDOFF — 发布记录（2026-09-12 · v0.3.12）
+
+* 提交：`81a4899`（feat：面板今日口径 + DSH 官方文案，含另一会话停放的输入框卡片源码）
+  + `76f6b24`（docs：双语文档与预览图）+ `59dc8d1`（chore：打码脚本入库）
+  + `005512e`（release: v0.3.12），已推送 origin/main；本条发布记录为随后的 `docs:` 提交
+* tag：`v0.3.12` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.12
+* npm `dist-tags.latest`：`@rayadesu/dsh-llm-billing` / `@rayadesu/dsh-billing` 立即为 **0.3.12**；
+  `@rayadesu/dsh-client-ui-billing` 首次查询仍是 0.3.11（npm "being processed" 暂存，约 3 分钟后落库）
+* 版本对齐：三包 0.3.11 → **0.3.12**（根 bundle peerDeps 与 ui-billing peer/dev 同步 `^0.3.12`），
+  `pnpm-lock.yaml` 随 `pnpm install` 刷新。**与往轮的偏差**：README 的版本示例与 `AGENTS.md`
+  版本行已在 `docs` 提交里同步，`release` 提交因此只含三包 package.json 与 lockfile
+* 发布前校验：`pnpm run test`（**211 用例全绿**）/ `build` / `verify` 全绿（`client bundle stamps
+  version 0.3.12`）
+* **另一会话的工作一并入库**：输入框花费卡片（`SpendCard.tsx` / `spendBuckets.ts` / `useCardDialog.ts` /
+  `icons.tsx` + 11 条用例 + `card.*` locale 键 + `@types/react-dom` devDependency）随 `feat` 提交
+  进入仓库并发布；其注册块按注释停在 `src/client/index.ts`，**bundle 行为不变**。因为 `locales.ts`
+  与两份 README 里两个会话的改动交织在同一批行上，没有硬拆提交，而是在 feat 提交信息与
+  release notes 里写明了这部分来源与停放状态
+* token 由用户提供，**仅内联传参，未写入仓库任何文件**
+* 本机 web profile 仍用 `file:` 引用本地 tarball；已按 0.3.12 重新打包安装（换 npm 源：
+  `dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`）
+
+---
+
+# HANDOFF — 面板加「今日 Token」、本会话花费下移一行、括号金额改为跨天才显示（2026-09-12 已实施，随 v0.3.12 发布）
 
 ## 需求（用户原话）
 
