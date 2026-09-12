@@ -103,6 +103,7 @@ export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, ge
         ? (
           <BalancePanel
             amount={amount}
+            sessionId={sessionId}
             spend={spend}
             todaySpend={todaySpend}
             sessionsSpend={sessionsSpend}
