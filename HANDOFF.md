@@ -1,3 +1,170 @@
+# HANDOFF — 面板加「今日 Token」、本会话花费下移一行、括号金额改为跨天才显示（2026-09-12 已实施，阶段 A 未提交）
+
+## 需求（用户原话）
+
+1. 「将本会话花费改到下一行，第一行的原位置改成今日Token，后面的今日花费文案从『今日』改成『今日花费』」
+2. 「本会话花费的括号里面的今日本会话花费，只在会话花费和今日本会话花费对不上的时候才显示，
+   也就是说只有会话跨天了才显示，今日新会话则不显示」
+3. 「修改一下 token 数量的表示方式，按照 dsh 官方的规则来。数字加单位（K/M 等）加 tok，
+   小数点和省略规则按照 dsh 处理 tok 数的规则来」
+4. 「在卡片悬停问号的介绍里，说明括号里面的是今日的本轮会话花费」
+5. （追问）「只有 k 和 m 两个单位吗，十亿的 token 在 dsh 里面是怎么处理的呢」——已核对：DSH 只有
+   `number.thousand`/`number.million` 两个共享单位（zh/en 字典各一处，全仓库无 G/B/trillion 键），
+   同一 K/M 规则在 ui-chat `token-format.ts`、ui-conversation `ContextMeter.tsx`、
+   ui-subagent `SubagentHeaderLineage.tsx` 各实现一次且写法一致；十亿 token 走 M 分支、
+   `scaled(1000)` 取整 → `1000M tok`（1 234 567 890 → `1235M tok`），已是本插件的行为。
+6. 「把卡片里面的三个计费桶名称换成 dsh 官方的，未缓存输入，缓存读取，输出」
+7. 「我要更新 readme 的话需要截图插件，你能截图之后把我内容打码，只剩插件的样子吗」——已重拍
+   `preview-detail.png`（542×508）与 `preview-overview.png`（720×620），除插件本身外全部马赛克，
+   根 README 双语的图片宽度/说明文字同步（见下方「预览图重拍」）。
+
+## 改动（宿主零改动）
+
+* 布局：面板第一行变成「今日 Token」+「今日花费」（左/右），**本会话花费独占下一行**（仍是 `.spendRow`，
+  只是各自一个 div）。样式表顶部注释与新注释同步改名。
+* 今日 Token：直接把已拉取的 `billing/getTodaySpend` 的模型行**原地求和**（缓存命中输入 + 未命中输入
+  + 输出三个计费桶），**不加 Remote、不改宿主**；三态与同一行的「今日花费」一致：未落定 `—`、
+  当天无计价行 `暂无消耗记录`（` tok` 单位只跟真数字走，`—` 后面不挂单位）。
+* Token 表示法**逐条复刻 DSH**：`formatTokens` 对齐 ui-chat 的 `chat/token-format.ts`——
+  <1e3 输出原整数（不做千分位分组），<1e6 用共享 `number.thousand` 单位（`{value}K`），再往上用
+  `number.million`（`{value}M`）；缩放值 <100 保留一位小数、≥100 取整（`12.2K` 而 `517K`），
+  没有第三个单位，所以 1.2e9 渲染成 `1200M`（与 DSH 一致）。单位后缀沿用 DSH 自己的写法
+  （`{count} tok`，中英字典相同），作为独立 locale 键 `unit.tokens` 只包在数值外面。
+  ui-chat 的 `formatTokens` 不在其公开导出面（`./client` 不导出 `token-format.ts`），所以这里是
+  按规则复刻并在 JSDoc 里注明出处，而不是 import 私有模块。
+* 括号金额：由「总是显示」改为**仅在两个金额对不上时显示**——`spend.total` 与排行里该会话的今日份
+  之差超过 `SPEND_SAME_EPSILON`（1e-9；两者是同一批样本的和，同天会话逐位相同，这点余量只吸收浮点
+  求和顺序噪声）。排行未落定则不渲染括号（「未知」不算对不上），没跨天的会话今日份恰好等于会话总额，
+  括号只会重复旁边的数字。面板 JSDoc/README 的取值口径同步改写。
+* 「?」悬停说明加一行**解释括号**：`info.hint` 变成三行——估算口径 / `括号内为本会话今日花费。` /
+  版本号（版本仍是最后一行、与上一行之间不留空行；DSH 气泡 `white-space: pre-line`，`\n` 即换行）。
+  长度守卫随之上调（zh ≤ 100 → 105，实测 98；en ≤ 200 → 225，实测 221，约 5 行），两个字典的行结构
+  各有用例锁定。
+* 分项桶名换成 **DSH 官方文案与行序**：`label.cost.hit` → `label.cost.cacheRead`（缓存命中 → **缓存读取**
+  / Cache hit → Cached input），`label.cost.input` 值改 **未缓存输入** / Uncached input（键名不变，
+  与 DSH 的 `message.turnUsage.input` 同名），`label.cost.output` 不变；渲染顺序改为
+  **未缓存输入 · 缓存读取 · 输出**（DSH token 对话框的行序）。出处写进 locales 注释
+  （ui-chat `locale.ts` 的 `message.turnUsage.{input,cacheRead,output}`）。**口径提示**：DSH 的 token
+  对话框把 cache-miss 侧拆成 `未缓存输入` 与 `缓存写入` 两行，而宿主把缓存写入按未命中单价计价、
+  合并进 `cacheMissInputCost`，所以本插件的「未缓存输入」含缓存写入——README 双语与限制条目都写明了
+  这一点，行尾未新增第四行（成本上同价，拆行需要宿主侧新增桶）。
+
+## 预览图重拍（最终采用用户自己的未打码截图）
+
+* 我先按用户要求拍了一版**打码图**（`dsh-ui` 驱动 Edge 里的 DSH 页面：`under` 确认命中
+  `Button "DeepSeek 额度：…"` → 点击展开面板 → `shot -R` 抓图；临时放大 125% 提升清晰度、拍完
+  `ctrl+0` 还原；打码用纯 System.Drawing 脚本——整幅马赛克后贴回插件矩形，排行里的会话名按像素扫描
+  逐行定位再糊）。脚本留在 `scripts/compose-previews.ps1` 备用（含它假设的截图原点与缩放）。
+* **用户随后改主意：不打码**，直接提供两张自己的截图——详情 496×472、总览 1920×1020（未打码，
+  含真实余额/金额/会话名）。已按此替换仓库内的 `preview-detail.png` / `preview-overview.png`，
+  根 README 双语的图片宽度改为 **1200（总览）/ 496（详情）**，说明文字去掉「已打码」字样，
+  `README.i18n.yaml` hash 重算。
+* `preview-turn-cost.png` 未重拍（本轮没动行尾金额渲染），沿用旧图。
+* 数字取自拍摄时刻的实时数据；后续会话继续烧钱时不必追着更新。
+
+## 验证
+
+* `pnpm run test`：**211 用例全绿**（其中 badge spec 39 → 44：新增「本会话花费独占一行（与今日行不同父节点）」、
+  「DSH 紧凑记数规则表（517 / 12.2K / 517K / 999 → 1000K / 1.2M / 1e9 → 1000M / 1234567890 → 1235M）」、
+  「面板里的 ` tok` 后缀」、「跨天显示括号」、「问号说明的第二行解释括号且版本仍在最后一行」五组，
+  并把「排行未落定先 `（—）`」改为「未落定不渲染括号」、把分项断言改成 DSH 桶名
+  （`未缓存输入 ¥0.02 · 缓存读取 ¥0.01 · 输出 ¥0.01`））。
+  全套还包含另一个会话新增的 `spend-card.client.spec.tsx`（11 例）。
+* `pnpm run build` 全绿；`npm pack` ui-billing → remove + add 装入 web profile（沿用 0.3.11 版本号，
+  阶段 A 不做版本 bump）；核对安装产物含 `今日 Token：`/`今日花费：`/`本会话花费：`/` tok`，无旧 `今日：`。
+
+## 并发写入提醒（重要）
+
+* 本轮实施期间**另一个会话正在同一工作区开发输入框花费卡片**（`SpendCard.tsx`/`spendBuckets.ts`/
+  `icons.tsx`/`useCardDialog.ts` 及其用例与文档，注册块在 `src/client/index.ts` 里注释停放）。
+  文档改动因此多次撞车（`README.md`/`README.zh.md`/`packages/ui-billing/README*` 都在被对方写入），
+  本轮的文档同步是在对方写入间隙完成的：**合并后的 README 与 `README.i18n.yaml` hash 以当前工作区内容为准**
+  （root `6a9342b7…`/`6505e486…`，ui-billing `592ad0ee…`/`38f9f171…`）。
+* 代码侧互不重叠：本轮只动 `BalancePanel.tsx`/`format.ts`/`locales.ts`/`BalanceBadge.module.css`/badge 用例，
+  对方的卡片注册处于注释状态、不影响 bundle 行为。
+
+---
+
+# HANDOFF — 输入框下方「花费金额」卡片（2026-09-12 已实现，**注册已暂停**，阶段 A 未提交）
+
+## 需求（用户原话）
+
+* 附图是输入框底下那条官方 Token 用量 pill + 卡片，要求「照这个样式制作一个卡片」：
+  标题「💰花费金额」，钱袋图标**用之前绘制的图标**（git 里有记录），底下子标题文案与
+  token 统计一致：**未缓存输入 / 缓存读取 / 输出**。
+* 用户审核通过的四项决策：挂在 `conversation.composer.dock` 新增一条独立行、口径取
+  本会话累计、点 pill 向上弹出卡片、复用 git 历史的自制钱袋 SVG。
+
+## 问题与根因（为什么之前没有）
+
+* 钱袋图标随 v0.3.5（`e393833`）一起被删：那一版把「本轮花费」改成行尾纯静态 `¥X`，
+  「删除图标/标签/卡片皮肤」是当时的明确需求，图标只存在于 `2d6c67e` 的
+  `TurnCostAction.tsx` 里（自制 `WalletIcon`，16 视框、stroke currentColor）。
+* 成本明细此前只在头部详情面板里、且是**按模型分行**；输入框下方没有任何入口。
+
+## 改动（宿主零改动）
+
+* **关键发现：投影里已经有三桶成本**。`billingTodaySpend` 的 `state.session.models[]`
+  每行本就带 `cacheHitInputCost` / `cacheMissInputCost`（含缓存写入）/ `outputCost`，
+  正是 token 卡那三行的成本口径。所以卡片的金额直接由客户端把 `session.models[]` 三个桶
+  相加得到——**不加 Remote、不改 fold、不 bump 投影 `stateVersion`**，且随投影推送实时更新。
+* 新增 `src/client/spendBuckets.ts`：纯函数求和 + 浮点残差吸收（残差并入最大桶，保证三行
+  显示的 `¥` 值之和恒等于标题里的总额）。
+* 新增 `src/client/icons.tsx`：把 `2d6c67e` 的 `WalletIcon` 原样搬回，做成共享图标。
+* 新增 `src/client/SpendCard.tsx` + `.module.css`：pill 触发器（复刻官方 StatsPills 的
+  14px 图标/三级色调/hover 药丸）+ 门户卡片（复刻官方 `stat-dialog.module.css` 的皮肤：
+  `--dsw-specific-menu`、r12、`--dsw-elevation-prominent`、标题行 + 0.5px 分隔线、
+  `minmax(76px,auto)/minmax(0,1fr)` 右对齐等宽数字网格）；根部带 `data-composer-stats`
+  让输入框底部留白维持官方 B8 节奏。
+* 新增 `src/client/useCardDialog.ts`：官方 dialog 席位在 ui-chat 的私有 bundle 里无法导入，
+  用两个公开原语（`useAnchoredPosition` + `useDismissOnOutsidePointer`）复刻同款行为：
+  向上弹出、8px 间距、12px 视口夹取、点外/Esc 关闭。
+* `locales.ts` 新增 6 键（zh/en）：`card.title` 花费金额、`card.input` 未缓存输入、
+  `card.cacheRead` 缓存读取、`card.output` 输出、`card.aria`、以及卡片标题右侧的总额。
+  行文案刻意与 DSH token 卡逐字一致，两张卡读起来是一家。
+* 依赖：`packages/ui-billing` devDependencies 增 `@types/react-dom@~18.3.0`
+  （门户需要 `createPortal` 的类型，此前包内没有；`pnpm install` 已刷新 lockfile）。
+
+## 注册暂停（用户决定，同日）
+
+* 用户追问「这个 pill 没法和官方两个 pill 并排吗」。核实后的结论：**在宿主当前契约下不行**——
+  `conversation.composer.dock` 是 `kind: 'list'`，列表条目**没有 DOM 包裹**且各自独占一行，
+  而官方两枚 pill 是 ui-chat **一次注册的内部结构**（根 div `width:100%`、内部才居中），
+  第三方注册进不去那条 flex 行；输入框 `.root` 又是 `flex-direction: column`，所以再注册一个
+  条目只能渲染成**官方行下方的第二条居中行**（已实现形态即如此）。
+* 纯本地的替代方案只有「绝对定位叠到官方行右侧」：靠实测官方行宽定像素偏移，窄窗口/长文案
+  会挤，属于脆弱近似——**用户否决**，选择先不动、等官方给真正的席位。
+* **用户决定：输入框那条 pill 先不要出现**（「以后官方加上了插槽再改」），且卡片**不另找地方
+  落地**（不进详情面板）。据此本轮只做一件事：**关掉注册**，代码与用例全部保留。
+* 落地方式：`src/client/index.ts` 里 `conversation.composer.dock` 那段 `ctx.slots.inject(...)`
+  整块注释掉（注释里写清为何暂停、恢复需要哪两处改动），`SpendCard` 的 import 一并撤掉
+  （不给死代码留 import，`noUnusedLocals` 也不允许），`browser-plugin.client.spec.ts` 里
+  与 dock 相关的两处断言与 bench 的子插槽声明同步撤掉并留下恢复说明。
+* 重新启用要等的能力：宿主在统计行内开放**子插槽**（如 `conversation.composer.stats`），
+  或在 dock 的 list 规格上支持**同行分组**；届时放开注释 + 补回 import 即可，其余代码零改动。
+* 目标形态（届时按此对齐）：pill 贴在**官方行右侧、留 12px**（用户选定）。
+
+## 验证
+
+* `pnpm run typecheck` / `pnpm run test`（**206 用例全绿**：卡片自身 11 条仍在，撤掉的是
+  dock 注册相关的 2 条）/ `pnpm run build` / `pnpm run verify` 四绿。
+* 卡片用例覆盖：三桶求和、缓存写入计入未缓存输入行、浮点残差吸收、投影路径零 Remote 调用、
+  投影缺失时回退 Remote、未计价会话不渲染、卡片三行文案与顺序、Esc 关闭、命中 aria。
+* **产物核对**：重建后 `lib/client.js` 由 190.85 kB 降到 176.87 kB，`billing-spend`、
+  `data-spend-card`、`composer.dock` 三个串均已从 bundle 消失（死代码被 tree-shake），
+  而 `billing-balance` / `billing-turn-cost` 仍在——即线上行为回到只有徽标 + 行尾金额。
+* 已重新 pack 并重装进 web profile（`file:` 引用，仍 0.3.11），安装后的 `lib/client.js`
+  同样查无 `billing-spend`。
+
+## 用户待办
+
+* 重启 `dsh web` 并硬刷新，核对：输入框下方**没有**多出任何 pill 或行，头部徽标与详情面板、
+  消息行尾的本轮花费一切如旧。
+* 等官方为输入框统计行给出子插槽（或 dock 同行分组）后再复活这张卡片。
+* 本轮为**阶段 A**：改动全部留在工作区未提交，确认无误后说「发布」再进入阶段 B。
+
+---
+
 # HANDOFF — 发布记录（2026-09-12 · v0.3.11）
 
 * 提交：`d5f9770`（feat：面板「今日」与括号内的本会话今日份金额）+ `acb9e2b`（docs：双语文档同步）
