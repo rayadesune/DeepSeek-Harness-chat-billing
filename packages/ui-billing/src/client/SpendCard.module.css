@@ -1,0 +1,148 @@
+/* Composer spend row: one money-bag pill under the input box, opening a card
+   whose skin reproduces DSH's token-usage dialog (ui-chat's
+   stat-dialog.module.css) token for token — menu surface, r12,
+   elevation-prominent, 16px padding, title row with a 0.5px rule, and a
+   right-aligned tabular detail grid. The pill mirrors the same host's stat
+   pills (StatsPills.module.css) so the new row reads as a sibling of the
+   built-in token row rather than a foreign element. */
+
+/* The dock is a list slot rendered inside the composer's column stack, so this
+   row carries the stat row's own metrics: the centred content width, the side
+   clearance, and the 4px top pad. `data-composer-stats` rides along so the
+   composer's bottom clearance stays at the drawn B8 rhythm whether this row or
+   the built-in token row is the one that renders. */
+.root {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  max-width: var(--dsh-chat-content-width);
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
+}
+
+/* Dialog anchor: shrink-wraps the pill so the placement clamp measures the
+   pill instead of the full-width row. */
+.anchor {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 1px 8px;
+  border: none;
+  border-radius: 24px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pill:hover,
+.pill[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.pill svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Portaled card: fixed in the viewport, left/top supplied inline by the
+   anchored-position clamp, so it keeps its 12px viewport margin instead of
+   hanging off the trigger and clipping at the window edge. z 1100 layers it
+   above modal overlays, as the host's own stat dialogs do. */
+.panel {
+  position: fixed;
+  z-index: 1100;
+  box-sizing: border-box;
+  /* Size to the widest row (a long label plus a long amount), within a cap;
+     both bounds yield on a narrow viewport so the floor cannot push the panel
+     past the placement clamp. */
+  width: max-content;
+  min-width: min(300px, calc(100vw - 24px));
+  max-width: min(440px, calc(100vw - 24px));
+  padding: 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--dsw-specific-menu);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: default;
+}
+
+/* Heading row: the section name left, its headline amount right, both at the
+   primary weight, with the money bag seated left of the name. */
+.title {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+.titleLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.titleLabel svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.titleValue {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rule under the heading, above the rows. */
+.titleRule {
+  margin-bottom: 10px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: minmax(76px, auto) minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.details dt,
+.details dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.details dd {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
