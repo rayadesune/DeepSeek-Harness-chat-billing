@@ -128,10 +128,48 @@ describe('BalanceBadge', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     expect(await screen.findByText('API 剩余金额：¥110.00')).toBeDefined()
     expect(screen.getByText('本会话花费：¥0.04')).toBeDefined()
-    expect(screen.getByText('今日共花费：¥0.31')).toBeDefined()
+    expect(screen.getByText('今日：¥0.31')).toBeDefined()
     expect(screen.getByText('DeepSeek-V4-Flash')).toBeDefined()
     expect(screen.getByText('¥0.04')).toBeDefined()
     expect(screen.getByText('缓存命中 ¥0.01 · 未命中输入 ¥0.02 · 输出 ¥0.01')).toBeDefined()
+  })
+
+  it('shows this session\'s share of today in parentheses beside its spend', async () => {
+    const getTodaySessionsSpend = async (): Promise<DeepSeekTodaySessionsSpend> => ({
+      sessions: [
+        { sessionId: 'session-other' as SessionId, title: '会话乙', total: 0.29 },
+        { sessionId: 'session-1' as SessionId, title: '会话甲', total: 0.02 },
+      ],
+    })
+    render(<BalanceBadge
+      {...props(async () => balance(), async () => SPEND, async () => TODAY_SPEND, () => false, getTodaySessionsSpend)}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    // The row's own amount is the WHOLE session; the parenthesis is that
+    // session's share of today, matched by id — so neither the highest row
+    // (¥0.29) nor the day's total (¥0.31) leaks into it.
+    expect(await screen.findByText('本会话花费：¥0.04')).toBeDefined()
+    expect(await screen.findByText('（¥0.02）')).toBeDefined()
+    expect(screen.getByText('今日：¥0.31')).toBeDefined()
+  })
+
+  it('shows the today placeholder until the ranking settles, then a confirmed zero', async () => {
+    let resolveSessions!: (value: DeepSeekTodaySessionsSpend) => void
+    const getTodaySessionsSpend = vi.fn(
+      () => new Promise<DeepSeekTodaySessionsSpend>(resolve => { resolveSessions = resolve }),
+    )
+    render(<BalanceBadge
+      {...props(async () => balance(), async () => SPEND, async () => TODAY_SPEND, () => false, getTodaySessionsSpend)}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    // Unknown while today's rows are in flight — the same `—` the 今日 row uses.
+    expect(await screen.findByText('（—）')).toBeDefined()
+    // Settled without a row for this session: today's share is a real zero,
+    // not an unknown (today's ranking lists only sessions that priced).
+    await act(async () => {
+      resolveSessions({ sessions: [{ sessionId: 'session-other' as SessionId, title: null, total: 0.29 }] })
+    })
+    expect(await screen.findByText('（¥0）')).toBeDefined()
   })
 
   it('renders an info button with the spend disclaimer', async () => {
@@ -239,7 +277,7 @@ describe('BalanceBadge', () => {
     await waitFor(() => { expect(getTodaySpend).toHaveBeenCalledTimes(2) })
     // A failed refetch keeps the previous values instead of blanking them.
     expect(screen.getByText('本会话花费：¥0.04')).toBeDefined()
-    expect(screen.getByText('今日共花费：¥0.31')).toBeDefined()
+    expect(screen.getByText('今日：¥0.31')).toBeDefined()
   })
 
   it('recomputes only the spends when a turn settles, without refetching the balance', async () => {
@@ -356,7 +394,7 @@ describe('BalanceBadge', () => {
       {...props(async () => balance(), async () => SPEND, async () => ({ total: 0, models: [] }))}
     />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
-    expect(await screen.findByText(`今日共花费：${zh['stat.none']}`)).toBeDefined()
+    expect(await screen.findByText(`今日：${zh['stat.none']}`)).toBeDefined()
   })
 
   it('shows a placeholder for today\'s spend when it fails to load', async () => {
@@ -365,7 +403,7 @@ describe('BalanceBadge', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     // The balance and session spend resolved; today's spend has no value yet.
     expect(await screen.findByText('本会话花费：¥0.04')).toBeDefined()
-    expect(screen.getByText('今日共花费：—')).toBeDefined()
+    expect(screen.getByText('今日：—')).toBeDefined()
   })
 
   it('shows the session spend as soon as it settles, without waiting for today\'s spend', async () => {
@@ -375,14 +413,14 @@ describe('BalanceBadge', () => {
     // The session spend landed; today's spend never settles, so its line
     // keeps the placeholder instead of blanking the other line.
     expect(await screen.findByText('本会话花费：¥0.04')).toBeDefined()
-    expect(screen.getByText('今日共花费：—')).toBeDefined()
+    expect(screen.getByText('今日：—')).toBeDefined()
   })
 
   it('shows today\'s spend as soon as it settles, without waiting for the session spend', async () => {
     const getSessionSpend = vi.fn(() => new Promise<DeepSeekSessionSpend>(() => {}))
     render(<BalanceBadge {...props(async () => balance(), getSessionSpend, async () => TODAY_SPEND)} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
-    expect(await screen.findByText('今日共花费：¥0.31')).toBeDefined()
+    expect(await screen.findByText('今日：¥0.31')).toBeDefined()
     expect(screen.getByText('本会话花费：—')).toBeDefined()
   })
 

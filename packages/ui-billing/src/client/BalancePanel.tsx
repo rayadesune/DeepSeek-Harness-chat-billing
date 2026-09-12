@@ -1,12 +1,14 @@
 /**
  * Session-header billing detail panel: the API-remaining row, this session's
  * spend with its cache-hit / cache-miss-input / output cost breakdown per
- * model, today's spend across every session, the ranking of today's sessions,
- * a refresh action, and the spend disclaimer. Pure view — no state, no
- * effects; refreshing keeps the last values visible rather than blanking them.
+ * model, this session's share of today beside that spend, today's spend across
+ * every session, the ranking of today's sessions, a refresh action, and the
+ * spend disclaimer. Pure view — no state, no effects; refreshing keeps the
+ * last values visible rather than blanking them.
  */
 import { Fragment } from 'react'
 import type { DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { IconQuestionOutline14, IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { formatSpend } from './format.ts'
@@ -23,6 +25,8 @@ export const SESSION_RANKING_LIMIT = 10
 export interface BalancePanelProps {
   /** Primary balance line, e.g. `¥123.45`; `—` when the provider reports none. */
   amount: string
+  /** The session this panel belongs to: the row looked up in today's ranking. */
+  sessionId: SessionId
   spend: DeepSeekSessionSpend | null
   todaySpend: DeepSeekTodaySpend | null
   sessionsSpend: DeepSeekTodaySessionsSpend | null
@@ -32,7 +36,15 @@ export interface BalancePanelProps {
 }
 
 /** The detail box opened from the badge trigger. */
-export function BalancePanel({ amount, spend, todaySpend, sessionsSpend, refreshing, onRefresh, t }: BalancePanelProps) {
+export function BalancePanel({ amount, sessionId, spend, todaySpend, sessionsSpend, refreshing, onRefresh, t }: BalancePanelProps) {
+  // This session's share of today rides the same all-session ranking read the
+  // section below renders, so both numbers come from one host-side "today":
+  // `undefined` while that read has not settled (`—`), and a confirmed `0`
+  // when it settled without a row — the ranking lists only sessions that
+  // priced something today.
+  const sessionToday = sessionsSpend === null
+    ? undefined
+    : sessionsSpend.sessions.find(row => row.sessionId === sessionId)?.total ?? 0
   return (
     <div className={css.panel} role="dialog" aria-label={t('panel.aria')}>
       <div className={css.amountRow}>
@@ -65,13 +77,20 @@ export function BalancePanel({ amount, spend, todaySpend, sessionsSpend, refresh
         </span>
       </div>
       <div className={css.spendRow}>
-        <span className={css.amountLabel}>{t('label.sessionSpend', {
-          amount: spend === null
-            ? '—'
-            : spend.models.length === 0
-              ? t('stat.none')
-              : formatSpend(spend.total),
-        })}</span>
+        <span className={css.amountLabel}>
+          {t('label.sessionSpend', {
+            amount: spend === null
+              ? '—'
+              : spend.models.length === 0
+                ? t('stat.none')
+                : formatSpend(spend.total),
+          })}
+          <span className={css.spendToday}>
+            {t('label.sessionSpend.today', {
+              amount: sessionToday === undefined ? '—' : formatSpend(sessionToday),
+            })}
+          </span>
+        </span>
         <span className={css.amountLabel}>{t('label.todaySpend', {
           amount: todaySpend === null
             ? '—'

@@ -9,7 +9,10 @@ export const zh = {
   'trigger.conversationSpend': '本轮对话花费：{amount}',
   'label.amount': 'API 剩余金额：{amount}',
   'label.sessionSpend': '本会话花费：{amount}',
-  'label.todaySpend': '今日共花费：{amount}',
+  // This session's share of today, riding the session row itself: the amount
+  // only (the surrounding row already names the session).
+  'label.sessionSpend.today': '（{amount}）',
+  'label.todaySpend': '今日：{amount}',
   'label.cost.hit': '缓存命中 {amount}',
   'label.cost.input': '未命中输入 {amount}',
   'label.cost.output': '输出 {amount}',
@@ -35,7 +38,9 @@ export const en: Record<BillingKey, string> = {
   'trigger.conversationSpend': 'This conversation: {amount}',
   'label.amount': 'API balance: {amount}',
   'label.sessionSpend': 'This session: {amount}',
-  'label.todaySpend': 'Today total: {amount}',
+  // Amount only, as in the Chinese dictionary: the row already names the session.
+  'label.sessionSpend.today': ' ({amount})',
+  'label.todaySpend': 'Today: {amount}',
   'label.cost.hit': 'Cache hit {amount}',
   'label.cost.input': 'Missed input {amount}',
   'label.cost.output': 'Output {amount}',

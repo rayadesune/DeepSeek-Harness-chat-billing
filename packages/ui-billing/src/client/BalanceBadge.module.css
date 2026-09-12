@@ -105,10 +105,19 @@
 }
 
 /* The API-remaining row is the panel headline: clearly larger than the spend
-   rows below it (本会话花费 / 今日共花费 stay at 13px). */
+   rows below it (本会话花费 / 今日 stay at 13px). */
 .amountRow > .amountLabel {
   font-size: 15px;
   line-height: 22px;
+}
+
+/* This session's share of today, riding the 本会话花费 row: the panel's secondary
+   tone one step down from the row itself, so the two amounts stay apart
+   without a label of their own (the row already names the session). The
+   parentheses carry their own spacing, so no margin is needed. */
+.spendToday {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
 }
 
 .spendRow {
