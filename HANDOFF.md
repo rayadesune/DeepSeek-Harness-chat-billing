@@ -22,6 +22,83 @@
 
 ---
 
+# HANDOFF — 今日会话排行把子代理会话并入父会话（2026-09-12 已实施，阶段 A 未提交）
+
+## 需求（用户原话）
+
+> 「在『今日会话花费』，显示会话排行那里，把子代理会话并入父会话」
+
+## 根因与口径
+
+* 排行原本一行一个**会话**：DSH 为每个 subagent 子会话单独建日志（header 带 `origin: 'subagent'`、
+  `parentSession`、`delegationDepth`），宿主按会话各自计价，于是**一次委派在排行里占掉好几行**，
+  把用户真正打开的对话挤出前十（面板只显示前 10）。
+* 采用口径：**行 = 对话**。子代理是委派它的那次对话花的钱，因此每个子代理行并入其
+  `parentSession` 链顶端的顶层会话行；**用户手动分叉**的会话同样带 `parentSession`、但不带任何
+  subagent 标记，仍是自己一行。整日合计不变——两条扫描路径求和的是同一批会话，归组不搬钱。
+
+## 改动
+
+* 宿主 `today-spend.ts`：新增 `SessionLineage` / `isSubagentSession` / `topLevelSessionOf` /
+  `rollUpSubagentSpend`；`ScannerSession` 与 `ScannerPersistedHeader` 的 header 切面合并为
+  `SessionHeaderSlice`（在分叉边界之外补上 `parentSession` / `origin` / `delegationDepth`，全部
+  结构读取；旧日志没有这些字段就按顶层会话处理）。两条扫描路径都在同一趟里顺带收集 lineage 与
+  标题（投影路径：live header + 已折出的标题；事件路径：`collectTodayEvents` 回调多带一个 lineage
+  参数），扫描结束统一 `rollUpSubagentSpend`：
+  - 顶层行 `total` = 这次对话的整日花费（含全部后代），`ownTotal` = 该会话自身花费；
+  - 自己当天没计价、但子代理计价了的顶层会话照样出行（`ownTotal` 为 0，标题取自扫描时折出的日志）；
+  - 父会话不在扫描范围内时仍按 header 里写的父会话 id 归属（标题显示「未命名」兜底）；
+  - malformed 的父子环有 `seen` 守卫，不会空转。
+* `types.ts`：`DeepSeekTodaySessionSpend` 新增必填 `ownTotal`；`total` 与 `DeepSeekTodaySessionsSpend`
+  的文档改写为「对话」口径。`balance.ts` / `index.ts` 的 Remote 导出与说明同步。
+* 浏览器 `BalancePanel.tsx`：括号里的「本会话今日份」改读该行的 **`ownTotal`**（不是 `total`），
+  以保住「括号 = 旁边那个金额里落在今天的部分」这条不变式——否则同一天里子代理的花费会让括号
+  无故出现并与「本会话花费」不等。排行显示仍是 `total`。
+* 用例：宿主 42 → 47（合并、嵌套合并 + 未知父会话、用户分叉不合并、投影路径冷子会话并入 live
+  父会话、lineage 纯函数与环守卫），`scanSessions` 既有断言补 `ownTotal`；ui-billing 44 → 45
+  （合并行不冒充本会话今日份，同时排行仍显示合并后的 `total`），排行/括号 fixture 补 `ownTotal`。
+* 文档：根 README 双语（详情面板排行、计价规则、按需聚合/按需拉取/上限/新增「合并行可能未命名」）、
+  llm-billing README 双语（新增「子代理会话并入父会话行」小节 + Remote 方法说明 + 运行时兼容 +
+  限制条目）、ui-billing README 双语（排行=对话、括号读 `ownTotal`、上限在合并之后生效），
+  三处 `README.i18n.yaml` hash 重算。
+
+## 验证
+
+* `pnpm run test`：**219 用例全绿**；`pnpm run build` / `pnpm run lint` / `pnpm run verify` 全绿。
+* `npm pack` 三包 → remove + add 装入 web profile（沿用 0.3.12，阶段 A 不 bump 版本）。
+* 用构建产物复跑事件路径缺陷的复现脚本：三趟 `scanDetail()` 的合计与行完全一致
+  （`13.6` / 1 行，子代理会话已并入父行且标题保留），`inspect` 次数停在 2（两个冷会话各读一次）。
+* 待用户在重启 `dsh web` 并硬刷新后验证：排行里不再出现子代理会话单独占行，子代理花费计入
+  委派它的那个会话行；整日「今日花费」与合并前一致；括号金额仍只在会话跨天时出现。
+
+## 顺带修复：事件路径第二轮扫描丢数据（用户知情后要求一并修）
+
+* **问题**：`collectTodayEvents` 按 revision 跳过未变的冷会话，但事件路径只有一张
+  `lastEventsScan` **水位表**（id → revision），没有像投影路径的 `coldResolved` 那样留下结果，
+  于是被跳过的会话当轮既不入合计、也不入排行。实测（修复前）：同一份未变日志 `scanDetail()`
+  两次 → 第一轮 `total 13.6` / 1 行，第二轮 `total 0` / 0 行；这套部署走投影路径不受影响，
+  但「注册表行尚未 active / 被 live reload 重建」的窗口里降级到事件路径就会算错，且错值被
+  60 秒缓存记住。
+* **根因**：省 I/O 的那一半（revision 门控）做到了，正确性的那一半（采用已有解析结果）没做——
+  revision 门控本应是**缓存**，不是**过滤器**。
+* **改法**（顺手把两条路径的分叉面收窄）：
+  - `coldResolved` 升级为两条路径**共用**的记忆：`Map<SessionId, ColdResolution>`，
+    `ColdResolution = { revision, fold, title }`（新导出类型）；新增私有 `rememberCold()`
+    统一 `evictOldest` 上限与写入，投影路径与事件路径都改用它。
+  - 事件路径：revision 未变时 `onSession(header.id, resolved.fold, resolved.title, header)`
+    采用记忆值（零 I/O，血缘仍取自 header）；读过的日志在 `!truncated` 时写回记忆；
+    `lastEventsScan` 水位表删除（记忆表本身就是门控）。
+  - 为让记忆可复用，`collectTodayEvents` 的回调签名由 `(id, fold, events, lineage)` 改为
+    `(id, fold, title, lineage)`：标题在折叠处算一次，被采用的会话沿用上次折出的标题。
+  - 被 event cap 截断的那一趟不写记忆（避免把半价折叠钉死），下一趟重读——与原水位表语义一致。
+* **用例**：`today-spend.spec.ts` 47 → 48——把「未变则跳过」改为「未变则采用记忆值」并断言
+  第二趟合计与行（含标题）与第一趟逐字段相等；新增「revision 变化则重算」（13.60 → 27.20）；
+  截断用例改名并保留「部分折叠不留记忆、下一趟重读」的断言。
+* **文档**：llm-billing README 双语改写「今日花费读取路径」两条 bullet + 新增一段
+  「两条路径都把 revision 门控当缓存」；`README.i18n.yaml` hash 重算。
+
+---
+
 # HANDOFF — 面板加「今日 Token」、本会话花费下移一行、括号金额改为跨天才显示（2026-09-12 已实施，随 v0.3.12 发布）
 
 ## 需求（用户原话）
