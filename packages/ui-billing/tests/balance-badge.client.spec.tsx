@@ -196,8 +196,8 @@ describe('BalanceBadge', () => {
   it('shows this session\'s share of today in parentheses once the session crossed a day', async () => {
     const getTodaySessionsSpend = async (): Promise<DeepSeekTodaySessionsSpend> => ({
       sessions: [
-        { sessionId: 'session-other' as SessionId, title: '会话乙', total: 0.29 },
-        { sessionId: 'session-1' as SessionId, title: '会话甲', total: 0.02 },
+        { sessionId: 'session-other' as SessionId, title: '会话乙', total: 0.29, ownTotal: 0.29 },
+        { sessionId: 'session-1' as SessionId, title: '会话甲', total: 0.02, ownTotal: 0.02 },
       ],
     })
     render(<BalanceBadge
@@ -215,7 +215,7 @@ describe('BalanceBadge', () => {
 
   it('hides the share when the session has not crossed a day', async () => {
     const getTodaySessionsSpend = async (): Promise<DeepSeekTodaySessionsSpend> => ({
-      sessions: [{ sessionId: 'session-1' as SessionId, title: '会话甲', total: SPEND.total }],
+      sessions: [{ sessionId: 'session-1' as SessionId, title: '会话甲', total: SPEND.total, ownTotal: SPEND.total }],
     })
     render(<BalanceBadge
       {...props(async () => balance(), async () => SPEND, async () => TODAY_SPEND, () => false, getTodaySessionsSpend)}
@@ -225,6 +225,24 @@ describe('BalanceBadge', () => {
     // Every yuan this session billed was billed today, so a parenthesized share
     // would only repeat the amount beside it.
     expect(screen.queryByText(/^（/)).toBeNull()
+  })
+
+  it('compares the share against the session\'s own total, not its subagents\' row', async () => {
+    const getTodaySessionsSpend = async (): Promise<DeepSeekTodaySessionsSpend> => ({
+      // The host merged two subagent sessions (¥0.50) into this session's row:
+      // `total` covers the whole delegation tree, `ownTotal` only this session.
+      sessions: [{ sessionId: 'session-1' as SessionId, title: '会话甲', total: 0.54, ownTotal: SPEND.total }],
+    })
+    render(<BalanceBadge
+      {...props(async () => balance(), async () => SPEND, async () => TODAY_SPEND, () => false, getTodaySessionsSpend)}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await screen.findByText('本会话花费：¥0.04')).toBeDefined()
+    // The whole session was billed today, so no share is owed — the merged
+    // ¥0.54 must not pass itself off as today's portion of this session.
+    expect(screen.queryByText(/^（/)).toBeNull()
+    // The ranking row still reports the conversation's whole-day amount.
+    expect(screen.getByText('¥0.54')).toBeDefined()
   })
 
   it('renders no share while the ranking is unsettled, then the confirmed zero', async () => {
@@ -243,7 +261,7 @@ describe('BalanceBadge', () => {
     // Settled without a row for this session: today billed nothing, which does
     // disagree with the session's own total.
     await act(async () => {
-      resolveSessions({ sessions: [{ sessionId: 'session-other' as SessionId, title: null, total: 0.29 }] })
+      resolveSessions({ sessions: [{ sessionId: 'session-other' as SessionId, title: null, total: 0.29, ownTotal: 0.29 }] })
     })
     expect(await screen.findByText('（¥0）')).toBeDefined()
   })
@@ -541,8 +559,8 @@ describe('BalanceBadge', () => {
   it('renders the today-session ranking below the model rows, highest first, with the untitled fallback', async () => {
     const getTodaySessionsSpend = async () => ({
       sessions: [
-        { sessionId: 'session-a' as SessionId, title: '会话甲', total: 0.31 },
-        { sessionId: 'session-b' as SessionId, title: null, total: 0.12 },
+        { sessionId: 'session-a' as SessionId, title: '会话甲', total: 0.31, ownTotal: 0.31 },
+        { sessionId: 'session-b' as SessionId, title: null, total: 0.12, ownTotal: 0.12 },
       ],
     })
     render(<BalanceBadge
@@ -562,6 +580,7 @@ describe('BalanceBadge', () => {
       sessionId: `session-${index}` as SessionId,
       title: `会话${index}`,
       total: 1 - index / 100,
+      ownTotal: 1 - index / 100,
     }))
     const getTodaySessionsSpend = async () => ({ sessions })
     render(<BalanceBadge

@@ -21,6 +21,12 @@
  * (`force`) bypasses the time window but keeps the revision caches — an
  * unchanged log provably cannot change the aggregate.
  *
+ * The per-session ranking is a per-CONVERSATION ranking: a subagent child is
+ * work the delegating conversation paid for, not a session the user opened, so
+ * every subagent row is folded into the row of the top-level session at the
+ * root of its `parentSession` chain (see {@link rollUpSubagentSpend}). The
+ * aggregate is unaffected — it sums the same sessions either way.
+ *
  * Forked sessions never double-count: a fork child's log opens with a
  * verbatim copy of its source session's events (its inherited boundary), so
  * the scanner prices only the child's OWN events on every path. The
@@ -72,6 +78,115 @@ export function foldSessionTitle(events: readonly SessionEvent[]): string | null
 }
 
 /**
+ * Structural slice of a session's durable lineage: the header fields DSH
+ * stamps on a delegation child (`origin: 'subagent'`, the delegating session's
+ * id, and the depth that survives persistence). All three are read
+ * structurally, so the scanner works on every runtime family — a log written
+ * before the fields existed simply carries none of them and reads as a
+ * top-level session.
+ */
+export interface SessionLineage {
+  /** The session this one was forked from or delegated by; absent for a top-level session. */
+  readonly parentSession?: SessionId
+  /** DSH's subagent-child classification (`childSessionMeta` stamps it). */
+  readonly origin?: 'subagent'
+  /** Delegation depth: absent (zero) at the top level, parent depth + 1 for a subagent child. */
+  readonly delegationDepth?: number
+}
+
+/**
+ * Whether one session's durable header marks it as a subagent child. Either
+ * marker is enough: `origin` is DSH's navigation classification and
+ * `delegationDepth` is its persisted recursion budget, so a header carrying
+ * only the depth (or only the origin) is still a delegation child. A session
+ * created without either — an ordinary session, a user fork, or a cold resume
+ * — is top-level.
+ * @param header - the session's lineage slice; `undefined` reads as top-level.
+ * @returns true when the session was created as a subagent child.
+ */
+export function isSubagentSession(header: SessionLineage | undefined): boolean {
+  if (header === undefined) return false
+  return header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0
+}
+
+/**
+ * The top-level session one session's ranking row belongs to: the session
+ * itself for a top-level session, and for a subagent child the first ancestor
+ * up the `parentSession` chain that is not itself a subagent child. A
+ * multi-generation delegation (a subagent that spawned subagents) therefore
+ * lands on the same root row as its parent, and a child whose parent header is
+ * unknown is attributed to the parent id its own header names — the parent is
+ * authoritative even when its log is not part of this scan.
+ * @param id - the session whose row is being attributed.
+ * @param lineage - lineage of every session this scan saw, by id.
+ * @returns the session id whose ranking row the input belongs to.
+ */
+export function topLevelSessionOf(
+  id: SessionId,
+  lineage: ReadonlyMap<SessionId, SessionLineage>,
+): SessionId {
+  let current = id
+  // A malformed log could claim a delegation cycle; each step visits a
+  // distinct ancestor, so a repeat ends the walk instead of spinning.
+  const seen = new Set<SessionId>([current])
+  for (;;) {
+    const header = lineage.get(current)
+    if (!isSubagentSession(header)) return current
+    const parent = header?.parentSession
+    if (parent === undefined || seen.has(parent)) return current
+    seen.add(parent)
+    current = parent
+  }
+}
+
+/**
+ * Fold every subagent child's row into the top-level row it belongs to
+ * ({@link topLevelSessionOf}), so the ranking lists conversations rather than
+ * every delegation a conversation started. A child's spend is added to its
+ * ancestor's `total`; the ancestor's `ownTotal` keeps its own spend only. A
+ * top-level session whose own day was empty but whose subagents priced
+ * something still gets a row (with `ownTotal` 0), carrying the title the scan
+ * resolved for it in `titles`.
+ * @param rows - one row per session that priced something today (own spends).
+ * @param lineage - lineage of every session this scan saw, by id.
+ * @param titles - resolved display titles by session id; a session absent from
+ *   the map has no resolved title and its created row reports `null`.
+ * @returns the merged rows, sorted by `total` descending.
+ */
+export function rollUpSubagentSpend(
+  rows: readonly DeepSeekTodaySessionSpend[],
+  lineage: ReadonlyMap<SessionId, SessionLineage>,
+  titles: ReadonlyMap<SessionId, string | null> = new Map(),
+): DeepSeekTodaySessionSpend[] {
+  const merged = new Map<SessionId, DeepSeekTodaySessionSpend>()
+  for (const row of rows) {
+    const target = topLevelSessionOf(row.sessionId, lineage)
+    const carried = merged.get(target)
+    if (carried === undefined) {
+      // A row's own session keeps its own total as `ownTotal`; a row created
+      // for an ancestor that priced nothing today carries zero there.
+      merged.set(target, target === row.sessionId
+        ? row
+        : { sessionId: target, title: titles.get(target) ?? null, total: row.total, ownTotal: 0 })
+      continue
+    }
+    merged.set(target, { ...carried, total: carried.total + row.total })
+  }
+  return [...merged.values()].sort((left, right) => right.total - left.total)
+}
+
+/**
+ * Structural slice of a live session's header: the fork boundary of both DSH
+ * runtime families plus the delegation lineage the ranking roll-up reads.
+ */
+export interface SessionHeaderSlice extends SessionLineage {
+  /** ≤ 0.1.1-rc.2: the durable fork boundary carried by the header; absent for an unseeded session. */
+  readonly seedLength?: number
+  /** 0.1.2-alpha.4+: whether the session has a fork-inherited prefix. */
+  readonly isSeeded?: boolean
+}
+
+/**
  * Structural slice of a live session the scanner reads, accepting both DSH
  * runtime families: the ≤ 0.1.1-rc.2 baseline exposes the log as
  * `events` (+ `header.seedLength`), while 0.1.2-alpha.4+ exposes
@@ -85,8 +200,8 @@ export interface ScannerSession {
   snapshotEvents?(fromSeq?: number, toSeqExclusive?: number): readonly SessionEvent[]
   /** 0.1.2-alpha.4+: the durable inherited-prefix length (0 for an unseeded session). */
   readonly inheritedEventCount?: number
-  /** Durable header slice: `seedLength` (older runtime) or `isSeeded` (newer runtime). */
-  readonly header?: { readonly seedLength?: number; readonly isSeeded?: boolean }
+  /** Durable header slice: `seedLength` (older runtime) or `isSeeded` (newer runtime), plus lineage. */
+  readonly header?: SessionHeaderSlice
 }
 
 /**
@@ -103,12 +218,8 @@ export function liveSessionEvents(session: ScannerSession): readonly SessionEven
 }
 
 /** Structural slice of a listed persisted session (the snapshot header is a full SessionHeader). */
-export interface ScannerPersistedHeader {
+export interface ScannerPersistedHeader extends SessionHeaderSlice {
   readonly id: SessionId
-  /** ≤ 0.1.1-rc.2: the durable fork boundary carried by the snapshot header; absent for an unseeded session. */
-  readonly seedLength?: number
-  /** 0.1.2-alpha.4+: whether the session has a fork-inherited prefix (exact cut arrives with the inspect result). */
-  readonly isSeeded?: boolean
   /** Session format generation; part of the projection-cache record identity. */
   readonly version?: number
   /** Session creation time; part of the projection-cache record identity. */
@@ -128,7 +239,7 @@ export interface ScannerPersistedRead {
 export interface ScannerPersistenceLegacy {
   listSnapshots(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
   inspect(id: SessionId): Promise<{
-    meta?: { readonly seedLength?: number; readonly isSeeded?: boolean }
+    meta?: SessionHeaderSlice
     /** 0.1.2-alpha.4+: the exact inherited cut travels beside, not inside, the header. */
     inheritedEventCount?: number
     events: readonly SessionEvent[]
@@ -161,7 +272,7 @@ export function handleReadEvents(read: ScannerHandleRead): readonly SessionEvent
 export interface ScannerPersistenceHandle {
   list(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
   open(id: SessionId, access: 'read'): Promise<{
-    readonly header?: { readonly seedLength?: number; readonly isSeeded?: boolean }
+    readonly header?: SessionHeaderSlice
     /** 0.1.2-alpha.5+: the handle carries the exact inherited cut beside the header. */
     readonly inheritedEventCount?: number
     read(): Promise<ScannerHandleRead>
@@ -402,8 +513,11 @@ export class TodaySpendScanner {
 
   /**
    * Compute today's per-session spend for one Beijing day, sorted by cost
-   * descending. Sessions with no priced usage on the day are omitted; each
-   * row carries the session's durable title folded from its log.
+   * descending. One row per top-level session: sessions with no priced usage
+   * on the day are omitted (unless their subagents priced something, which the
+   * roll-up merges into their row), every subagent session is folded into the
+   * top-level session that delegated it, and each row carries the session's
+   * durable title folded from its log.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
    * @returns today's per-session rows, highest first.
    */
@@ -417,6 +531,9 @@ export class TodaySpendScanner {
    * read, unit fold, and title fold instead of scanning twice. Chooses the
    * projection path when the projection registry is composed, the events path
    * otherwise.
+   *
+   * The aggregate sums every priced session, subagents included — the ranking's
+   * subagent roll-up only regroups rows, so neither total moves.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
    * @returns the aggregate plus per-session rows sorted by cost descending.
    */
@@ -553,18 +670,18 @@ export class TodaySpendScanner {
    * hard cap counts the queried day's events; the revision watermark only
    * advances on a complete pass.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
-   * @param onSession - fold one session's state plus its complete log.
+   * @param onSession - fold one session's state plus its complete log and lineage.
    * @returns whether the hard cap truncated the scan.
    */
   private async collectTodayEvents(
     dayKey: string,
-    onSession: (id: SessionId, fold: BillingFoldState, events: readonly SessionEvent[]) => void,
+    onSession: (id: SessionId, fold: BillingFoldState, events: readonly SessionEvent[], lineage: SessionLineage) => void,
   ): Promise<boolean> {
     const { sessions, persistence, maxEvents, logger, billing, catalog } = this.deps
     const liveIds = new Set<SessionId>()
     let collected = 0
     let truncated = false
-    const collect = (id: SessionId, events: readonly SessionEvent[], seedLength: number): void => {
+    const collect = (id: SessionId, events: readonly SessionEvent[], seedLength: number, lineage: SessionLineage): void => {
       const folder = new BillingFolder(billing, catalog, seedLength)
       for (const event of events) {
         // The cap counts the queried day's events; the fold still sees every
@@ -579,14 +696,14 @@ export class TodaySpendScanner {
         }
         folder.add(event)
       }
-      onSession(id, folder.fold, events)
+      onSession(id, folder.fold, events, lineage)
     }
     if (sessions !== undefined) {
       const store = sessions()
       if (store !== undefined) {
         for (const session of store.list()) {
           liveIds.add(session.id)
-          collect(session.id, liveSessionEvents(session), forkBoundaryOf(session))
+          collect(session.id, liveSessionEvents(session), forkBoundaryOf(session), session.header ?? {})
           if (truncated) break
         }
       }
@@ -599,7 +716,7 @@ export class TodaySpendScanner {
         if (this.lastEventsScan?.get(header.id) === revision) continue
         try {
           const read = await persistenceInspect(persistenceService, header.id)
-          collect(header.id, read.events, read.seedLength)
+          collect(header.id, read.events, read.seedLength, header)
         } catch (error: unknown) {
           // One unreadable session must not blank the whole-day aggregate.
           logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)
@@ -622,7 +739,9 @@ export class TodaySpendScanner {
    * (title folded from the live log, so a rename is reflected immediately),
    * revision-gated cold ladder for the rest (title resolved on inspect, `null`
    * when answered from the projection cache). A fork child's cell covers its
-   * inherited prefix, so its own-events fold supplies both outputs.
+   * inherited prefix, so its own-events fold supplies both outputs. Lineage
+   * (which session delegated which) comes from the same headers the boundary
+   * does, so the ranking's subagent roll-up costs no extra read.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
    * @returns the aggregate plus per-session rows, sorted by cost descending.
    */
@@ -632,29 +751,48 @@ export class TodaySpendScanner {
     const projectionsService = projections?.()
     let aggregate = emptyTodaySpend()
     const rows = new Map<SessionId, DeepSeekTodaySessionSpend>()
+    const lineage = new Map<SessionId, SessionLineage>()
+    const titles = new Map<SessionId, string | null>()
     const liveIds = new Set<SessionId>()
     if (sessions !== undefined) {
       const store = sessions()
       if (store !== undefined) {
         for (const { session, state } of this.liveBillingEntries(store, projectionsService)) {
           liveIds.add(session.id)
+          lineage.set(session.id, session.header ?? {})
+          // The eager cell carries no title; fold it from the live log for
+          // every live session, not just today's payers, so a parent that
+          // delegated but priced nothing itself still titles its merged row.
+          const title = foldSessionTitle(liveSessionEvents(session))
+          titles.set(session.id, title)
           if (state === undefined || state.dayKey !== dayKey) continue
           aggregate = mergeTodaySpend(aggregate, state.spend)
-          // The eager cell carries no title; fold it from the live log.
-          rows.set(session.id, { sessionId: session.id, title: foldSessionTitle(liveSessionEvents(session)), total: state.spend.total })
+          rows.set(session.id, {
+            sessionId: session.id,
+            title,
+            total: state.spend.total,
+            ownTotal: state.spend.total,
+          })
         }
       }
     }
     const persistenceService = persistence?.()
     if (persistenceService !== undefined) {
       const snapshots = await persistenceListSnapshots(persistenceService)
+      for (const { header } of snapshots) {
+        if (liveIds.has(header.id)) continue
+        lineage.set(header.id, header)
+      }
       await this.coldAdopt(liveIds, snapshots, dayKey, (id, resolved) => {
+        // A resolved title is worth keeping even when the session priced
+        // nothing today: its subagents' rows merge into this session's row.
+        if (resolved.title !== null && !titles.has(id)) titles.set(id, resolved.title)
         if (resolved.value.dayKey !== dayKey) return
         aggregate = mergeTodaySpend(aggregate, resolved.value.spend)
-        rows.set(id, { sessionId: id, title: resolved.title, total: resolved.value.spend.total })
+        rows.set(id, { sessionId: id, title: resolved.title, total: resolved.value.spend.total, ownTotal: resolved.value.spend.total })
       })
     }
-    return { aggregate, sessions: sortRows(rows) }
+    return { aggregate, sessions: rollUpSubagentSpend([...rows.values()], lineage, titles) }
   }
 
   /**
@@ -663,24 +801,26 @@ export class TodaySpendScanner {
    * fork child's inherited prefix (`seq < seedLength`) is skipped, so each
    * model output is priced only in its source session. Titles fold from each
    * session's complete log — a `session/title` event can predate today — so a
-   * rename is reflected as soon as the session's log is re-read.
+   * rename is reflected as soon as the session's log is re-read. Every session
+   * read also contributes its lineage, which the ranking roll-up needs.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
    * @returns the aggregate plus per-session rows, sorted by cost descending.
    */
   private async scanDetailEvents(dayKey: string): Promise<TodaySpendDetail> {
     let aggregate = emptyTodaySpend()
-    const sessions: DeepSeekTodaySessionSpend[] = []
-    await this.collectTodayEvents(dayKey, (id, fold, events) => {
+    const rows: DeepSeekTodaySessionSpend[] = []
+    const lineage = new Map<SessionId, SessionLineage>()
+    const titles = new Map<SessionId, string | null>()
+    await this.collectTodayEvents(dayKey, (id, fold, events, sessionLineage) => {
+      lineage.set(id, sessionLineage)
+      // The title is folded for every session read (not only today's payers),
+      // so a parent that delegated without pricing anything itself is titled.
+      const title = foldSessionTitle(events)
+      titles.set(id, title)
       if (fold.dayKey !== dayKey) return
       aggregate = mergeTodaySpend(aggregate, fold.spend)
-      sessions.push({ sessionId: id, title: foldSessionTitle(events), total: fold.spend.total })
+      rows.push({ sessionId: id, title, total: fold.spend.total, ownTotal: fold.spend.total })
     })
-    sessions.sort((left, right) => right.total - left.total)
-    return { aggregate, sessions }
+    return { aggregate, sessions: rollUpSubagentSpend(rows, lineage, titles) }
   }
-}
-
-/** Per-session rows from the map, highest total first. */
-function sortRows(rows: ReadonlyMap<SessionId, DeepSeekTodaySessionSpend>): DeepSeekTodaySessionSpend[] {
-  return [...rows.values()].sort((left, right) => right.total - left.total)
 }

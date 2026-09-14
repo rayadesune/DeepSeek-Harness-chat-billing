@@ -193,7 +193,9 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   /**
    * Read today's billed spend per session, restricted to the queried Beijing
    * day. Rows carry the session's durable title and sort by cost descending;
-   * sessions with no priced usage on the day are omitted.
+   * sessions with no priced usage on the day are omitted, and every subagent
+   * session is merged into the row of the top-level session that delegated it,
+   * so the ranking lists conversations rather than delegations.
    * @param force - bypass the host-side 60s cache (manual refresh); omitted
    *   means a cached read.
    * @returns today's per-session rows, highest first.

@@ -45,7 +45,9 @@ export interface BalanceBadgeInjected {
   getTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
   /**
    * Read today's billed spend per session, sorted by cost descending; rejects
-   * with the Remote error message. `force` behaves as in {@link getTodaySpend}.
+   * with the Remote error message. One row per top-level conversation: the host
+   * merges every subagent session's spend into the row of the session that
+   * delegated it. `force` behaves as in {@link getTodaySpend}.
    */
   getTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend>
 }

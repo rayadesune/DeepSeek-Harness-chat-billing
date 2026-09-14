@@ -3,9 +3,10 @@
  * token count and today's spend across every session, this session's spend
  * (with this session's share of today beside it only when the two disagree)
  * and its cache-hit / cache-miss-input / output cost breakdown per model, the
- * ranking of today's sessions, a refresh action, and the spend disclaimer. Pure
- * view — no state, no effects; refreshing keeps the last values visible rather
- * than blanking them.
+ * ranking of today's sessions (one row per conversation — the host has already
+ * merged each subagent session's spend into the session that delegated it), a
+ * refresh action, and the spend disclaimer. Pure view — no state, no effects;
+ * refreshing keeps the last values visible rather than blanking them.
  */
 import { Fragment } from 'react'
 import type { DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
@@ -51,9 +52,15 @@ export function BalancePanel({ amount, sessionId, spend, todaySpend, sessionsSpe
   // `undefined` while that read has not settled, and a confirmed `0` when it
   // settled without a row — the ranking lists only sessions that priced
   // something today.
+  //
+  // It reads the row's `ownTotal`, NOT its `total`: a row's total also carries
+  // the spend of every subagent session this one delegated (those rows are
+  // merged into it), while the amount beside this one is this session's own
+  // billed spend. Comparing like with like is what keeps the parenthesized
+  // number "the part of the amount beside it that fell on today".
   const sessionToday = sessionsSpend === null
     ? undefined
-    : sessionsSpend.sessions.find(row => row.sessionId === sessionId)?.total ?? 0
+    : sessionsSpend.sessions.find(row => row.sessionId === sessionId)?.ownTotal ?? 0
   // The share is shown ONLY when it disagrees with the whole-session amount:
   // a session that has not crossed a Beijing day bills exactly its own total
   // today, so the parenthesized number would just repeat the one beside it.

@@ -75,8 +75,8 @@ const TODAY_SPEND = {
 
 const TODAY_SESSIONS = {
   sessions: [
-    { sessionId: 'session-1' as SessionId, title: '会话甲', total: 0.31 },
-    { sessionId: 'session-2' as SessionId, title: null, total: 0.12 },
+    { sessionId: 'session-1' as SessionId, title: '会话甲', total: 0.31, ownTotal: 0.31 },
+    { sessionId: 'session-2' as SessionId, title: null, total: 0.12, ownTotal: 0.12 },
   ],
 }
 
