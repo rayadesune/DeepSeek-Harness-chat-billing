@@ -13,13 +13,17 @@
  *   every scan.
  * - events path (plans A2/A3): collect and price only today's events in one
  *   pass (per-event Beijing-day filter during collection) with a hard cap,
- *   skipping sessions whose persisted revision is unchanged since the last
- *   scan.
+ *   adopting the fold it already priced for a session whose persisted revision
+ *   is unchanged since the last pass.
  *
  * Both strategies run behind the same {@link TodaySpendCache}, so a miss
  * happens at most once per 60 seconds per process, and a manual refresh
  * (`force`) bypasses the time window but keeps the revision caches — an
- * unchanged log provably cannot change the aggregate.
+ * unchanged log provably cannot change the aggregate. That proof is what makes
+ * a revision gate a CACHE: both strategies therefore adopt the resolution they
+ * remember for an unchanged revision instead of skipping the session, so an
+ * unchanged log costs no I/O and still contributes its full spend (and title)
+ * to the aggregate and the ranking on every scan.
  *
  * The per-session ranking is a per-CONVERSATION ranking: a subagent child is
  * work the delegating conversation paid for, not a session the user opened, so
@@ -487,20 +491,57 @@ export interface TodaySpendDetail {
 }
 
 /**
+ * One cold session's resolution, as {@link TodaySpendScanner} remembers it: the
+ * persisted revision the resolution read, the session's OWN-events billing fold
+ * (its fork boundary already applied), and the display title folded from the
+ * same read. The revision is the adoption gate — a later scan adopts the entry
+ * only while the session's persisted revision is unchanged, which is exactly
+ * the proof that re-reading the log could not change the fold.
+ */
+export interface ColdResolution {
+  /** The persisted revision this resolution read. */
+  readonly revision: SessionPersistenceRevision
+  /** The session's own-events fold (`BillingUnitState` names the same shape). */
+  readonly fold: BillingFoldState
+  /** The session's display title from the same read; `null` when untitled or unresolved. */
+  readonly title: string | null
+}
+
+/**
  * The aggregate computation behind a cache miss. Chooses the projection path
  * when the projection registry is composed, the events path otherwise; both
- * gate cold reads on persisted revisions so steady-state scans touch only
- * sessions whose logs actually changed.
+ * gate cold reads on persisted revisions AND adopt the fold they already hold
+ * for an unchanged log, so steady-state scans re-read only sessions whose logs
+ * actually changed while every unchanged session keeps contributing.
  */
 export class TodaySpendScanner {
-  /** Cold sessions resolved on the projection path: id → revision + unit state + title. */
-  private readonly coldResolved = new Map<SessionId, { revision: SessionPersistenceRevision; value: BillingUnitState; title: string | null }>()
+  /**
+   * Cold sessions resolved by either strategy: id → the persisted revision the
+   * resolution saw, the session's OWN-events fold, and its folded title.
+   *
+   * The two strategies differ in how they PRICE a cold log (an eager projection
+   * cell plus the cache ladder, or a local fold over the read log), never in
+   * what an unchanged log contributes to the day — so one memory serves both.
+   * The projection path reuses the resolved unit; the events path reuses the
+   * fold it priced on the previous pass. A strategy that skipped an unchanged
+   * log WITHOUT adopting its remembered fold would silently drop that session
+   * from the aggregate and the ranking on every scan after the first.
+   */
+  private readonly coldResolved = new Map<SessionId, ColdResolution>()
   /** Cold sessions whose resolution failed: id → revision (retried only when the log changes). */
   private readonly coldFailed = new Map<SessionId, SessionPersistenceRevision>()
-  /** Cold sessions resolved on the events path: id → revision (events were collected). */
-  private lastEventsScan: Map<SessionId, SessionPersistenceRevision> | undefined
 
   constructor(private readonly deps: TodaySpendScannerDeps) {}
+
+  /**
+   * Remember one cold session's resolution, bounded by
+   * {@link COLD_RESOLVE_CACHE_LIMIT}: evicting the oldest entry (instead of
+   * clearing) keeps the other sessions' resolved state warm across scans.
+   */
+  private rememberCold(id: SessionId, resolution: ColdResolution): void {
+    evictOldest(this.coldResolved, COLD_RESOLVE_CACHE_LIMIT)
+    this.coldResolved.set(id, resolution)
+  }
 
   /**
    * Compute today's aggregate for one Beijing day.
@@ -544,7 +585,7 @@ export class TodaySpendScanner {
   }
 
   /**
-   * Resolve one cold session's billing unit state and display title.
+   * Resolve one cold session's billing fold state and display title.
    *
    * The zero-I/O projection-cache row answers the query directly whenever its
    * own latest priced day is NOT the queried day: the row then proves the
@@ -562,20 +603,20 @@ export class TodaySpendScanner {
    * @param header - the listed session header (the cache identity witness).
    * @param seeded - whether the session carries a fork-inherited prefix.
    * @param dayKey - the Beijing-time day being aggregated.
-   * @returns the resolved state and title, or `undefined` when unreadable.
+   * @returns the resolved fold state and title, or `undefined` when unreadable.
    */
   private async resolveCold(
     header: ScannerPersistedHeader,
     seeded: boolean,
     dayKey: string,
-  ): Promise<{ value: BillingUnitState; title: string | null } | undefined> {
+  ): Promise<{ fold: BillingUnitState; title: string | null } | undefined> {
     const { persistence, projectionCache, logger } = this.deps
     if (!seeded) {
       const cache = projectionCache?.()
       if (cache !== undefined) {
         try {
           const value = cache.cachedSnapshot(header, 0, [BILLING_UNIT_KEY])?.values[BILLING_UNIT_KEY]
-          if (value !== undefined && value.dayKey !== dayKey) return { value, title: null }
+          if (value !== undefined && value.dayKey !== dayKey) return { fold: value, title: null }
         } catch (error: unknown) {
           logger.warn(`llm-billing: projection cache read for session ${header.id} failed: ${String(error)}`)
         }
@@ -586,7 +627,7 @@ export class TodaySpendScanner {
     try {
       const read = await persistenceInspect(persistenceService, header.id)
       return {
-        value: foldOwnBilling(this.deps.unit, read.events, read.seedLength),
+        fold: foldOwnBilling(this.deps.unit, read.events, read.seedLength),
         title: foldSessionTitle(read.events),
       }
     } catch (error: unknown) {
@@ -614,11 +655,11 @@ export class TodaySpendScanner {
   /**
    * Cold-ladder adopt: for every stored session not live, either the
    * revision-gated resolution already in {@link coldResolved} is adopted
-   * (unchanged log costs nothing) or the session is queued behind a bounded
-   * parallel fan-out, resolved, remembered, and then adopted. A session whose
-   * resolution failed is remembered too (by revision), so an unreadable log
-   * is not re-read on every scan; a changed revision retries it. One
-   * unreadable session never blanks the whole-day aggregate.
+   * (unchanged log costs nothing and still counts) or the session is queued
+   * behind a bounded parallel fan-out, resolved, remembered, and then adopted.
+   * A session whose resolution failed is remembered too (by revision), so an
+   * unreadable log is not re-read on every scan; a changed revision retries it.
+   * One unreadable session never blanks the whole-day aggregate.
    * @param liveIds - ids of sessions already folded from the live store.
    * @param snapshots - stored snapshot list (either runtime family).
    * @param dayKey - the Beijing-time day being aggregated.
@@ -628,7 +669,7 @@ export class TodaySpendScanner {
     liveIds: ReadonlySet<SessionId>,
     snapshots: readonly StoredSnapshot[],
     dayKey: string,
-    adopt: (id: SessionId, resolved: { value: BillingUnitState; title: string | null }) => void,
+    adopt: (id: SessionId, resolved: { fold: BillingUnitState; title: string | null }) => void,
   ): Promise<void> {
     const persistenceAvailable = this.deps.persistence?.() !== undefined
     const pending: ColdPending[] = []
@@ -647,8 +688,7 @@ export class TodaySpendScanner {
       const resolved = await this.resolveCold(header, seeded, dayKey)
       if (resolved !== undefined) {
         this.coldFailed.delete(header.id)
-        evictOldest(this.coldResolved, COLD_RESOLVE_CACHE_LIMIT)
-        this.coldResolved.set(header.id, { revision, ...resolved })
+        this.rememberCold(header.id, { revision, ...resolved })
       } else if (persistenceAvailable) {
         evictOldest(this.coldFailed, COLD_FAILED_CACHE_LIMIT)
         this.coldFailed.set(header.id, revision)
@@ -663,25 +703,34 @@ export class TodaySpendScanner {
   /**
    * Events-path collection shared by both aggregate and per-session scans:
    * fold each session's log with the shared pricing fold (attempt samples with
-   * same-step replacement) and announce the session's latest-day spend, gated
-   * by revisions — a persisted session whose log did not change since the last
-   * scan is skipped. A fork child's inherited prefix (`seq < seedLength`) is
-   * skipped, so each model output is priced only in its source session. The
-   * hard cap counts the queried day's events; the revision watermark only
-   * advances on a complete pass.
+   * same-step replacement) and announce the session's latest-day spend. A
+   * persisted session whose log did not change since it was last resolved is
+   * answered from {@link coldResolved} instead of being re-read: it keeps
+   * counting toward the aggregate and the ranking at zero cost, which is what
+   * makes the revision gate a cache rather than a way to lose sessions. A fork
+   * child's inherited prefix (`seq < seedLength`) is skipped, so each model
+   * output is priced only in its source session. The hard cap counts the
+   * queried day's events; a truncated pass remembers nothing it read, so the
+   * next one re-reads whatever this one cut short.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
-   * @param onSession - fold one session's state plus its complete log and lineage.
+   * @param onSession - adopt one session's fold, title, and lineage.
    * @returns whether the hard cap truncated the scan.
    */
   private async collectTodayEvents(
     dayKey: string,
-    onSession: (id: SessionId, fold: BillingFoldState, events: readonly SessionEvent[], lineage: SessionLineage) => void,
+    onSession: (id: SessionId, fold: BillingFoldState, title: string | null, lineage: SessionLineage) => void,
   ): Promise<boolean> {
     const { sessions, persistence, maxEvents, logger, billing, catalog } = this.deps
     const liveIds = new Set<SessionId>()
     let collected = 0
     let truncated = false
-    const collect = (id: SessionId, events: readonly SessionEvent[], seedLength: number, lineage: SessionLineage): void => {
+    /** Price one complete log, announce it, and return what to remember. */
+    const collect = (
+      id: SessionId,
+      events: readonly SessionEvent[],
+      seedLength: number,
+      lineage: SessionLineage,
+    ): { fold: BillingFoldState; title: string | null } => {
       const folder = new BillingFolder(billing, catalog, seedLength)
       for (const event of events) {
         // The cap counts the queried day's events; the fold still sees every
@@ -696,7 +745,10 @@ export class TodaySpendScanner {
         }
         folder.add(event)
       }
-      onSession(id, folder.fold, events, lineage)
+      const fold = folder.fold
+      const title = foldSessionTitle(events)
+      onSession(id, fold, title, lineage)
+      return { fold, title }
     }
     if (sessions !== undefined) {
       const store = sessions()
@@ -713,21 +765,24 @@ export class TodaySpendScanner {
       const snapshots = await persistenceListSnapshots(persistenceService)
       for (const { header, revision } of snapshots) {
         if (liveIds.has(header.id)) continue
-        if (this.lastEventsScan?.get(header.id) === revision) continue
+        const resolved = this.coldResolved.get(header.id)
+        if (resolved !== undefined && resolved.revision === revision) {
+          // Unchanged log: adopt the fold (and title) already priced for this
+          // exact revision — the session still counts, at zero I/O.
+          onSession(header.id, resolved.fold, resolved.title, header)
+          continue
+        }
         try {
           const read = await persistenceInspect(persistenceService, header.id)
-          collect(header.id, read.events, read.seedLength, header)
+          const priced = collect(header.id, read.events, read.seedLength, header)
+          // A MAXED pass folds one log only partially: remembering it (or its
+          // revision) would pin the partial result, so the next pass re-reads.
+          if (!truncated) this.rememberCold(header.id, { revision, ...priced })
         } catch (error: unknown) {
           // One unreadable session must not blank the whole-day aggregate.
           logger.warn(`llm-billing: skipping unreadable session ${header.id}: ${String(error)}`)
         }
         if (truncated) break
-      }
-      // Only a complete pass may advance the revision watermark: a truncated
-      // pass left sessions unread, and recording them would skip their events
-      // on the next scan.
-      if (!truncated) {
-        this.lastEventsScan = new Map(snapshots.map(snapshot => [snapshot.header.id, snapshot.revision]))
       }
     }
     if (truncated) logger.warn(`llm-billing: today's events exceeded ${maxEvents}; result truncated`)
@@ -787,9 +842,9 @@ export class TodaySpendScanner {
         // A resolved title is worth keeping even when the session priced
         // nothing today: its subagents' rows merge into this session's row.
         if (resolved.title !== null && !titles.has(id)) titles.set(id, resolved.title)
-        if (resolved.value.dayKey !== dayKey) return
-        aggregate = mergeTodaySpend(aggregate, resolved.value.spend)
-        rows.set(id, { sessionId: id, title: resolved.title, total: resolved.value.spend.total, ownTotal: resolved.value.spend.total })
+        if (resolved.fold.dayKey !== dayKey) return
+        aggregate = mergeTodaySpend(aggregate, resolved.fold.spend)
+        rows.set(id, { sessionId: id, title: resolved.title, total: resolved.fold.spend.total, ownTotal: resolved.fold.spend.total })
       })
     }
     return { aggregate, sessions: rollUpSubagentSpend([...rows.values()], lineage, titles) }
@@ -797,12 +852,14 @@ export class TodaySpendScanner {
 
   /**
    * Events path, one pass for both outputs: price today's events (per-event
-   * Beijing-day filter during collection, hard cap), gated by revisions. A
+   * Beijing-day filter during collection, hard cap), revision-gated so an
+   * unchanged log is adopted from {@link coldResolved} instead of re-read. A
    * fork child's inherited prefix (`seq < seedLength`) is skipped, so each
    * model output is priced only in its source session. Titles fold from each
    * session's complete log — a `session/title` event can predate today — so a
-   * rename is reflected as soon as the session's log is re-read. Every session
-   * read also contributes its lineage, which the ranking roll-up needs.
+   * rename is reflected as soon as the session's log is re-read, and an
+   * unchanged session keeps the title its earlier read folded. Lineage comes
+   * from the same headers, which the ranking roll-up needs.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
    * @returns the aggregate plus per-session rows, sorted by cost descending.
    */
@@ -811,11 +868,11 @@ export class TodaySpendScanner {
     const rows: DeepSeekTodaySessionSpend[] = []
     const lineage = new Map<SessionId, SessionLineage>()
     const titles = new Map<SessionId, string | null>()
-    await this.collectTodayEvents(dayKey, (id, fold, events, sessionLineage) => {
+    await this.collectTodayEvents(dayKey, (id, fold, title, sessionLineage) => {
       lineage.set(id, sessionLineage)
-      // The title is folded for every session read (not only today's payers),
-      // so a parent that delegated without pricing anything itself is titled.
-      const title = foldSessionTitle(events)
+      // Titles cover every session the pass accounted for (not only today's
+      // payers), so a parent that delegated without pricing anything itself is
+      // titled even when its own row comes from the roll-up.
       titles.set(id, title)
       if (fold.dayKey !== dayKey) return
       aggregate = mergeTodaySpend(aggregate, fold.spend)

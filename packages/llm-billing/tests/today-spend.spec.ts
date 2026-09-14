@@ -158,8 +158,8 @@ describe('TodaySpendScanner events path', () => {
     expect(inspect).toHaveBeenCalledWith('cold-a')
   })
 
-  it('skips persisted sessions whose revision is unchanged since the last scan', async () => {
-    const inspect = vi.fn(async () => ({ meta: {}, events: [pricedEvent(DAY_TIME)] }))
+  it('adopts the remembered fold for an unchanged revision instead of losing the session', async () => {
+    const inspect = vi.fn(async () => ({ meta: {}, events: [titleEvent('冷会话', 0), pricedEvent(DAY_TIME, 1)] }))
     const scanner = new TodaySpendScanner(deps({
       persistence: () => ({
         listSnapshots: async () => [
@@ -168,10 +168,36 @@ describe('TodaySpendScanner events path', () => {
         inspect,
       }),
     }))
-    await scanner.scan(DAY_KEY)
+    const first = await scanner.scanDetail(DAY_KEY)
     expect(inspect).toHaveBeenCalledTimes(1)
-    await scanner.scan(DAY_KEY)
+    expect(first.aggregate.total).toBeCloseTo(13.60, 10)
+    expect(first.sessions[0]?.title).toBe('冷会话')
+    // The second pass re-reads nothing, yet the unchanged session keeps
+    // contributing its whole spend AND its folded title: a revision gate is a
+    // cache, not a way to drop sessions from the day.
+    const second = await scanner.scanDetail(DAY_KEY)
     expect(inspect).toHaveBeenCalledTimes(1)
+    expect(second.aggregate).toEqual(first.aggregate)
+    expect(second.sessions).toEqual(first.sessions)
+  })
+
+  it('refreshes the remembered fold when the revision changes', async () => {
+    let revision = SessionPersistenceRevision('r-a')
+    let events = [pricedEvent(DAY_TIME, 0)]
+    const inspect = vi.fn(async () => ({ meta: {}, events }))
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [{ header: { id: 'cold-a' as SessionId }, revision }],
+        inspect,
+      }),
+    }))
+    await expect(scanner.scan(DAY_KEY)).resolves.toMatchObject({ total: 13.60 })
+    expect(inspect).toHaveBeenCalledTimes(1)
+    // The log grew (a new revision) and the next pass re-prices it.
+    events = [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1)]
+    revision = SessionPersistenceRevision('r-b')
+    await expect(scanner.scan(DAY_KEY)).resolves.toMatchObject({ total: 27.20 })
+    expect(inspect).toHaveBeenCalledTimes(2)
   })
 
   it('re-inspects a persisted session whose revision changed', async () => {
@@ -190,7 +216,7 @@ describe('TodaySpendScanner events path', () => {
     expect(inspect).toHaveBeenCalledTimes(2)
   })
 
-  it('truncates at the event cap and does not advance the revision watermark', async () => {
+  it('truncates at the event cap and remembers nothing from the partial pass', async () => {
     const warn = vi.fn()
     const inspect = vi.fn(async () => ({
       meta: {},
@@ -209,7 +235,8 @@ describe('TodaySpendScanner events path', () => {
     const spend = await scanner.scan(DAY_KEY)
     expect(spend.models[0]?.cacheHitInputTokens).toBe(3_000_000)
     expect(warn).toHaveBeenCalled()
-    // The truncated pass must not record the revision: the next scan re-reads.
+    // The partial fold is not remembered under the revision: the next scan
+    // re-reads rather than adopting a half-priced session.
     await scanner.scan(DAY_KEY)
     expect(inspect).toHaveBeenCalledTimes(2)
   })
