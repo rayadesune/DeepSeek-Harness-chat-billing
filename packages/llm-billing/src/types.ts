@@ -89,13 +89,31 @@ export interface DeepSeekTodaySessionSpend {
    * `null` when the session has no title (or the title could not be resolved).
    */
   title: string | null
-  /** Billed cost in CNY on the queried Beijing day. */
+  /**
+   * Billed cost in CNY on the queried Beijing day for the whole conversation:
+   * the top-level session's own spend plus every subagent session it delegated
+   * (transitively), since a subagent child is the same conversation's work, not
+   * a session the user opened. A subagent row is therefore never reported on
+   * its own — its spend rides this total.
+   */
   total: number
+  /**
+   * The session's own billed cost in CNY on the queried day, before its
+   * subagent descendants were merged into {@link total}; they are equal when no
+   * descendant priced anything that day. The panel's "this session's share of
+   * today" reads THIS one, so the parenthesized amount stays the portion of the
+   * session's own amount that fell on the day.
+   */
+  ownTotal: number
 }
 
-/** Today's per-session billed spend across every session with a non-zero cost. */
+/**
+ * Today's per-session billed spend. One row per top-level session that priced
+ * something today, with every subagent session's spend already folded into the
+ * row of the session that delegated it (so no subagent appears as its own row).
+ */
 export interface DeepSeekTodaySessionsSpend {
-  /** Sessions with today's spend, sorted by `total` descending. */
+  /** Top-level sessions with today's spend, sorted by `total` descending. */
   sessions: readonly DeepSeekTodaySessionSpend[]
 }
 

@@ -11,7 +11,14 @@ import { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence
 import { describe, expect, it, vi } from 'vitest'
 import { computeTodaySpend, resolveBilling } from '../src/billing.ts'
 import { billingTodaySpendDefinition, BILLING_UNIT_KEY, type BillingUnitState } from '../src/projection.ts'
-import { TodaySpendCache, TodaySpendScanner, type TodaySpendScannerDeps } from '../src/today-spend.ts'
+import {
+  isSubagentSession,
+  TodaySpendCache,
+  TodaySpendScanner,
+  topLevelSessionOf,
+  type SessionLineage,
+  type TodaySpendScannerDeps,
+} from '../src/today-spend.ts'
 
 const FLASH = 'deepseek-v4-flash'
 const CATALOG = [{ id: FLASH, name: 'DeepSeek-V4-Flash' }]
@@ -779,6 +786,157 @@ describe('TodaySpendScanner scanSessions (projection path)', () => {
     expect(sessions[0]?.title).toBeNull()
     expect(sessions[0]?.total).toBeCloseTo(13.60, 10)
     expect(inspect).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('subagent lineage', () => {
+  it('marks a session as a subagent child on either durable marker', () => {
+    expect(isSubagentSession({ origin: 'subagent' })).toBe(true)
+    expect(isSubagentSession({ delegationDepth: 1 })).toBe(true)
+    expect(isSubagentSession({ origin: 'subagent', parentSession: 'p' as SessionId, delegationDepth: 2 })).toBe(true)
+    // A user fork names a parent too, but is a session of its own.
+    expect(isSubagentSession({ parentSession: 'p' as SessionId })).toBe(false)
+    expect(isSubagentSession({ delegationDepth: 0 })).toBe(false)
+    expect(isSubagentSession(undefined)).toBe(false)
+  })
+
+  it('walks a delegation chain to its root and terminates on a malformed cycle', () => {
+    const lineage = new Map<SessionId, SessionLineage>([
+      ['root' as SessionId, {}],
+      ['mid' as SessionId, { origin: 'subagent', parentSession: 'root' as SessionId, delegationDepth: 1 }],
+      ['leaf' as SessionId, { origin: 'subagent', parentSession: 'mid' as SessionId, delegationDepth: 2 }],
+      ['lost' as SessionId, { origin: 'subagent', parentSession: 'unlisted' as SessionId }],
+      // A corrupt log could claim a delegation cycle: the walk stops at the
+      // ancestor whose parent it already visited instead of spinning.
+      ['a' as SessionId, { origin: 'subagent', parentSession: 'b' as SessionId }],
+      ['b' as SessionId, { origin: 'subagent', parentSession: 'a' as SessionId }],
+    ])
+    expect(topLevelSessionOf('root' as SessionId, lineage)).toBe('root')
+    expect(topLevelSessionOf('leaf' as SessionId, lineage)).toBe('root')
+    // An unlisted parent is still authoritative: the row is attributed to the
+    // id the child's own header names.
+    expect(topLevelSessionOf('lost' as SessionId, lineage)).toBe('unlisted')
+    expect(topLevelSessionOf('a' as SessionId, lineage)).toBe('b')
+  })
+})
+
+describe('TodaySpendScanner subagent roll-up (events path)', () => {
+  /** One subagent child's durable header slice, as `childSessionMeta` stamps it. */
+  function subagentHeader(parent: SessionId, delegationDepth = 1) {
+    return { parentSession: parent, origin: 'subagent' as const, delegationDepth }
+  }
+
+  it('merges a subagent child into its parent row and leaves the day aggregate untouched', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          { id: 'parent' as SessionId, events: [titleEvent('父会话', 0), pricedEvent(DAY_TIME, 1)] },
+          {
+            id: 'child' as SessionId,
+            events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1)],
+            header: subagentHeader('parent' as SessionId),
+          },
+        ],
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    // One row for the conversation: the child is not a session the user opened.
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.sessionId).toBe('parent')
+    expect(sessions[0]?.title).toBe('父会话')
+    // The conversation's day: the parent's ¥13.60 plus the child's ¥27.20.
+    expect(sessions[0]?.total).toBeCloseTo(40.80, 10)
+    // `ownTotal` stays the parent's own spend — the panel's parenthesized share
+    // compares against the session's own amount, not the delegation tree's.
+    expect(sessions[0]?.ownTotal).toBeCloseTo(13.60, 10)
+    // Regrouping rows moves no money: the aggregate still prices both sessions.
+    await expect(scanner.scan(DAY_KEY)).resolves.toMatchObject({ total: 40.80 })
+  })
+
+  it('merges a nested delegation into the root row and keeps an unread parent attributed by id', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          // The delegating session priced nothing itself today; its folded title
+          // still labels the merged row.
+          { id: 'root' as SessionId, events: [titleEvent('根会话', 0)], header: {} },
+          { id: 'mid' as SessionId, events: [pricedEvent(DAY_TIME, 0)], header: subagentHeader('root' as SessionId) },
+          { id: 'leaf' as SessionId, events: [pricedEvent(DAY_TIME, 0)], header: subagentHeader('mid' as SessionId, 2) },
+          { id: 'orphan' as SessionId, events: [pricedEvent(DAY_TIME, 0)], header: subagentHeader('gone' as SessionId) },
+        ],
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions.map(row => row.sessionId)).toEqual(['root', 'gone'])
+    const root = sessions.find(row => row.sessionId === 'root')
+    expect(root?.title).toBe('根会话')
+    expect(root?.total).toBeCloseTo(27.20, 10)
+    expect(root?.ownTotal).toBe(0)
+    // The parent session is not part of this scan, so the child's row is
+    // attributed to the id its header names, with no title to show.
+    const orphan = sessions.find(row => row.sessionId === 'gone')
+    expect(orphan?.title).toBeNull()
+    expect(orphan?.total).toBeCloseTo(13.60, 10)
+    expect(orphan?.ownTotal).toBe(0)
+  })
+
+  it('keeps a user fork as a row of its own (only subagent children merge)', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          { id: 'source' as SessionId, events: [titleEvent('来源会话', 0), pricedEvent(DAY_TIME, 0)] },
+          {
+            id: 'fork' as SessionId,
+            events: [pricedEvent(DAY_TIME, 0), pricedEvent(DAY_TIME, 1)],
+            // Fork lineage names a parent, but neither subagent marker is set:
+            // a session the user forked stays its own conversation.
+            header: { isSeeded: true, parentSession: 'source' as SessionId },
+          },
+        ],
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions.map(row => row.sessionId)).toEqual(['fork', 'source'])
+    expect(sessions[0]?.total).toBeCloseTo(27.20, 10)
+    expect(sessions[0]?.ownTotal).toBeCloseTo(27.20, 10)
+    expect(sessions[1]?.total).toBeCloseTo(13.60, 10)
+  })
+})
+
+describe('TodaySpendScanner subagent roll-up (projection path)', () => {
+  it('merges a cold subagent child into its live parent\'s eager cell', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          { id: 'parent' as SessionId, events: [titleEvent('父会话')], header: {} },
+        ],
+      }),
+      persistence: () => ({
+        listSnapshots: async () => [
+          {
+            header: {
+              id: 'child' as SessionId,
+              parentSession: 'parent' as SessionId,
+              origin: 'subagent' as const,
+              delegationDepth: 1,
+            },
+            revision: SessionPersistenceRevision('r-child'),
+          },
+        ],
+        inspect: async () => ({ meta: { origin: 'subagent' as const }, events: [pricedEvent(DAY_TIME, 0)] }),
+      }),
+      projections: () => ({
+        stateOf: (session) => session.id === 'parent'
+          ? { dayKey: DAY_KEY, spend: { total: 2, models: [] } }
+          : undefined,
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.sessionId).toBe('parent')
+    expect(sessions[0]?.title).toBe('父会话')
+    expect(sessions[0]?.total).toBeCloseTo(15.60, 10)
+    expect(sessions[0]?.ownTotal).toBeCloseTo(2, 10)
   })
 })
 

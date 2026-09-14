@@ -89,8 +89,28 @@ export type {
 export type * from './types.ts'
 export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit, foldOwnBilling } from './projection.ts'
 export type { BillingUnitFold, BillingUnitState } from './projection.ts'
-export { foldSessionTitle, liveSessionEvents, persistenceInspect, persistenceListSnapshots, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
-export type { ScannerPersistedHeader, ScannerPersistence, ScannerPersistenceHandle, ScannerPersistenceLegacy, ScannerPersistedRead, ScannerSession, TodaySpendScannerDeps } from './today-spend.ts'
+export {
+  foldSessionTitle,
+  isSubagentSession,
+  liveSessionEvents,
+  persistenceInspect,
+  persistenceListSnapshots,
+  rollUpSubagentSpend,
+  TodaySpendCache,
+  TodaySpendScanner,
+  topLevelSessionOf,
+} from './today-spend.ts'
+export type {
+  ScannerPersistedHeader,
+  ScannerPersistence,
+  ScannerPersistenceHandle,
+  ScannerPersistenceLegacy,
+  ScannerPersistedRead,
+  ScannerSession,
+  SessionHeaderSlice,
+  SessionLineage,
+  TodaySpendScannerDeps,
+} from './today-spend.ts'
 
 export const name = 'llm-billing'
 
