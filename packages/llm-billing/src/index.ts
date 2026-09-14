@@ -101,6 +101,7 @@ export {
   topLevelSessionOf,
 } from './today-spend.ts'
 export type {
+  ColdResolution,
   ScannerPersistedHeader,
   ScannerPersistence,
   ScannerPersistenceHandle,
