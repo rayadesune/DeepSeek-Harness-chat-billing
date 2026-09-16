@@ -51,6 +51,19 @@ for (const packageDir of readdirSync(join(ROOT, 'packages'))) {
       } else {
         notices.push(`${manifest.name}: typert host manifest owned correctly`)
       }
+      // The DSH runtime in the harness checkout reads a strict codec's
+      // `create()` factory (the published alpha loader reads `schema`); an
+      // artifact carrying only one of the two fails profile boot on the other.
+      // scripts/typert-compat.mjs bridges them after tsdown — this gate keeps a
+      // build that skipped that step out of the registry.
+      const codecs = readFileSync(host, 'utf8').match(/mode: 'strict',/g)?.length ?? 0
+      const bridged = readFileSync(host, 'utf8').match(/create: \(\) =>/g)?.length ?? 0
+      if (codecs !== bridged) {
+        failures.push(
+          `${manifest.name}: ${String(codecs)} strict codec(s) but ${String(bridged)} create() factor(ies) — `
+          + 'run node scripts/typert-compat.mjs (build:host does it)',
+        )
+      }
     }
   }
 
