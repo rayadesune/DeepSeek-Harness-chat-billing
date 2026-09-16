@@ -3,3 +3,4 @@ lib/
 *.tsbuildinfo
 dist/
 .DS_Store
+.playwright-mcp/
