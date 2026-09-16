@@ -125,9 +125,9 @@ export function SpendCard({ sessionId, useProjection, getSessionSpend, t }: Spen
             </div>
             <div className={css.titleRule} aria-hidden />
             <dl className={css.details} data-spend-buckets>
-              <Row label={t('card.input')} value={formatSpend(buckets.uncachedInput)} />
-              <Row label={t('card.cacheRead')} value={formatSpend(buckets.cacheRead)} />
-              <Row label={t('card.output')} value={formatSpend(buckets.output)} />
+              <Row label={t('label.bucket.input')} value={formatSpend(buckets.uncachedInput)} />
+              <Row label={t('label.bucket.cacheRead')} value={formatSpend(buckets.cacheRead)} />
+              <Row label={t('label.bucket.output')} value={formatSpend(buckets.output)} />
             </dl>
           </div>,
           document.body,
