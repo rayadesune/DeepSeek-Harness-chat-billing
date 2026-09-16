@@ -188,6 +188,12 @@ export interface SessionHeaderSlice extends SessionLineage {
   readonly seedLength?: number
   /** 0.1.2-alpha.4+: whether the session has a fork-inherited prefix. */
   readonly isSeeded?: boolean
+  /**
+   * Durable creation instant (epoch ms). The conversation read uses it to tell
+   * whether a session's spend can span more than the queried day; it is also
+   * part of the projection-cache record identity.
+   */
+  readonly createdAt?: number
 }
 
 /**
@@ -226,8 +232,6 @@ export interface ScannerPersistedHeader extends SessionHeaderSlice {
   readonly id: SessionId
   /** Session format generation; part of the projection-cache record identity. */
   readonly version?: number
-  /** Session creation time; part of the projection-cache record identity. */
-  readonly createdAt?: number
   /** Working directory recorded on the header; part of the projection-cache record identity. */
   readonly cwd?: string
 }
@@ -488,6 +492,68 @@ export interface TodaySpendDetail {
   aggregate: DeepSeekTodaySpend
   /** Today's per-session rows, sorted by cost descending. */
   sessions: DeepSeekTodaySessionSpend[]
+  /** The Beijing day this pass was computed for (the key its day filters used). */
+  dayKey: string
+  /**
+   * WHOLE-session own spend of every session this pass priced, by id: all days
+   * the log covers, the fork prefix already excluded, subagents not yet merged.
+   * The ranking only reports the queried day, but the same fold carries the
+   * whole-session total, so a conversation read ({@link delegatedSpendOf}) costs
+   * no second scan.
+   */
+  ownSpend: ReadonlyMap<SessionId, DeepSeekTodaySpend>
+  /** Lineage of every session this pass saw, by id: the delegation tree's shape. */
+  lineage: ReadonlyMap<SessionId, SessionLineage>
+  /**
+   * Durable creation instant of every session this pass saw, by id (absent when
+   * the header carried none). The panel's today share is gated on the session
+   * having been created BEFORE the queried day, which this answers without
+   * another read.
+   */
+  createdAt: ReadonlyMap<SessionId, number>
+}
+
+/**
+ * The merged whole-session spend of every subagent session delegated FROM one
+ * session, transitively: the subagent subtotal a conversation's own log cannot
+ * price. Only sessions DSH marked as delegation children count, so a user fork
+ * (which names a `parentSession` too) is never billed into its source. A
+ * malformed lineage that points back at the queried session is ignored rather
+ * than counted twice.
+ * @param id - the session whose delegated subtree to sum.
+ * @param ownSpend - whole-session own spend per session, from one scan pass.
+ * @param lineage - lineage per session, from the same pass.
+ * @returns the merged subtree spend; empty when the session delegated nothing priced.
+ */
+export function delegatedSpendOf(
+  id: SessionId,
+  ownSpend: ReadonlyMap<SessionId, DeepSeekTodaySpend>,
+  lineage: ReadonlyMap<SessionId, SessionLineage>,
+): DeepSeekTodaySpend {
+  const children = new Map<SessionId, SessionId[]>()
+  for (const [childId, header] of lineage) {
+    const parent = header.parentSession
+    if (parent === undefined || !isSubagentSession(header)) continue
+    const siblings = children.get(parent)
+    if (siblings === undefined) children.set(parent, [childId])
+    else siblings.push(childId)
+  }
+  // The queried session is pre-visited: a cycle that leads back to it must not
+  // add its own spend to its delegated subtotal.
+  const seen = new Set<SessionId>([id])
+  const pending = [...children.get(id) ?? []]
+  for (const child of pending) seen.add(child)
+  let total = emptyTodaySpend()
+  while (pending.length > 0) {
+    const current = pending.pop()!
+    total = mergeTodaySpend(total, ownSpend.get(current) ?? emptyTodaySpend())
+    for (const child of children.get(current) ?? []) {
+      if (seen.has(child)) continue
+      seen.add(child)
+      pending.push(child)
+    }
+  }
+  return total
 }
 
 /**
@@ -718,7 +784,7 @@ export class TodaySpendScanner {
    */
   private async collectTodayEvents(
     dayKey: string,
-    onSession: (id: SessionId, fold: BillingFoldState, title: string | null, lineage: SessionLineage) => void,
+    onSession: (id: SessionId, fold: BillingFoldState, title: string | null, lineage: SessionHeaderSlice) => void,
   ): Promise<boolean> {
     const { sessions, persistence, maxEvents, logger, billing, catalog } = this.deps
     const liveIds = new Set<SessionId>()
@@ -729,7 +795,7 @@ export class TodaySpendScanner {
       id: SessionId,
       events: readonly SessionEvent[],
       seedLength: number,
-      lineage: SessionLineage,
+      lineage: SessionHeaderSlice,
     ): { fold: BillingFoldState; title: string | null } => {
       const folder = new BillingFolder(billing, catalog, seedLength)
       for (const event of events) {
@@ -808,6 +874,8 @@ export class TodaySpendScanner {
     const rows = new Map<SessionId, DeepSeekTodaySessionSpend>()
     const lineage = new Map<SessionId, SessionLineage>()
     const titles = new Map<SessionId, string | null>()
+    const ownSpend = new Map<SessionId, DeepSeekTodaySpend>()
+    const createdAt = new Map<SessionId, number>()
     const liveIds = new Set<SessionId>()
     if (sessions !== undefined) {
       const store = sessions()
@@ -815,12 +883,18 @@ export class TodaySpendScanner {
         for (const { session, state } of this.liveBillingEntries(store, projectionsService)) {
           liveIds.add(session.id)
           lineage.set(session.id, session.header ?? {})
+          const born = session.header?.createdAt
+          if (born !== undefined) createdAt.set(session.id, born)
           // The eager cell carries no title; fold it from the live log for
           // every live session, not just today's payers, so a parent that
           // delegated but priced nothing itself still titles its merged row.
           const title = foldSessionTitle(liveSessionEvents(session))
           titles.set(session.id, title)
-          if (state === undefined || state.dayKey !== dayKey) continue
+          if (state === undefined) continue
+          // The cell's whole-session total feeds the conversation read even
+          // when the session priced nothing on the queried day.
+          ownSpend.set(session.id, state.session)
+          if (state.dayKey !== dayKey) continue
           aggregate = mergeTodaySpend(aggregate, state.spend)
           rows.set(session.id, {
             sessionId: session.id,
@@ -837,17 +911,21 @@ export class TodaySpendScanner {
       for (const { header } of snapshots) {
         if (liveIds.has(header.id)) continue
         lineage.set(header.id, header)
+        if (header.createdAt !== undefined) createdAt.set(header.id, header.createdAt)
       }
       await this.coldAdopt(liveIds, snapshots, dayKey, (id, resolved) => {
         // A resolved title is worth keeping even when the session priced
         // nothing today: its subagents' rows merge into this session's row.
         if (resolved.title !== null && !titles.has(id)) titles.set(id, resolved.title)
+        // Same for the whole-session total: it is the conversation read's
+        // material whether or not the queried day is the one it last priced.
+        ownSpend.set(id, resolved.fold.session)
         if (resolved.fold.dayKey !== dayKey) return
         aggregate = mergeTodaySpend(aggregate, resolved.fold.spend)
         rows.set(id, { sessionId: id, title: resolved.title, total: resolved.fold.spend.total, ownTotal: resolved.fold.spend.total })
       })
     }
-    return { aggregate, sessions: rollUpSubagentSpend([...rows.values()], lineage, titles) }
+    return { aggregate, sessions: rollUpSubagentSpend([...rows.values()], lineage, titles), dayKey, ownSpend, lineage, createdAt }
   }
 
   /**
@@ -868,16 +946,23 @@ export class TodaySpendScanner {
     const rows: DeepSeekTodaySessionSpend[] = []
     const lineage = new Map<SessionId, SessionLineage>()
     const titles = new Map<SessionId, string | null>()
+    const ownSpend = new Map<SessionId, DeepSeekTodaySpend>()
+    const createdAt = new Map<SessionId, number>()
     await this.collectTodayEvents(dayKey, (id, fold, title, sessionLineage) => {
       lineage.set(id, sessionLineage)
       // Titles cover every session the pass accounted for (not only today's
       // payers), so a parent that delegated without pricing anything itself is
       // titled even when its own row comes from the roll-up.
       titles.set(id, title)
+      const born = sessionLineage.createdAt
+      if (born !== undefined) createdAt.set(id, born)
+      // The whole-session total is the conversation read's material even when
+      // the session priced nothing on the queried day.
+      ownSpend.set(id, fold.session)
       if (fold.dayKey !== dayKey) return
       aggregate = mergeTodaySpend(aggregate, fold.spend)
       rows.push({ sessionId: id, title, total: fold.spend.total, ownTotal: fold.spend.total })
     })
-    return { aggregate, sessions: rollUpSubagentSpend(rows, lineage, titles) }
+    return { aggregate, sessions: rollUpSubagentSpend(rows, lineage, titles), dayKey, ownSpend, lineage, createdAt }
   }
 }

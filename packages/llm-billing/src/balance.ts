@@ -13,7 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 // Typert-generated ./typert and ./remote artifacts import Zod at runtime.
 import type {} from 'zod'
-import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekSessionSpend, DeepSeekSessionTurnSpends, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
+import type { DeepSeekBalance, DeepSeekBalanceLine, DeepSeekDelegatedSpend, DeepSeekSessionSpend, DeepSeekSessionTurnSpends, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 
 /** Map a balance HTTP status to a stable LlmError code. */
 function httpErrorCode(status: number): string {
@@ -124,6 +124,13 @@ export interface DeepSeekBalanceGatewayOptions {
    */
   fetchTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend>
   /**
+   * Compute the subagent part of one conversation's billed spend through the
+   * plugin's resolved facts: every subagent session that session delegated,
+   * transitively, across every day. Served from the same cached pass as
+   * {@link fetchTodaySpend}; `force` bypasses the time window like it does.
+   */
+  fetchDelegatedSpend: (sessionId: SessionId, force?: boolean) => Promise<DeepSeekDelegatedSpend>
+  /**
    * Compute one completed Turn's billed spend through the plugin's resolved
    * facts, identified by its closing assistant message id.
    */
@@ -203,6 +210,21 @@ export class DeepSeekBalanceGateway extends TypertRemoteService {
   @Remote('getTodaySessionsSpend')
   getTodaySessionsSpend(force?: boolean): Promise<DeepSeekTodaySessionsSpend> {
     return this.options.fetchTodaySessionsSpend(force ?? false)
+  }
+
+  /**
+   * Read the subagent part of one conversation's billed spend: every subagent
+   * session the given session delegated, transitively, across every day (a
+   * session's own log cannot price its delegation children). `isSubagent`
+   * reports whether the queried session is itself a delegated child.
+   * @param sessionId - the session whose delegated subtree to sum.
+   * @param force - bypass the host-side 60s cache (manual refresh); omitted
+   *   means a cached read.
+   * @returns the delegated subtotal plus its per-model rows.
+   */
+  @Remote('getDelegatedSpend')
+  getDelegatedSpend(sessionId: SessionId, force?: boolean): Promise<DeepSeekDelegatedSpend> {
+    return this.options.fetchDelegatedSpend(sessionId, force ?? false)
   }
 
   /**
