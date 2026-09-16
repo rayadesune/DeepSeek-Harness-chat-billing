@@ -16,11 +16,11 @@
     # baseURL: https://api.deepseek.com
 ```
 
-插件注册 `billing` Remote，含六个方法：`getBalance(force?)`（解析后的 `/user/balance` 快照；15 秒宿主 TTL 内复用，`force` 绕过，单次请求 5 秒超时）、`getSessionSpend(sessionId)`（单个会话的计费花费）、`getTodaySpend(force?)`（当前北京时间自然日内所有会话的计费花费合计；`force` 绕过宿主侧缓存，供徽标手动刷新使用）、`getTodaySessionsSpend(force?)`（今日按**对话**的计费花费，按花费从高到低排序，每行带会话的持久标题与该会话自身今日份金额——见[子代理会话并入父会话行](#子代理会话并入父会话行)）、`getTurnSpend(sessionId, messageId)`（单个已完成回合的计费花费，按收尾助手消息 id 定位）与 `getSessionTurnSpends(sessionId)`（该会话所有已完成回合的 `messageId → 金额` 映射，一趟折叠——对话每个消息行都要显示金额，客户端因此每会话只拉一次，而不是逐行调用 `getTurnSpend`）。计价的样本来源有两处：`assistant/message` 自身的 usage，以及失败/重试的 `assistant/attempt` 内嵌 stream 里的 usage（后者用最近一条 `request/header` 的模型），各按样本自身发生时刻（北京时间）所在的峰/谷单价、以及该时刻生效的官方费率版本计价——高峰窗口仅周一至周五适用，周末全天按低谷价。同一 `(turn, step)` 的后一份样本替换前一份，`llm/retry-started` 之后重试的那次累加，与 DSH 自己的回合用量口径一致；随后按模型汇总。一个回合即收尾消息所在的 `turn/start`..`turn/end` 区间；排行从每个会话日志里最后一条 `session/title` 事件折叠标题（last-wins，重命名事件一旦提交、会话被重新读取即反映新名字）。
+插件注册 `billing` Remote，含七个方法：`getBalance(force?)`（解析后的 `/user/balance` 快照；15 秒宿主 TTL 内复用，`force` 绕过，单次请求 5 秒超时）、`getSessionSpend(sessionId)`（单个会话的计费花费）、`getTodaySpend(force?)`（当前北京时间自然日内所有会话的计费花费合计；`force` 绕过宿主侧缓存，供徽标手动刷新使用）、`getTodaySessionsSpend(force?)`（今日按**对话**的计费花费，按花费从高到低排序，每行带会话的持久标题与该会话自身今日份金额——见[子代理会话并入父会话行](#子代理会话并入父会话行)）、`getDelegatedSpend(sessionId, force?)`（一次对话的子代理部分——见同一节）、`getTurnSpend(sessionId, messageId)`（单个已完成回合的计费花费，按收尾助手消息 id 定位）与 `getSessionTurnSpends(sessionId)`（该会话所有已完成回合的 `messageId → 金额` 映射，一趟折叠——对话每个消息行都要显示金额，客户端因此每会话只拉一次，而不是逐行调用 `getTurnSpend`）。计价的样本来源有两处：`assistant/message` 自身的 usage，以及失败/重试的 `assistant/attempt` 内嵌 stream 里的 usage（后者用最近一条 `request/header` 的模型），各按样本自身发生时刻（北京时间）所在的峰/谷单价、以及该时刻生效的官方费率版本计价——高峰窗口仅周一至周五适用，周末全天按低谷价。同一 `(turn, step)` 的后一份样本替换前一份，`llm/retry-started` 之后重试的那次累加，与 DSH 自己的回合用量口径一致；随后按模型汇总。一个回合即收尾消息所在的 `turn/start`..`turn/end` 区间；排行从每个会话日志里最后一条 `session/title` 事件折叠标题（last-wins，重命名事件一旦提交、会话被重新读取即反映新名字）。
 
 ### 今日花费读取路径（消息触发不再全量扫描）
 
-`getTodaySpend()` 每次请求都不会全量扫描所有会话日志。一个 60 秒的北京日缓存带 in-flight 合并，服务于消息触发的读取；只有手动刷新（`force`）绕过时间窗口。缓存未命中时，**一次扫描同时产出聚合与排行**（聚合即各行之和）：
+`getTodaySpend()` 每次请求都不会全量扫描所有会话日志。一个 60 秒的北京日缓存带 in-flight 合并，服务于消息触发的读取；只有手动刷新（`force`）绕过时间窗口。缓存未命中时，**一次扫描同时产出聚合、排行与子代理读取所需的全会话累计**（聚合即排行各行之和）：
 
 - **投影路径**（当组合中装配了 `@deepseek-ai/dsh-session-projection` 时启用）：插件注册客户端可见的 `billingTodaySpend` 投影单元——**注册表一出现就提前注册**，因此 DSH 的 write-behind 会在每个 `turn/end` 为每个会话落一行检查点。live 会话零日志 I/O 直读其 eager 单元；冷会话若投影缓存的 `cachedSnapshot` 行（零 I/O）自身的最新计价日不是查询日，就直接作答，否则（或没有可用行时）才读取日志本地折叠。只有持久化 revision 在上次解析后变化过的会话才会被读取；读取失败的会话按 revision 记住，不再每轮重试。
 - **事件路径**（无注册表时的回退）：对每个会话用同一套计价折叠（收集时按北京日过滤，20 万事件上限）。持久化 revision 未变的会话，改用本扫描器之前为**同一个 revision** 折出的结果作答，而不是重新读取；被事件上限截断的那一趟不留记忆，下一趟会重读被截断的部分。
@@ -35,7 +35,11 @@
 
 子代理（subagent）子会话是委派它的那次对话花的钱，而不是用户打开的会话，所以今日排行列的是**对话**：每一行子代理会话在排序之前都被并入其 `parentSession` 链顶端那个顶层会话的行里。DSH 会在子会话的持久 header 上盖 `origin: 'subagent'`、委派方会话 id 与 `delegationDepth`（父深度 + 1），两个标记都以结构方式读取，任一存在即认定为子会话，因此多代委派（子代理又派子代理）同样落到同一个顶层行。**用户手动分叉**的会话虽然也带 `parentSession`，但不带任何 subagent 标记，仍然是自己一行。
 
-合并后的行给出两个金额：`total` 是这次对话的整日花费（本会话加上它（递归）委派的每个子代理），`ownTotal` 是本会话自己的花费，当天没有任何后代计价时两者相等。浏览器端「本会话花费」后面的括号读的是 `ownTotal`，因此它始终是「旁边那个金额里落在今天的部分」。整日**合计**（`getTodaySpend`）不变：两条路径求和的是同一批会话，合并只是把行重新归组，不会在总额之间搬钱。顶层会话自己当天没计价、但它的子代理计价了，它照样有一行（`ownTotal` 为 0），标题取自扫描时折出的日志。
+合并后的行给出两个金额：`total` 是这次对话的整日花费（本会话加上它（递归）委派的每个子代理），`ownTotal` 是本会话自己的花费，当天没有任何后代计价时两者相等。整日**合计**（`getTodaySpend`）不变：两条路径求和的是同一批会话，合并只是把行重新归组，不会在总额之间搬钱。顶层会话自己当天没计价、但它的子代理计价了，它照样有一行（`ownTotal` 为 0），标题取自扫描时折出的日志。
+
+浏览器还需要同一套「对话」口径去显示整日／整份日志的花费，而会话自己的日志无法为它的委派子会话计价——所以有了 `getDelegatedSpend(sessionId)`：返回那棵子树的金额，即该会话（递归）委派的每个子代理会话、按其日志覆盖的每一天求和，并把模型行合并（分项仍然加得起来）。它与今日花费**共用同一次缓存扫描**（那一趟本来就会折出每个会话的全会话累计，因此这里不额外读日志），并额外给出 `isSubagent`——被查询的会话自己是不是委派子会话（是的话它的花费落在委派它的那个会话的排行行里）。用户手动分叉永远不会被算作委派子会话（它带 `parentSession`，但不带任何 subagent 标记）。
+
+徽标把这棵子树加到会话自身的实时花费上：`本会话花费` 因此读作**整次对话**的金额（徽标与面板共用同一文案）。同一次读取还会给出 `crossedDay`——被查询的会话是否创建于当前北京日之前——它是面板括号里「今日份」的开关：金额仍取排行行的 `total`（两边都是合并口径、数的是同一棵树），但**是否显示**取决于创建日，而不是比较两个金额，因为实时的会话数字与 60 秒缓存的排行行在回合中途本来就会不一致。
 
 ## 分叉会话
 
@@ -43,7 +47,7 @@
 
 ## 运行时兼容性
 
-0.1.2-alpha.4 起，DSH 把 live `Session` 的日志读取表面从 `Session.events` 改为 `Session.snapshotEvents()`（无参 = 当前全量日志）与 `Session.ownEvents()`，并把 `SessionHeader.seedLength` 移至 `Session.inheritedEventCount`（持久化侧 `inspect()` 的结果在 `meta` 之外携带该值，`listSnapshots()` 的 header 只剩布尔 `isSeeded`）。插件的所有日志读取都走结构适配器 `liveSessionEvents` / `forkBoundaryOf` / `isSeededSession`，同时接受 ≤ 0.1.1-rc.2 与 0.1.2-alpha.4+ 两种形状——npm 发布基线（`^0.1.2-alpha.5`）与超前于它的 monorepo 运行时代码均无需改动即可工作。遇到两种形状都没有的未知运行时表面时，插件会显式失败而不是静默按零花费计价。排行的血缘读取同样以结构方式完成：header 里既没有 `origin: 'subagent'` 也没有非零 `delegationDepth` 的会话（旧日志，或创建时就没有这两个字段的会话）直接视作顶层会话、保留自己一行。
+0.1.2-alpha.4 起，DSH 把 live `Session` 的日志读取表面从 `Session.events` 改为 `Session.snapshotEvents()`（无参 = 当前全量日志）与 `Session.ownEvents()`，并把 `SessionHeader.seedLength` 移至 `Session.inheritedEventCount`（持久化侧 `inspect()` 的结果在 `meta` 之外携带该值，`listSnapshots()` 的 header 只剩布尔 `isSeeded`）。插件的所有日志读取都走结构适配器 `liveSessionEvents` / `forkBoundaryOf` / `isSeededSession`，同时接受 ≤ 0.1.1-rc.2 与 0.1.2-alpha.4+ 两种形状——npm 发布基线（`^0.1.6-alpha.1`）与超前于它的 monorepo 运行时代码均无需改动即可工作。遇到两种形状都没有的未知运行时表面时，插件会显式失败而不是静默按零花费计价。排行的血缘读取同样以结构方式完成：header 里既没有 `origin: 'subagent'` 也没有非零 `delegationDepth` 的会话（旧日志，或创建时就没有这两个字段的会话）直接视作顶层会话、保留自己一行。
 
 持久化服务的表面同样换代：0.1.1-rc.2 提供 `inspect(id)` / `listSnapshots()`，而 handle 化 seam 提供 `open(id, 'read')` + `SessionHandle.read()` / `list()`。扫描器通过 `persistenceInspect` / `persistenceListSnapshots` 同时读取两代表面（handle 总会关闭，读取失败时也一样），因此同一套插件既能服务已发布的 alpha 线，也能服务重构后的 checkout。`SessionHandle.read()` 自身也有两代：最初返回裸事件数组，DSH `9b78f99dec`（0.1.5-alpha.1 checkout 中）起返回 `{ eventState, events }`；`handleReadEvents` 同时接受两种形状，冷读因此不受该变更影响。
 
