@@ -250,6 +250,45 @@ describe('apply / today spend', () => {
     await ctx.fiber.dispose()
   })
 
+  it('serves a conversation\'s delegated subtree from the same cached scan', async () => {
+    const ctx = new Context()
+    const sessions = [
+      // Born three days ago: its spend can span more than today.
+      { id: 'session-parent' as SessionId, events: [pricedEvent(0)], header: { createdAt: Date.now() - 3 * 86_400_000 } },
+      // No resolvable creation instant: an unproven crossing reads as `false`.
+      {
+        id: 'session-child' as SessionId,
+        events: [pricedEvent(0)],
+        header: { parentSession: 'session-parent' as SessionId, origin: 'subagent', delegationDepth: 1 },
+      },
+    ]
+    ctx.provide('sessions', {
+      list: () => sessions,
+      get: (id: SessionId) => sessions.find(session => session.id === id),
+    } as never)
+    const inspect = vi.fn()
+    ctx.provide('sessionPersistence', { listSnapshots: async () => [], inspect } as never)
+    applyBilling(ctx, {})
+    const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
+    const own = await gateway.getSessionSpend('session-parent' as SessionId)
+    const delegated = await gateway.getDelegatedSpend('session-parent' as SessionId)
+    // The child's own billed samples, which the parent's log cannot price.
+    expect(delegated.total).toBeGreaterThan(0)
+    expect(delegated.total).toBeCloseTo(own.total, 10)
+    expect(delegated.isSubagent).toBe(false)
+    // The parent was created three days ago, so its spend can span today.
+    expect(delegated.crossedDay).toBe(true)
+    expect(delegated.models.map(row => row.model)).toEqual(['deepseek-v4-flash'])
+    // The child is itself a delegated session, delegated nothing onward, and
+    // carries no resolvable creation instant — no proven crossing.
+    await expect(gateway.getDelegatedSpend('session-child' as SessionId)).resolves.toMatchObject({
+      total: 0,
+      isSubagent: true,
+      crossedDay: false,
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('aggregates today\'s spend across a very large session log without exceeding the call stack', async () => {
     const ctx = new Context()
     ctx.provide('sessions', { list: () => [] } as never)

@@ -100,9 +100,8 @@ export interface DeepSeekTodaySessionSpend {
   /**
    * The session's own billed cost in CNY on the queried day, before its
    * subagent descendants were merged into {@link total}; they are equal when no
-   * descendant priced anything that day. The panel's "this session's share of
-   * today" reads THIS one, so the parenthesized amount stays the portion of the
-   * session's own amount that fell on the day.
+   * descendant priced anything that day. The row's decomposition fact: `total`
+   * is the conversation's day, this is the session's own share of it.
    */
   ownTotal: number
 }
@@ -115,6 +114,37 @@ export interface DeepSeekTodaySessionSpend {
 export interface DeepSeekTodaySessionsSpend {
   /** Top-level sessions with today's spend, sorted by `total` descending. */
   sessions: readonly DeepSeekTodaySessionSpend[]
+}
+
+/**
+ * The subagent part of one conversation's billed spend: every subagent session
+ * the queried session delegated (transitively), summed across every day its log
+ * covers. A session's own log cannot price its delegation children, so the
+ * browser adds this subtotal to the live own-session value to show what the
+ * conversation actually cost.
+ */
+export interface DeepSeekDelegatedSpend {
+  /** Merged billed cost in CNY across every delegated subagent session. */
+  total: number
+  /** One row per model priced in those sessions; empty when the session delegated nothing priced. */
+  models: readonly DeepSeekSessionSpendModel[]
+  /**
+   * Whether the QUERIED session is itself a delegated subagent child. Its own
+   * spend then rides the ranking row of the top-level session that delegated
+   * it, so the panel has no row of its own to read a today share from.
+   */
+  isSubagent: boolean
+  /**
+   * Whether the queried session was created BEFORE the current Beijing day, so
+   * its billed spend can span more than today. This — not a comparison of two
+   * amounts — is what decides whether the panel renders the parenthesized today
+   * share: the live session amount and the 60-second-cached ranking row drift
+   * apart mid-turn, which would otherwise conjure a parenthesis for a session
+   * that started today. `false` when the session started on the current day or
+   * when its creation instant could not be resolved (an unproven crossing must
+   * not conjure one either).
+   */
+  crossedDay: boolean
 }
 
 /** The billed cost of one completed Turn. */

@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { computeTodaySpend, resolveBilling } from '../src/billing.ts'
 import { billingTodaySpendDefinition, BILLING_UNIT_KEY, type BillingUnitState } from '../src/projection.ts'
 import {
+  delegatedSpendOf,
   isSubagentSession,
   TodaySpendCache,
   TodaySpendScanner,
@@ -845,6 +846,45 @@ describe('subagent lineage', () => {
     expect(topLevelSessionOf('lost' as SessionId, lineage)).toBe('unlisted')
     expect(topLevelSessionOf('a' as SessionId, lineage)).toBe('b')
   })
+
+  it('sums only the delegation children a conversation owns', () => {
+    // parent owns child → grandchild; `sibling` is another conversation's child,
+    // `fork` is a user fork naming the same parent, and the queried session's
+    // own spend must stay out of its own delegated subtotal.
+    const lineage = new Map<SessionId, SessionLineage>([
+      ['parent' as SessionId, {}],
+      ['child' as SessionId, { origin: 'subagent', parentSession: 'parent' as SessionId, delegationDepth: 1 }],
+      ['grandchild' as SessionId, { origin: 'subagent', parentSession: 'child' as SessionId, delegationDepth: 2 }],
+      ['other' as SessionId, {}],
+      ['sibling' as SessionId, { origin: 'subagent', parentSession: 'other' as SessionId, delegationDepth: 1 }],
+      ['fork' as SessionId, { parentSession: 'parent' as SessionId }],
+    ])
+    const one = (total: number) => ({ total, models: [] })
+    const ownSpend = new Map<SessionId, { total: number; models: never[] }>([
+      ['parent' as SessionId, one(1)],
+      ['child' as SessionId, one(2)],
+      ['grandchild' as SessionId, one(4)],
+      ['other' as SessionId, one(8)],
+      ['sibling' as SessionId, one(16)],
+      ['fork' as SessionId, one(32)],
+    ])
+    expect(delegatedSpendOf('parent' as SessionId, ownSpend, lineage).total).toBe(6)
+    // The grandchild is nobody else's: only its own descendants (none) count.
+    expect(delegatedSpendOf('grandchild' as SessionId, ownSpend, lineage).total).toBe(0)
+  })
+
+  it('ignores a malformed lineage that would bill a session into its own subtotal', () => {
+    const lineage = new Map<SessionId, SessionLineage>([
+      ['a' as SessionId, { origin: 'subagent', parentSession: 'b' as SessionId }],
+      ['b' as SessionId, { origin: 'subagent', parentSession: 'a' as SessionId }],
+    ])
+    const ownSpend = new Map<SessionId, { total: number; models: never[] }>([
+      ['a' as SessionId, { total: 1, models: [] }],
+      ['b' as SessionId, { total: 2, models: [] }],
+    ])
+    // b is a's delegated child; the cycle back to a adds nothing twice.
+    expect(delegatedSpendOf('a' as SessionId, ownSpend, lineage).total).toBe(2)
+  })
 })
 
 describe('TodaySpendScanner subagent roll-up (events path)', () => {
@@ -873,11 +913,41 @@ describe('TodaySpendScanner subagent roll-up (events path)', () => {
     expect(sessions[0]?.title).toBe('父会话')
     // The conversation's day: the parent's ¥13.60 plus the child's ¥27.20.
     expect(sessions[0]?.total).toBeCloseTo(40.80, 10)
-    // `ownTotal` stays the parent's own spend — the panel's parenthesized share
-    // compares against the session's own amount, not the delegation tree's.
+    // `ownTotal` stays the parent's own spend — the row's decomposition fact.
     expect(sessions[0]?.ownTotal).toBeCloseTo(13.60, 10)
     // Regrouping rows moves no money: the aggregate still prices both sessions.
     await expect(scanner.scan(DAY_KEY)).resolves.toMatchObject({ total: 40.80 })
+  })
+
+  it('reports the conversation subtree from the same pass, off-day spend included', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          // The delegating session's only priced event is YESTERDAY's (and
+          // off-peak): it has no row today, yet its whole-session total is what
+          // the day read already folded, so the subtree read needs no second
+          // scan.
+          { id: 'parent' as SessionId, events: [titleEvent('父会话', 0), pricedEvent(OTHER_DAY, 1)], header: {} },
+          {
+            id: 'child' as SessionId,
+            events: [pricedEvent(DAY_TIME, 0)],
+            header: { parentSession: 'parent' as SessionId, origin: 'subagent' as const, delegationDepth: 1 },
+          },
+        ],
+      }),
+    }))
+    const detail = await scanner.scanDetail(DAY_KEY)
+    // The child's spend is the conversation's day, so the ranking carries one
+    // row for the parent (whose own day was empty) with `ownTotal` 0.
+    expect(detail.sessions.map(row => row.sessionId)).toEqual(['parent'])
+    expect(detail.sessions[0]?.total).toBeCloseTo(13.60, 10)
+    expect(detail.sessions[0]?.ownTotal).toBe(0)
+    expect(detail.ownSpend.get('parent' as SessionId)?.total).toBeCloseTo(6.80, 10)
+    // The conversation's subagents: the child's whole-session spend, priced at
+    // ITS OWN timestamps (the child's event is the peak-hour one).
+    expect(delegatedSpendOf('parent' as SessionId, detail.ownSpend, detail.lineage).total).toBeCloseTo(13.60, 10)
+    // A session with no delegation children has an empty subtree.
+    expect(delegatedSpendOf('child' as SessionId, detail.ownSpend, detail.lineage).total).toBe(0)
   })
 
   it('merges a nested delegation into the root row and keeps an unread parent attributed by id', async () => {

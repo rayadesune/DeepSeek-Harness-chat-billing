@@ -30,6 +30,7 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance } from './balance.ts'
 import {
+  beijingDayKey,
   computeSessionSpend,
   computeTurnSpend,
   DEFAULT_MODEL_PRICING,
@@ -40,10 +41,10 @@ import {
   SessionTurnSpendFolder,
 } from './billing.ts'
 import type { BillingConfig, BillingConfigModel, ResolvedBilling } from './billing.ts'
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekSessionTurnSpends, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
+import type { DeepSeekBalance, DeepSeekDelegatedSpend, DeepSeekSessionSpend, DeepSeekSessionTurnSpends, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend, DeepSeekTurnSpend } from './types.ts'
 import { billingTodaySpendDefinition } from './projection.ts'
 import type { BillingUnitDefinition } from './projection.ts'
-import { liveSessionEvents, persistenceInspect, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
+import { delegatedSpendOf, isSubagentSession, liveSessionEvents, persistenceInspect, TodaySpendCache, TodaySpendScanner } from './today-spend.ts'
 import type { ScannerPersistence } from './today-spend.ts'
 
 export { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from './balance.ts'
@@ -90,6 +91,7 @@ export type * from './types.ts'
 export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit, foldOwnBilling } from './projection.ts'
 export type { BillingUnitFold, BillingUnitState } from './projection.ts'
 export {
+  delegatedSpendOf,
   foldSessionTitle,
   isSubagentSession,
   liveSessionEvents,
@@ -384,11 +386,15 @@ function createUnitRegistrar(ctx: Context, unit: BillingUnitDefinition): () => v
  *   events path serves today's spend.
  * - plans A1–A3: the scanner chooses the projection path when the registry
  *   is composed, the events path otherwise.
+ * All three reads come from ONE cached pass: the day's aggregate, its
+ * per-session ranking, and the delegated-subagent subtree of a conversation
+ * (the same pass folds each session's whole-session total, so the subtree read
+ * costs no second scan).
  * @param ctx - plugin context.
  * @param facts - resolved endpoint, credential, pricing, and catalog facts.
  * @param unit - the shared projection unit definition.
  * @param ensureUnit - idempotent unit registrar (last-resort registration).
- * @returns the two today-spend loaders.
+ * @returns the three today-spend loaders.
  */
 function createTodaySpendLoaders(
   ctx: Context,
@@ -398,6 +404,7 @@ function createTodaySpendLoaders(
 ): {
   fetchTodaySpend: (force?: boolean) => Promise<DeepSeekTodaySpend>
   fetchTodaySessionsSpend: (force?: boolean) => Promise<DeepSeekTodaySessionsSpend>
+  fetchDelegatedSpend: (sessionId: SessionId, force?: boolean) => Promise<DeepSeekDelegatedSpend>
 } {
   const scanner = new TodaySpendScanner({
     sessions: () => ctx.get('sessions'),
@@ -418,6 +425,20 @@ function createTodaySpendLoaders(
   return {
     fetchTodaySpend: async (force = false) => (await todayCache.get(force)).aggregate,
     fetchTodaySessionsSpend: async (force = false) => ({ sessions: (await todayCache.get(force)).sessions }),
+    fetchDelegatedSpend: async (sessionId, force = false) => {
+      const detail = await todayCache.get(force)
+      const spend = delegatedSpendOf(sessionId, detail.ownSpend, detail.lineage)
+      const createdAt = detail.createdAt.get(sessionId)
+      return {
+        total: spend.total,
+        models: spend.models,
+        isSubagent: isSubagentSession(detail.lineage.get(sessionId)),
+        // Only a session born on an EARLIER Beijing day can have a today share
+        // worth showing. An unresolved creation instant reads as "no crossing":
+        // a share the panel cannot prove must stay hidden.
+        crossedDay: createdAt !== undefined && beijingDayKey(new Date(createdAt)) !== detail.dayKey,
+      }
+    },
   }
 }
 
@@ -510,7 +531,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('session/created', ensureUnit)
   const fetchBalance = createBalanceFetcher(ctx, facts)
   const fetchSessionSpend = createSessionSpendFetcher(ctx, facts)
-  const { fetchTodaySpend, fetchTodaySessionsSpend } = createTodaySpendLoaders(ctx, facts, unit, ensureUnit)
+  const { fetchTodaySpend, fetchTodaySessionsSpend, fetchDelegatedSpend } = createTodaySpendLoaders(ctx, facts, unit, ensureUnit)
   const fetchTurnSpend = createTurnSpendFetcher(ctx, facts)
   const fetchTurnSpends = createTurnSpendsFetcher(ctx, facts)
   new DeepSeekBalanceGateway(ctx, {
@@ -518,6 +539,7 @@ export function apply(ctx: Context, config: Config): void {
     fetchSessionSpend,
     fetchTodaySpend,
     fetchTodaySessionsSpend,
+    fetchDelegatedSpend,
     fetchTurnSpend,
     fetchTurnSpends,
   })
