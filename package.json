@@ -1,6 +1,6 @@
 {
   "name": "@rayadesu/dsh-billing",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "description": "DeepSeek Harness billing plugin: account balance and this session's billed spend with a session-header badge.",
   "license": "MIT",
   "repository": {
@@ -18,7 +18,7 @@
   },
   "scripts": {
     "build": "pnpm run build:host && pnpm run build:client",
-    "build:host": "tsc -b tsconfig.host.json && tsdown --env.DSH_BUILD_FACE host",
+    "build:host": "tsc -b tsconfig.host.json && tsdown --env.DSH_BUILD_FACE host && node scripts/typert-compat.mjs",
     "build:client": "tsc -b tsconfig.client.json && tsdown --env.DSH_BUILD_FACE client",
     "typecheck": "tsc -b tsconfig.host.json && tsc -b tsconfig.client.json",
     "lint": "eslint .",
@@ -40,13 +40,13 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@rayadesu/dsh-client-ui-billing": "^0.3.12",
-    "@rayadesu/dsh-llm-billing": "^0.3.12"
+    "@rayadesu/dsh-client-ui-billing": "^0.3.13",
+    "@rayadesu/dsh-llm-billing": "^0.3.13"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-invariants": "^0.1.2-alpha.5",
-    "@deepseek-ai/dsh-typert-generator": "^0.1.2-alpha.5",
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-invariants": "^0.1.6-alpha.1",
+    "@deepseek-ai/dsh-typert-generator": "^0.1.6-alpha.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.0",
     "eslint": "^10.9.1",
