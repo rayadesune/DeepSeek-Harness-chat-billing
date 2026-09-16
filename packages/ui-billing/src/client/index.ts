@@ -80,6 +80,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
     getSessionSpend: async (sessionId) => unwrap('billing.getSessionSpend', await billing.getSessionSpend(sessionId)),
     getTodaySpend: async (force) => unwrap('billing.getTodaySpend', await billing.getTodaySpend(force)),
     getTodaySessionsSpend: async (force) => unwrap('billing.getTodaySessionsSpend', await billing.getTodaySessionsSpend(force)),
+    getDelegatedSpend: async (sessionId, force) => unwrap('billing.getDelegatedSpend', await billing.getDelegatedSpend(sessionId, force)),
   }
 
   ctx.slots.inject(

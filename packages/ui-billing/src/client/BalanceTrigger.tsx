@@ -1,6 +1,9 @@
 /**
  * Session-header billing trigger: the balance plus the conversation-spend
- * line. Pure view over the data hook's values — no state, no effects.
+ * line. Pure view over the data hook's values — no state, no effects. The
+ * balance line uses the trigger's own `trigger.balance` (the panel headline
+ * without its "API" prefix, since the chip is narrow); the spend line arrives
+ * precomputed from the parent carrying the PANEL's `label.sessionSpend`.
  */
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
