@@ -10,6 +10,7 @@
  */
 
 import type { DeepSeekSessionSpendModel, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
+import { formatCacheHitPercent } from './format.ts'
 
 /** One priced row's cost split across the three billing buckets, in CNY. */
 export interface SpendBuckets {
@@ -63,4 +64,50 @@ export function spendBucketsOf(spend: DeepSeekTodaySpend): SpendBuckets {
 /** Whether a spend has any priced amount to show (a zero card stays hidden). */
 export function hasBilledSpend(spend: DeepSeekTodaySpend): boolean {
   return spend.total > 0 || spend.models.length > 0
+}
+
+/** One spend's three bucket TOKEN counts, in DSH's row order. */
+export interface TokenBucketCounts {
+  /** Uncached (cache-miss) input tokens, cache writes included. */
+  uncachedInput: number
+  /** Cache-hit (cache-read) input tokens. */
+  cacheRead: number
+  /** Output tokens, reasoning included. */
+  output: number
+}
+
+/**
+ * Fold one spend's model rows into the three bucket TOKEN counts — the token
+ * side of {@link spendBucketsOf}, so a surface that shows both (the panel's
+ * today rows) reads one bucket's tokens and its cost from the same rows.
+ *
+ * No reconciliation is needed here: tokens are integers, so the three counts
+ * always add up to the total the token line shows.
+ * @param spend - the day's (or one session's) priced rows.
+ * @returns the three bucket token counts.
+ */
+export function tokenBucketsOf(spend: DeepSeekTodaySpend): TokenBucketCounts {
+  let uncachedInput = 0
+  let cacheRead = 0
+  let output = 0
+  for (const row of spend.models) {
+    uncachedInput += row.cacheMissInputTokens
+    cacheRead += row.cacheHitInputTokens
+    output += row.outputTokens
+  }
+  return { uncachedInput, cacheRead, output }
+}
+
+/**
+ * The cache-hit share of one spend, in DSH's own percentage rule — the ratio of
+ * the cache-read bucket to every PROMPT-side bucket (uncached input with cache
+ * writes folded in, plus cache read), output excluded, exactly the split DSH's
+ * `billedInputTokens` makes. Rendered by {@link formatCacheHitPercent}, i.e. an
+ * integer percent that grows decimals only to keep a partial hit below 100.
+ * @param spend - the day's priced rows.
+ * @returns the percentage text without its `%`, or null when the spend billed no prompt input.
+ */
+export function cacheHitPercentOf(spend: DeepSeekTodaySpend): string | null {
+  const tokens = tokenBucketsOf(spend)
+  return formatCacheHitPercent(tokens.cacheRead, tokens.cacheRead + tokens.uncachedInput)
 }

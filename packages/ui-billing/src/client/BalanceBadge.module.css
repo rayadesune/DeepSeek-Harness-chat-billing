@@ -70,7 +70,45 @@
   }
 }
 
+/* The panel's whole vertical rhythm is two distances, both measured to the INK
+   (a text line carries half-leading, a hairline does not):
+   - LEVEL ONE — one row to the next: 6px of box, 11–11.5px of ink. A model name to
+     its own bucket line, one model block to the next block, the two 今日 detail
+     lines, and two adjacent ranking rows. The header → list gap is the single
+     deliberate exception (10px of box, 15–15.5px of ink).
+   - LEVEL TWO — a section's last line down to its closing hairline, or a hairline
+     down to the first line under it: ~12px of ink on BOTH sides. Because a hairline
+     has no half-leading, level two costs more box than level one: 7 + panel-gap 2
+     above (`.dayBucketRow + .dayBucketRow`, `.ranking`'s margin-top) and 1px border
+     + 8 below (`.spendRow`), 1 + 2 + 6 under the ranking's own title. */
+/* THE PANEL'S THREE TYPE LEVELS — the panel's only font definitions; every text
+   element takes exactly one of them (the headline row adds its own size on top
+   of level three), and members reference the level's tokens so a level is
+   retuned in ONE place:
+   - LEVEL ONE `11px/16px` tertiary tabular-nums — the detail figures: the bucket
+     breakdown 未缓存输入 ¥X · 缓存读取 ¥Y · 输出 ¥Z (today's two lines and every
+     model's), a whole today session-spend ranking row (rank, middot, title,
+     amount), the "…N more sessions" footer, and the two riders that follow a
+     row's own figure (this session's share of today, the day's cache-hit share).
+   - LEVEL TWO `12px/18px` secondary — the section and list titles: the model name
+     with its row amount, and the 今日会话花费 ranking title. A level's TEXT and its
+     NUMBERS may differ in tone: a level-two member's amount takes that level's own
+     number tone, defined here too, so a future level-two amount agrees with the
+     model row's.
+   - LEVEL THREE `13px/18px` primary tabular-nums — the rows that name a figure:
+     今日 Token (carrying its cache-hit rider), 今日花费, and 本会话花费 (carrying
+     its today-share rider). */
 .panel {
+  --billing-type-1-size: 11px;
+  --billing-type-1-line: 16px;
+  --billing-type-1-tone: var(--dsw-alias-label-tertiary);
+  --billing-type-2-size: 12px;
+  --billing-type-2-line: 18px;
+  --billing-type-2-tone: var(--dsw-alias-label-secondary);
+  --billing-type-2-number-tone: var(--dsw-alias-label-tertiary);
+  --billing-type-3-size: 13px;
+  --billing-type-3-line: 18px;
+  --billing-type-3-tone: var(--dsw-alias-label-primary);
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
@@ -98,9 +136,9 @@
 }
 
 .amountLabel {
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 18px;
+  color: var(--billing-type-3-tone);
+  font-size: var(--billing-type-3-size);
+  line-height: var(--billing-type-3-line);
   font-variant-numeric: tabular-nums;
 }
 
@@ -111,36 +149,89 @@
   line-height: 22px;
 }
 
-/* This session's share of today, riding the 本会话花费 row: the panel's secondary
-   tone one step down from the row itself, so the two amounts stay apart
-   without a label of their own (the row already names the session). It renders
-   only when the session crossed a Beijing day — see BalancePanel. The
-   parentheses carry their own spacing, so no margin is needed. */
-.spendToday {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
+/* The two riders: a row's own figure followed by a second one that belongs to it
+   — this session's share of today after 本会话花费, and the day's cache-hit share
+   after 今日 Token. Both are LEVEL ONE (the panel's most detailed tone) and carry
+   NO parentheses: the level-one tone is what sets a rider apart from the figure
+   beside it. The locale string brings one leading space and this margin adds the
+   rest of the ~8px a ranking amount keeps from an ellipsized title, so a rider
+   never crowds the figure it follows. The session rider renders only when the
+   session crossed a Beijing day — see BalancePanel. */
+.sessionToday,
+.todayHit {
+  margin-left: 5px;
+  color: var(--billing-type-1-tone);
+  font-size: var(--billing-type-1-size);
+  line-height: var(--billing-type-1-line);
+  font-variant-numeric: tabular-nums;
 }
 
+/* A section header that carries its own hairline. Every separator in the panel
+   leaves the same ~12px of INK to the text under it: 1px border + this 8px of top
+   padding + the 13px/18px label's 2.5px half-leading = 11.5px here, and 1 + 2 + 6 +
+   3 = 12px under the ranking's separator (the reference). The bottom padding stays
+   6px: that is what separates the header from the rows it owns (see
+   `.spendRow + .modelRow`). */
 .spendRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 8px 8px 6px;
   border-top: 1px solid var(--dsw-alias-border-l2);
   border-radius: 0;
 }
 
+/* A model's bucket line is the SECOND half of that model's pair: no top padding
+   (the name row above keeps 4px, see `.modelRow`) and no bottom padding either —
+   the 6px of box down to the next block's name comes from THAT row's own top
+   padding. The pair's last line therefore also reaches the next section's separator
+   at the level-one distance (`.ranking`'s own margin makes up the 8px of box that a
+   text line needs to look as far from a hairline as it is from another line). */
 .costRow {
   display: flex;
   align-items: center;
-  padding: 2px 8px 6px;
+  padding: 0 8px;
+}
+
+/* Before the ranking has anything to show, the last bucket line is the panel's last
+   child: it takes back the 6px a row normally leaves above the next separator, so
+   the panel never ends flush against the text. */
+.costRow:last-child {
+  padding-bottom: 6px;
+}
+
+/* A single priced model renders no name row at all, so its bucket line follows the
+   本会话花费 header directly and takes over the name row's own 2px (the header gap
+   `.spendRow + .modelRow` sets) instead of hugging the hairline. */
+.spendRow + .costRow {
+  padding-top: 2px;
+}
+
+/* The two 今日 bucket detail lines under the 今日 Token / 今日花费 row: the
+   per-model cost row's typography (`.costBreakdown` inside, 11px on a 16px line) on
+   the RANKING rows' vertical rhythm — 2 + panel-gap 2 + 2 = 6px of BOX between the
+   two lines, i.e. 2.5 + 6 + 2.5 = 11px of INK (LEVEL ONE), the same 11px two
+   adjacent ranking rows leave between their titles. One line of ink is not a line of
+   box, though, so the pair's LAST line keeps the LEVEL-TWO distance above the next
+   separator: 7 + panel-gap 2 = 9px of box, which measured to the ink is 2.5 + 9 =
+   11.5px — level two's ~12px, on the near side of the hairline (the separator has no
+   half-leading of its own to add, so it needs more box than a row-to-row gap). Each
+   line stands alone: no column alignment between them. */
+.dayBucketRow {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px;
+}
+
+.dayBucketRow + .dayBucketRow {
+  padding-bottom: 7px;
 }
 
 .costBreakdown {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
+  color: var(--billing-type-1-tone);
+  font-size: var(--billing-type-1-size);
+  line-height: var(--billing-type-1-line);
   font-variant-numeric: tabular-nums;
 }
 
@@ -174,28 +265,50 @@
   background: var(--dsw-alias-fill-l2);
 }
 
+/* A model name and the bucket line beneath it are one pair, and EVERY gap in the
+   list is the same LEVEL-ONE distance — the 6px two adjacent ranking rows keep
+   between their titles (3 + 3) and the two 今日 detail lines keep (2 + 2 + 2):
+   name → its own bucket line = 4 + panel-gap 2 + 0 = 6px, and one block's bucket
+   line → the next block's name = 0 + panel-gap 2 + 4 = 6px. The blocks therefore
+   sit evenly spaced (the pairs do not split off from each other); only the header
+   above the list keeps its own 10px, which is what marks it as the blocks' owner. */
 .modelRow {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 4px 8px;
   border-radius: 8px;
+}
+
+/* The session-spend row is the model blocks' HEADER: it owns the rows under it, so
+   it hugs them at 10px (2px top padding here + the 6px the row above leaves + the
+   panel's 2px gap) — the one gap in the list that is NOT the level-one 6px, which
+   is exactly what makes the header read as the list's owner. Whole panel: level one
+   = 6 (a model pair, two blocks, the 今日 detail lines, two ranking rows), header →
+   list = 10, new section = 6 + border. */
+.spendRow + .modelRow {
+  padding-top: 2px;
 }
 
 .modelName {
   flex: none;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  color: var(--billing-type-2-tone);
+  font-size: var(--billing-type-2-size);
+  line-height: var(--billing-type-2-line);
 }
 
+/* A model row's amount: a LEVEL-TWO member whose number takes that level's OWN
+   number tone — one step below the name's tone, so the row still reads name-first
+   (`DeepSeek-V4-Flash ¥13.8`, the amount receding). Any future level-two amount
+   uses this same tone. The whole row renders only while more than one model is
+   priced — see BalancePanel. */
 .tasks {
   min-width: 0;
   text-align: right;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
+  color: var(--billing-type-2-number-tone);
+  font-size: var(--billing-type-2-size);
+  line-height: var(--billing-type-2-line);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -204,16 +317,23 @@
   display: flex;
   flex-direction: column;
   gap: 0;
+  /* 0 + the panel's 2px gap + 7 here = 9px of box from the model list's last bucket
+     line (11px on a 16px line) down to this section's border; measured to the ink
+     that is 2.5 + 9 = 11.5px — LEVEL TWO, the same ~12px the hairline leaves to the
+     first line under it (`.rankingTitle`, `.spendRow`). The border contributes no
+     half-leading while a text line does, so level two needs more box than the 6px of
+     a level-one row gap. */
+  margin-top: 7px;
   padding-top: 2px;
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
 .rankingTitle {
   padding: 6px 8px 2px;
-  /* Same tone and size as the model rows (DeepSeek-V4-Flash etc.). */
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  /* LEVEL TWO, the same level as the model rows (DeepSeek-V4-Flash etc.). */
+  color: var(--billing-type-2-tone);
+  font-size: var(--billing-type-2-size);
+  line-height: var(--billing-type-2-line);
 }
 
 .rankingRow {
@@ -239,9 +359,9 @@
 .rankingIndex {
   flex: none;
   width: 16px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
+  color: var(--billing-type-1-tone);
+  font-size: var(--billing-type-1-size);
+  line-height: var(--billing-type-1-line);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -252,9 +372,9 @@
    same font). */
 .rankingDot {
   flex: none;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
+  color: var(--billing-type-1-tone);
+  font-size: var(--billing-type-1-size);
+  line-height: var(--billing-type-1-line);
   font-variant-numeric: tabular-nums;
   white-space: pre;
 }
@@ -263,9 +383,9 @@
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
+  color: var(--billing-type-1-tone);
+  font-size: var(--billing-type-1-size);
+  line-height: var(--billing-type-1-line);
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -276,15 +396,15 @@
   /* The row gap is gone (the dot carries its own spacing), so the amount
      keeps the previous 8px separation from a fully-ellipsized title. */
   margin-left: 8px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
+  color: var(--billing-type-1-tone);
+  font-size: var(--billing-type-1-size);
+  line-height: var(--billing-type-1-line);
   font-variant-numeric: tabular-nums;
 }
 
 .rankingMore {
   padding: 2px 8px 4px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  line-height: 16px;
+  color: var(--billing-type-1-tone);
+  font-size: var(--billing-type-1-size);
+  line-height: var(--billing-type-1-line);
 }
