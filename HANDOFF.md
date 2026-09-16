@@ -1,3 +1,27 @@
+# HANDOFF — 发布记录（2026-09-15 · v0.3.13）
+
+* 提交：`b48f3fe`（fix：DSH 0.1.6 基线 + typert 桥接）+ `2b882f0`（feat：宿主对话口径）
+  + `786fd9a`（feat(ui)：整次对话口径）+ `d17bbf4`（feat(ui)：命中率 + 三级字体）
+  + `81b638a`（chore：收尾脚本 + gitignore）+ `f46f6af`（docs：双语文档与成本纪律）
+  + `5760ecb`（release: v0.3.13），已推送 origin/main；本条发布记录为随后的 `docs:` 提交
+* tag：`v0.3.13` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.13
+* npm `dist-tags.latest`：`@rayadesu/dsh-llm-billing` / `@rayadesu/dsh-billing` 立即为 **0.3.13**；
+  `@rayadesu/dsh-client-ui-billing` 首次查询仍是 0.3.12（npm "being processed" 暂存，约 3 分钟后落库）
+* 版本对齐：三包 0.3.12 → **0.3.13**（根 bundle peerDeps 与 ui-billing peer/dev 同步 `^0.3.13`），
+  `pnpm-lock.yaml` 随 `pnpm install` 刷新；`release` 提交同时带上阶段 A 的依赖线升级
+  （`@deepseek-ai/dsh-*` → `^0.1.6-alpha.1`）与 ui-billing 为独立测试补齐的客户端运行时 devDependencies
+* 发布前校验：`pnpm run test`（**238 用例全绿 / 8 文件**）/ `build`（host + client 两面）/
+  `verify`（`client bundle stamps version 0.3.13`）全绿
+* 本轮发布内容（阶段 A 累积多轮）：DSH 0.1.6 基线适配 + typert codec 双字段桥接、宿主与 UI 的
+  「整次对话」口径（委派子代理并入本会话、今日排行按对话归组）、今日 Token 缓存命中率（DSH 官方
+  命中率规则）、面板三级字体体系 + 两个紧跟数字去括号 + 单模型隐藏整行模型行、一条命令的阶段 A 收尾脚本
+* token 由用户提供，**仅内联传参，未写入仓库任何文件**
+* 本机 web profile 仍用 `file:` 引用本地 tarball（那份 tarball 是版本号 bump 之前的同源码构建，
+  面板说明里会显示 0.3.12）；切到 npm 源：
+  `dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
+
+---
+
 # HANDOFF — 发布记录（2026-09-12 · v0.3.12）
 
 * 提交：`81a4899`（feat：面板今日口径 + DSH 官方文案，含另一会话停放的输入框卡片源码）
