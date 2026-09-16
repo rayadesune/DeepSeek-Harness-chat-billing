@@ -1,16 +1,17 @@
 /**
  * Session-header billing badge: balance plus the current conversation's billed
- * spend. Composition root: the data lifecycle lives in {@link useBillingData},
- * and the trigger / detail panel are pure views. The badge renders null until
- * the first balance fetch settles, and a refresh keeps the last values
- * visible rather than blanking them.
+ * spend, both carrying the detail panel's own labels (`API 剩余金额` /
+ * `本会话花费`). Composition root: the data lifecycle lives in
+ * {@link useBillingData}, and the trigger / detail panel are pure views. The
+ * badge renders null until the first balance fetch settles, and a refresh keeps
+ * the last values visible rather than blanking them.
  */
-import type { DeepSeekBalance, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
+import type { DeepSeekBalance, DeepSeekDelegatedSpend, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { formatSpend, primaryLine } from './format.ts'
+import { formatSpendSignificant, primaryLine } from './format.ts'
 import { BalancePanel } from './BalancePanel.tsx'
 import { BalanceTrigger } from './BalanceTrigger.tsx'
 import { useBillingData } from './useBillingData.ts'
@@ -37,6 +38,13 @@ export interface BalanceBadgeInjected {
   getCachedBalance: () => DeepSeekBalance | null
   /** Read one session's billed spend; rejects with the Remote error message. */
   getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
+  /**
+   * Read the subagent part of one conversation's billed spend: every subagent
+   * session that session delegated, transitively, across every day. The badge
+   * adds it to the live own-session value, so the amount it shows is the whole
+   * conversation's. `force` behaves as in {@link getTodaySpend}.
+   */
+  getDelegatedSpend: (sessionId: SessionId, force?: boolean) => Promise<DeepSeekDelegatedSpend>
   /**
    * Read today's billed spend across every session; rejects with the Remote
    * error message. `force` bypasses the host-side cache — the manual refresh
@@ -66,19 +74,21 @@ export type BalanceBadgeProps =
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null until the first balance fetch settles.
  */
-export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession, useProjection, t }: BalanceBadgeProps) {
+export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, sessionId, useSession, useProjection, t }: BalanceBadgeProps) {
   const {
     balance,
     spend,
     todaySpend,
     sessionsSpend,
+    isSubagent,
+    crossedDay,
     error,
     refreshing,
     open,
     rootRef,
     refresh,
     toggleOpen,
-  } = useBillingData({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, sessionId, useSession, useProjection })
+  } = useBillingData({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, sessionId, useSession, useProjection })
 
   if (balance === null) {
     if (error === null) return null
@@ -94,8 +104,9 @@ export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, ge
 
   const line = primaryLine(balance)
   const amount = line === undefined ? '—' : `${line.symbol}${line.total}`
+  // The panel's own label, so the chip and the box agree word for word.
   const spendLine = spend !== null && spend.models.length > 0
-    ? t('trigger.conversationSpend', { amount: formatSpend(spend.total) })
+    ? t('label.sessionSpend', { amount: formatSpendSignificant(spend.total) })
     : undefined
 
   return (
@@ -109,6 +120,8 @@ export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, ge
             spend={spend}
             todaySpend={todaySpend}
             sessionsSpend={sessionsSpend}
+            isSubagent={isSubagent}
+            crossedDay={crossedDay}
             refreshing={refreshing}
             onRefresh={refresh}
             t={t}

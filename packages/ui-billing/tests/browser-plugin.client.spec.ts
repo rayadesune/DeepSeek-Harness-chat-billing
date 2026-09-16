@@ -80,6 +80,12 @@ const TODAY_SESSIONS = {
   ],
 }
 
+const DELEGATED_SPEND = {
+  total: 0.62,
+  models: [],
+  isSubagent: false,
+}
+
 const TURN_SPENDS = {
   turns: [
     { messageId: 'm1', total: 0.31 },
@@ -101,6 +107,10 @@ type TodaySpendResult =
 
 type TodaySessionsResult =
   | { readonly ok: true; readonly value: typeof TODAY_SESSIONS }
+  | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
+
+type DelegatedResult =
+  | { readonly ok: true; readonly value: typeof DELEGATED_SPEND }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
 
 type TurnSpendsResult =
@@ -129,6 +139,7 @@ async function bench(): Promise<{
   getSessionSpend: ReturnType<typeof vi.fn>
   getTodaySpend: ReturnType<typeof vi.fn>
   getTodaySessionsSpend: ReturnType<typeof vi.fn>
+  getDelegatedSpend: ReturnType<typeof vi.fn>
   getSessionTurnSpends: ReturnType<typeof vi.fn>
 }> {
   const ctx = new Context()
@@ -162,13 +173,15 @@ async function bench(): Promise<{
     .mockResolvedValue({ ok: true, value: TODAY_SPEND })
   const getTodaySessionsSpend = vi.fn<() => Promise<TodaySessionsResult>>()
     .mockResolvedValue({ ok: true, value: TODAY_SESSIONS })
+  const getDelegatedSpend = vi.fn<(sessionId: SessionId) => Promise<DelegatedResult>>()
+    .mockResolvedValue({ ok: true, value: DELEGATED_SPEND })
   const getSessionTurnSpends = vi.fn<(sessionId: SessionId) => Promise<TurnSpendsResult>>()
     .mockResolvedValue({ ok: true, value: TURN_SPENDS })
-  ctx.provide('remote.billing', { getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getSessionTurnSpends })
+  ctx.provide('remote.billing', { getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, getSessionTurnSpends })
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getSessionTurnSpends }
+  return { ctx, fiber, getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, getSessionTurnSpends }
 }
 
 describe('ui-billing browser half', () => {
@@ -238,6 +251,20 @@ describe('ui-billing browser half', () => {
     getTodaySessionsSpend.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
     await expect(injected.getTodaySessionsSpend()).rejects
       .toThrow('billing.getTodaySessionsSpend failed: internal: no key')
+    await ctx.fiber.dispose()
+  })
+
+  it('injects a getDelegatedSpend face that forwards force, session id, and failures', async () => {
+    const { ctx, getDelegatedSpend } = await bench()
+    const entry = ctx.slots.entries('conversation.session.header.utilities')[0]!
+    const injected = (entry.inject as unknown as () => BalanceBadgeInjected)()
+    await expect(injected.getDelegatedSpend('session-1' as SessionId)).resolves.toEqual(DELEGATED_SPEND)
+    expect(getDelegatedSpend).toHaveBeenCalledWith('session-1', undefined)
+    await expect(injected.getDelegatedSpend('session-1' as SessionId, true)).resolves.toEqual(DELEGATED_SPEND)
+    expect(getDelegatedSpend).toHaveBeenLastCalledWith('session-1', true)
+    getDelegatedSpend.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
+    await expect(injected.getDelegatedSpend('session-1' as SessionId)).rejects
+      .toThrow('billing.getDelegatedSpend failed: internal: no key')
     await ctx.fiber.dispose()
   })
 
