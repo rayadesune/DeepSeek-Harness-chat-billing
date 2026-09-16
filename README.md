@@ -23,15 +23,15 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 
 A real session: the session-header badge and the open detail panel:
 
-<img width="1200" alt="Billing plugin overview: session header badge and the open detail panel (remaining amount, today's tokens and spend, this session's spend, per-model breakdown, today's session ranking)" src="preview-overview.png" />
+![Billing plugin overview: session header badge and the open detail panel (remaining amount, today's tokens and spend, this session's spend, per-model breakdown, today's session ranking)](preview-overview.png)
 
 Close-up of the detail panel — the `API 剩余金额` figure, `今日 Token` and `今日花费`, `本会话花费` (with its parenthesized today share once the session crossed a day), the per-model breakdown (`未缓存输入 · 缓存读取 · 输出`), and the today session-spend ranking:
 
-<img width="496" alt="Detail panel close-up: API remaining amount, today's tokens and spend, this session's spend with its parenthesized today share, the uncached-input / cached-input / output breakdown, and the today session ranking" src="preview-detail.png" />
+![Detail panel close-up: API remaining amount, today's tokens and spend, this session's spend with its parenthesized today share, the uncached-input / cached-input / output breakdown, and the today session ranking](preview-detail.png)
 
 Close-up of the turn-cost amount — the static `¥` amount at the end of the actions row, after the clock:
 
-<img width="640" alt="Turn-cost amount close-up: the static ¥ amount at the end of the actions row, after the clock" src="preview-turn-cost.png" />
+![Turn-cost amount close-up: the static ¥ amount at the end of the actions row, after the clock](preview-turn-cost.png)
 
 
 ## Package layout

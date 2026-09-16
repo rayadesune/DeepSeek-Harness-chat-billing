@@ -1,3 +1,21 @@
+# HANDOFF — 文档修复（2026-09-16 · README 预览图在收录站不显示）
+
+* 问题：收录站详情页 https://awesome-dsh-plugin.com/zh/p/rayadesune/DeepSeek-Harness-chat-billing/
+  只渲染 README 文字，三张 `preview-*.png` 一张都不显示（页面 HTML 里 `<img>` 数为 0）
+* 根因（对照同站其它插件页实测）：站点渲染器**只对 Markdown 图片语法 `![alt](相对路径)` 做
+  「相对路径 → raw.githubusercontent.com」重写**；README 里用裸 HTML `<img src="相对路径" />`
+  的条目（`Aafff623/dsh-callout`、`2768651338/dsh-effort-slider`、`addie-ace/dsh-livebench-rankings`
+  以及本站）在该站页面上一律 0 张图，而用 Markdown 语法的（`Han-1413141/dsh-cost-meter`、
+  `zh667/TokenLedger`、`bowenliang123/dsh-context`）图片正常
+* 改动：`README.md` / `README.zh.md` 三处 `<img width=… alt=… src="preview-*.png" />` 改为
+  Markdown 写法（代价是丢掉 `width` 属性，两个站点都按容器宽度自适应）；`README.i18n.yaml`
+  blob hash 同步。`screenshots.json` 本来就在仓库根、与 `package.json` 同级，无需改动
+* 站点 README 由它自己的 nightly 构建（`.github/workflows/build-site.yml`，cron `23 2 * * *`）
+  抓取，push 本站不触发它重建 —— 推送后要等它下一次成功构建才会显示图片；顺带发现它当前
+  抓到的还是 **2026-09-12 之前**的旧版 README，说明上一次 nightly 抓取已滞后
+
+---
+
 # HANDOFF — 发布记录（2026-09-15 · v0.3.13）
 
 * 提交：`b48f3fe`（fix：DSH 0.1.6 基线 + typert 桥接）+ `2b882f0`（feat：宿主对话口径）
