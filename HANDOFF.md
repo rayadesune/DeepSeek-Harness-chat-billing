@@ -22,6 +22,405 @@
 
 ---
 
+# HANDOFF — 面板三级字体体系 + 两个紧跟数字去括号（2026-09-15 已实施，阶段 A 未提交）
+
+## 需求（用户原话）
+
+> 「定义一下字体样式：未缓存输入 ¥0.232 · 缓存读取 ¥0.314 · 输出 ¥0.599 和 会话排行连带后面金额数字
+> 是一级样式 / 今日会话花费 的标题，模型名这些，是二级样式 / 本会话花费，今日token这些，是三级样式 /
+> 以上样式均包含对应的金额数字相关的元素 / 将括号的元素改成一级样式，并且去掉括号，只保留数字本身」
+
+**编号口径**：一级 = 最细的一档（明细与数字），三级才是那几行「有名字的行」。面板此前事实上已经是
+这三档，但没有任何地方把它们定义或约束住——本轮把它写成体系。
+
+## 改动
+
+* **三级字体只定义在一处**：`BalanceBadge.module.css` 的 `.panel` 新增 9 个自定义属性
+  （`--billing-type-{1,2,3}-{size,line,tone}`），每个文本类只引用自己那一级的 token，改一级即整级生效：
+  * **一级** `11px/16px` tertiary tabular-nums —— 桶明细行（`.costBreakdown`：今日两行 + 每个模型一行）、
+    今日会话排行整行（`.rankingIndex` / `.rankingDot` / `.rankingName` / `.rankingAmount`）、
+    `.rankingMore`，以及两个「紧跟数字」。
+  * **二级** `12px/18px` secondary —— 模型名（`.modelName`）**及其行金额**（`.tasks`，原为最暗的
+    tertiary，现与模型名同级同色）、`今日会话花费`（`.rankingTitle`）。
+  * **三级** `13px/18px` primary tabular-nums —— 今日 Token / 今日花费 / 本会话花费（`.amountLabel`；
+    余额行仍在 `.amountRow > .amountLabel` 里叠加 15/22 的抬头尺寸）。
+* **两个紧跟数字并为一级样式、去括号**：`.subValue` 拆成 `.sessionToday`（本会话今日份）与
+  `.todayHit`（当天命中率），共用同一条一级规则；locale 由 `（{amount}）` / `（{percent}%）` 改为
+  ` {amount}` / ` {percent}%` —— **只靠一级色调 + 一个前导空格**与行内自己的数字区分。
+  说明气泡第三行随之改为「紧跟的数字为本会话今日花费。」/「The figure after it is this session's
+  spend today.」（仍在 122 / 295 字符上限内）。
+* **测试**：新增一条锁死体系的用例（读样式表逐类断言所属级别、9 个级别定义存在、两个 locale 无括号）；
+  命中率与今日份的断言改为按 `.todayHit` / `.sessionToday` 类名 + `waitFor` 取值。
+* **文档**：4 份 README 共 32 处「括号」措辞改为「紧跟」（`node` 脚本一次改完，逐条回计数，规则零 miss）；
+  `ui-billing` 中英 README 各补一条「面板排版只有三级」的说明。预览图注仍描述旧图，未改。
+
+## 校验（常规档）
+
+* `vitest run packages/ui-billing`：**83 用例全绿**。
+* `node scripts/local-install.mjs ui-billing --face client --check billing-type-1-size --check sessionToday
+  --check todayHit`：一条命令完成构建 → pack → remove/add → 产物抽查。
+
+## 后续微调（同日 · 第二、三次）
+
+* 用户原话（第二次）：「模型金额亮度改回去吧，并且二级样式得数值金额就依次定义 / 在只有单模型的时候，
+  隐藏模型金额，多模型才显示 / 还有本会话今日花费和命中率小字离前面数值再远一点，现在太近了」；
+  （第三次澄清）「.tasks 也算二级成员呀，二级成员里面文字色调可以不和数字一样呀，今后如果有二级成员的
+  金额也按照这个色调来 / 单模型不仅隐藏金额，把模型名一块隐藏」
+* **同一级里文字与数字的色调允许不同**：`.tasks` 仍是**二级成员**（二级字号 12/18），数字改用该级自己的
+  数字色调 `--billing-type-2-number-tone`（= tertiary，比模型名暗一档）——今后二级成员的金额一律用它。
+  三级体系用例把 `.tasks` 放回二级分组，并显式断言它引用 `--billing-type-2-size` +
+  `--billing-type-2-number-tone`（判级别的助手取规则体里第一个级别 token，因此色调 token 的命名也带级别）。
+* **只有一个计价模型时整行模型行都不渲染**（`BalancePanel` 的 `modelCount`）：名字在只用一种模型的会话里
+  说明不了什么，金额又是上一行「本会话花费」的数字，只留它下面那行桶明细。为此新增
+  `.spendRow + .costRow { padding-top: 2px }`——没有名字行接手时，桶明细行自己接下那份表头间距，
+  不会贴到分隔线上。用例覆盖两个方向（单模型无名无金额、双模型每行带名字与金额）。
+* 两个紧跟小字加 `margin-left: 5px`（叠加 locale 里那一个前导空格 ≈ 排行金额那 8px 间距）。
+* 校验：`vitest run packages/ui-billing` 全绿；再走一次 `local-install` 一条命令重打重装。
+
+---
+
+# HANDOFF — 「今日 Token」加缓存命中率括号（2026-09-15 已实施，阶段 A 未提交）
+
+## 需求（用户原话）
+
+> 「给今日token后面的token数值，加上命中率判定 / 样式同'本会话花费'后面的括号 /
+> 括号内只有百分比数值，没有文字说明 / 百分比数值的小数位数保留按照官方的命中率规则来」
+
+## 实现
+
+* **口径**：命中率 = 缓存读取 ÷（缓存读取 + 未缓存输入），即 DSH `billedInputTokens` 的
+  **prompt 侧**口径（宿主把缓存写入按未命中单价计价、并入「未缓存输入」桶，所以分母与官方一致），
+  输出侧不进分母。数据取同一批 `todaySpend.models`，不发新请求。
+* **小数位按 DSH 官方命中率规则**（ui-chat `src/client/chat/token-format.ts` 的
+  `formatCacheHitPercent` —— 输入框统计 pill 与 token 用量对话框共用的那条）：默认**整数**百分比；
+  只有「部分命中会被四舍五入到 100%」时才逐位补小数（`99` → `99.5` → `99.95`），全部走整数运算、
+  正半数进位，不吃浮点误差；真·全命中才输出 `100`；prompt 侧 0 token 返回 null。该函数在
+  `format.ts` 里**逐条规则照搬**（与 `formatTokens` 同一做法），并保留官方的 `decimalPlaces` 形参。
+* **呈现**：括号骑在「今日 Token」的数值后面（`今日 Token：331M tok（99%）`）——只有百分比、
+  无文字说明；样式复用「本会话花费」括号那一套（CSS 类 `spendToday` 改名 `subValue`，两处共用
+  12px 三级色调）。占位态（`—` / `暂无消耗记录`）不长括号。
+* 新增 locale 键 `label.todayTokens.hit`（zh `（{percent}%）` / en ` ({percent}%)`）与
+  `spendBuckets.ts` 的 `cacheHitPercentOf()`（纯函数，单测直接盯分母口径）。
+
+## 校验（轻量档）
+
+* 只跑受影响用例：`vitest run packages/ui-billing`（**82 用例全绿**）。原有 5 条「不渲染今日份
+  金额括号」的用例用 `queryByText(/^（/)` 断言，会误伤新的命中率括号，已收窄成 `/^（¥/`。
+* 新增用例：官方规则（`0` / `50` / `99` / `99.5` / `99.95` / `100` / null，以及一位小数去尾零）、
+  输出不进分母、面板里括号跟随 token 数值且类名与「本会话花费」括号一致、无计价日不长括号。
+* `pnpm run build:client` 后**只重打重装改动的那一个包**（`rayadesu-dsh-client-ui-billing-0.3.12.tgz`），
+  产物抽查含 `label.todayTokens.hit` 与 `subValue`（7 处）。装包时 `plugin remove` 一度被 300s
+  超时打断、client 包从 profile 临时消失，随后单条 `plugin add` 重新装回并核对三个 `@rayadesu`
+  包齐全。
+* 文档：根 README 双语 + `ui-billing` README 双语（面板段落与「今日 Token 只数计价行」条目各补一句
+  命中率口径），两份 `README.i18n.yaml` 的 blob hash 同步重记。
+
+---
+
+# HANDOFF — 计费插件适配 DSH 0.1.6 基线（2026-09-15 已实施，阶段 A 未提交）
+
+## 需求（用户原话）
+
+> 「现在dsh更新到0.1.6了，你更新一下计费插件，适配新版本」
+
+## 背景（问题 → 根因）
+
+* 运行的 DSH 是本地 checkout（`me\code\deepseek-harness`）以 `pnpm dsh web`
+  （`node --import tsx/esm apps/cli/src/bin.ts web`）跑的源码态，版本 **0.1.6-alpha.1**；
+  npm 上 `@deepseek-ai/*` 的 `alpha` dist-tag 也是 0.1.6-alpha.1。
+* **根因一：prerelease 区间解析不到新基线。** 本仓库此前把依赖写成 `^0.1.2-alpha.5`，
+  而 semver 规定预发布版本只被「同 `major.minor.patch` 元组且带预发布」的比较符匹配，
+  所以它永远解析到 0.1.2-alpha.5，跟着 DSH 升到 0.1.6 必须整体改写成 `^0.1.6-alpha.1`。
+* **根因二：插件在本机 web profile 里整行消失。** `profiles/web/package.json` 的
+  `dsh.profile.bundles` 只剩 `@deepseek-ai/dsh-base` / `@deepseek-ai/dsh-web-app`，
+  `cordis.patch.yml` 是 `[]`，`node_modules/@rayadesu` 是空目录——profile 是 0.1.6
+  更新后重建的模板态，所以这轮除改依赖还要把三包装回去。
+* **根因三：0.1.6 的客户端包把运行时依赖漏在 devDependencies 里。** dsh monorepo 靠根
+  node_modules 兜住，本仓库独立安装就 `Cannot find package`。
+
+## 改动
+
+1. **依赖基线 0.1.2-alpha.5 → 0.1.6-alpha.1**：根 bundle、`llm-billing`、`ui-billing`
+   三处 package.json 的 peer/dev 依赖整体替换；`@deepseek-ai/cordis` `^4.0.1` → `^4.0.2`、
+   `@deepseek-ai/schemastery` `^3.18.1` → `^3.18.2`（对齐 monorepo `vendor/` 版本）。
+2. **内嵌 typert 协议声明同步到 0.1.6-alpha.1**：0.1.6 删除了 `TypertContextAdapter` 与
+   `TypertHostContextIdentity`，`TypertHostContextAdapter` 不再继承前者并自带
+   `resolve(id)`，registry 的 `identifyHost()` 也下线；`packages/typert-protocol/src` 按
+   发布包逐行同步（`types.ts`/`remote-error.ts` 已 0 差异），`src/invariant.ts` 与
+   `./invariant` 导出随 0.1.6 一并移除，package.json 版本/description/peer 同步。
+3. **补上游漏声明的客户端运行时依赖**：`dsh-client-store@0.1.6-alpha.1` 的产物直接
+   `import 'zustand'`（含 `/vanilla`、`/middleware`、`/shallow`）与 `'immer'`；
+   `dsh-client-ui-primitives@0.1.6-alpha.1` 的产物直接 import markdown 视图栈
+   （`mdast-util-{from-markdown,gfm,math}`、`micromark-*`、`shiki`、`@shikijs/langs`、
+   `katex`、`diff`、`anser`、`clsx`）。二者在上游都只写在 devDependencies，故按上游同版本
+   范围补进 `ui-billing` 的 devDependencies（发布 bundle 是外部依赖，运行时仍由 dsh 侧提供）。
+4. **清掉内嵌包里的僵尸 node_modules**：`packages/typert-protocol/node_modules` 是它还是
+   workspace 成员时留下的，其中 cordis 仍是 4.0.1；workspace 升到 4.0.2 后
+   `balance.ts` 的 `super(ctx, 'billing')` 报 TS2379（两个 `Context` 不是同一类型），
+   删掉该目录、让它从仓库根解析同一份 cordis 后消失。
+5. **关闭 pnpm 发布龄门槛**：`pnpm-workspace.yaml` 显式 `minimumReleaseAge: 0`。pnpm ≥11
+   默认 1 天门槛会把刚发布几小时的 0.1.6-alpha.1 挡在 lockfile 校验外，而校验阶段不认
+   `minimumReleaseAgeExclude`（那是解析期自动追加的），原先那份自动生成的排除清单随之删除。
+
+## 验证
+
+* `pnpm run test` **235 用例全绿**（8 个 spec 文件，含浏览器半测 module-loader 路径）、
+  `pnpm run build`（host + client 两编译面）、`pnpm run verify`（typert 清单归属正确 +
+  client bundle 版本戳 0.3.12）全绿。
+* 三包沿用 0.3.12 本地 pack（阶段 A 不 bump 版本），`dsh plugin --profile web add` 三个 tgz
+  重新装入 web profile；`dsh --profile web --dump-config` 已确认 bundle 补丁层展开出
+  `llm-billing` / `ui-billing` 两行。
+* 待用户重启 `dsh web` 并硬刷新验证：会话头部余额徽标、本轮花费与今日花费是否正常。
+
+## 追加（同日首轮交验失败 → 修复）
+
+**现象**：三包装进 web profile 重启后 DSH 直接停在启动页——
+`Failed to load plugins / @rayadesu/dsh-client-ui-billing / web boot: 1 entry did not activate /
+@rayadesu/dsh-client-ui-billing: failed`（一个客户端条目没激活，整个 Web shell 拒绝挂载）。
+
+**根因**：宿主行先挂，客户端行随后 `$mount` 跟着失败；真正原因只在宿主 stderr 里。
+用隔离实例（`DSH_HOME=<临时目录>` + 独立端口）复现，一次就拿到：
+
+```
+dsh: warning: 1 entry did not activate
+typert-loader (@deepseek-ai/dsh-typert-loader): AggregateError: typert-loader: 1 typert contributor(s) failed to register:
+  - typert-loader: @rayadesu/dsh-llm-billing invocation
+    "@rayadesu/dsh-llm-billing#billing/getBalance" parameter codec has no create() factory
+```
+
+即**运行中的 dsh 是 checkout HEAD，领先于 npm 上的 0.1.6-alpha.1**：HEAD 的
+`perf(typert): materialize generated schemas on first use` 把 strict codec 从
+`{ mode, typeSymbol, schema }` 改成 `{ mode, typeSymbol, create() }`，loader 见不到
+`create` 就拒绝注册；而 npm 上最新的生成器（仍是 0.1.6-alpha.1）只生成 `schema`，其
+loader 又要求 `schema` 是 zod v4 对象。两代读取方都不拒绝自己不读的字段——所以
+**两个字段都带**即可同时满足两条线。客户端半面同理：HEAD 的 api-gateway client 用
+`codec.create().parse()` 解析参数，旧产物在调用时也会炸。
+
+**改动**：新增 `scripts/typert-compat.mjs`，挂在 `build:host` 的 tsdown 之后，给
+`lib/typert.host.js` 与 `lib/typert.remote-client.js` 里每个 strict codec 补上
+`create: () => <schema>`（保留 `schema`）；脚本幂等，遇到两种形状都没有的 codec 直接
+构建失败（换生成器时不会静默放过）；`verify-packages.mjs` 增加「strict codec 数 ==
+`create: () =>` 数」门禁。**教训**：只跑 tsdown 不跑 `build:host` 会漏掉这一步。
+
+**验证方式（可复用，全程未碰用户 GUI）**：宿主用
+`DSH_HOME=<临时目录> pnpm dsh web --port <空端口> --no-open` 起隔离实例读 stderr；
+客户端用无头 Edge + CDP（`--remote-debugging-port`，Node 内置 `WebSocket` 直连）加载带
+token 的 URL，读 `document.body.innerText` 有无失败浮层，并查
+`style[data-plugin="@rayadesu/dsh-client-ui-billing"]` 是否注入（证明 bundle 真被物化）。
+修复后：宿主启动零告警、失败浮层消失、样式注入到 2 个 `<style>` 标签、console 零错误；
+调试实例与临时 `DSH_HOME` 已删除，用户 3080 上的实例全程未受影响。
+
+---
+
+# HANDOFF — 本会话花费改为「整次对话」口径（含委派的子代理）（2026-09-14 已实施，阶段 A 未提交）
+
+## 需求（用户原话）
+
+> 「徽标/本会话花费也显示含子代理的花费吧，不用改文案『本会话花费 ¥A · 含子代理 ¥B』，保留原文案，
+> 只数字改动，在hint页加上说明就行」
+
+## 口径
+
+* 会话行（徽标「本轮对话花费」与面板「本会话花费」）显示的是**整次对话**的花费：本会话自身的
+  花费（实时投影）**加上它（递归）委派的每个子代理会话**（跨天累计，模型分项一并合并，所以分项
+  仍然加得起来）。文案不变，说明加在「?」提示里。
+* 括号里的「今日份」同时改为**合并口径**：与排行行的 `total`（宿主已把子代理并进其中）比较，
+  两边数的是同一棵树；`ownTotal` 保留为行的分解事实（自身今日份），面板不再读它。
+* 子代理自己的模型调用仍计在**子会话**日志里，父会话另付「读回子代理回报」的输入 token——
+  两边相加不重复（原本就是这样，只是父会话行过去只显示自有部分）。
+
+## 实现
+
+* 宿主 `today-spend.ts`：`TodaySpendDetail` 增加 `ownSpend`（每个会话的**全会话**自有花费，
+  与当日口径同一趟折叠）与 `lineage`；新增纯函数 `delegatedSpendOf(id, ownSpend, lineage)` —— 只
+  沿 `isSubagentSession` 的子节点 DFS（用户分叉不算委派），带环守卫（查询节点预置 visited，
+  环不会把自身算进自己的小计）。
+* 宿主 `types.ts` 新增 `DeepSeekDelegatedSpend { total, models, isSubagent }`；`balance.ts` 新增
+  第七个 Remote `getDelegatedSpend(sessionId, force?)`；`index.ts` 的 loader **复用同一个
+  `TodaySpendCache`**（那一趟扫描本来就算全会话累计，所以子代理读取零额外日志 I/O，与
+  `getTodaySpend` 共享 60 秒缓存与 `force`）。
+* 浏览器：新 `spends.ts` 提供 `sumSpends(own, delegated)`（纯加法：total 相加、模型行按 model id
+  合并）；`useBillingData` 增加 `delegated` 状态与 `getDelegatedSpend` 拉取（挂载 / 手动刷新 /
+  回合结束，与其它花费同一套 `fetchLine`，失败保留旧值），对外暴露的 `spend` = 实时自身 + 上次
+  子代理小计（自身部分仍是逐事件实时），并暴露 `isSubagent`；`BalancePanel` 的括号改读行的
+  `total`，且当**当前会话自己就是被委派的子代理**时不渲染括号（它的花费在委派方的行里，
+  「未知」不能冒充 `（¥0）`）。
+* 文案：`info.hint` 增加一行「金额含本会话委派的子代理会话。」/「The amounts include the subagent
+  sessions this session delegated.」（zh 实测 114 字符、en 287，守卫 122/295；四行结构有用例锁定）。
+
+## 后续微调（同日）：徽标两行改用面板文案
+
+* 用户要求：「把徽标的『剩余额度』和『本轮对话花费』改成面板里面的『剩余金额』和『本会话花费』」，
+  随后澄清：**「剩余金额」不含 `API` 三个字**（面板标题仍是 `API 剩余金额`）。
+* 最终口径：徽标主行 = `trigger.balance`（`剩余金额：{amount}` / `Balance: {amount}`，面板标题
+  去掉 `API` 前缀的短版）；徽标副行 = **面板的 `label.sessionSpend`**（`本会话花费：{amount}` /
+  `This session: {amount}`，共用同一键，一字不差）。`trigger.conversationSpend` 键已删除；
+  `badge.aria`（无障碍名）保持不变。
+* 用例：徽标侧断言改 `剩余金额：`；面板侧断言一律经 `panel()`（`within(dialog)`）作用域，仍断
+  `API 剩余金额：`；新增一条「触发器副行 = 面板文案」的字典一致性用例，以及旧文案的反断言。
+* 文档：根 README 双语、ui-billing README 双语同步；ui-billing 与根 `README.i18n.yaml` hash 重算
+  （llm-billing README 本轮未改，hash 保持）。
+* `pnpm run test` **229 全绿**；只重建了 client 面并只重装 `@rayadesu/dsh-client-ui-billing`
+  （宿主包未动）。
+
+## 后续微调（同日 · 第二次）：今日 Token 下面加两行桶明细
+
+* 用户要求：「在今日 Token 下面，新增未缓存输入 · 缓存读取 · 输出 同样的三个模块，一行是 token
+  细则，一行是花费细则，模块样式同下方模型下面的样式」；第一版做成了**三个两行模块**，用户随后的
+  更正：「按照这种排列，两行，而不是三个模块」并给出目标排布；再随后要求「tok 和计费换一行」，
+  最终**token 行在上、花费行在下**。
+* 最终做法（纯浏览器侧，宿主与 wire 零改动）：
+  - `spendBuckets.ts` 新增 `tokenBucketsOf(spend)`（三个桶的 token 计数）；花费侧复用已有的
+    `spendBucketsOf`（含把末位小数残差并进最大桶的规则，所以三笔花费相加正好等于「今日花费」）。
+  - `BalancePanel.tsx` 的 `todayBucketLines()` 生成两行：第 1 行 = 三个桶的 token 数
+    （`未缓存输入 2.3M tok · …`，桶名用 `label.bucket.*`、计数用 `unit.tokens`），第 2 行 = 三个桶的
+    花费（`未缓存输入 ¥X · 缓存读取 ¥Y · 输出 ¥Z`，复用 `label.cost.*`）。两行都用下方模型分项那一行
+    的 `costRow`/`costBreakdown` 类，插在「今日 Token / 今日花费」行与本会话花费之间；数据与
+    「今日 Token」同一批 `todaySpend.models`，两处必然对得上。
+  - 桶名改成中性键 `label.bucket.input/cacheRead/output`（原为只服务停用卡片的 `card.*`）；
+    停用的 `SpendCard.tsx` 一并改用新键，`card.title`/`card.aria` 保留。
+* 用例：badge spec 46 → 49——「两行明细的文字与顺序（花费行在上、token 行在下，DOM 相邻）」
+  「与模型分项同一类名」「当天无可计价行时不渲染（按 token 行的 `tok · ` 特征判定）」。
+* 本轮按**轻量档**执行：先跑受影响的 2 个 spec，收尾跑一次全套（**231 全绿**）；只 `build:client`、
+  只重打并重装 `@rayadesu/dsh-client-ui-billing`；文档与 hash 在本轮末尾一次补齐。
+* **同日再调**：两行顺序改为「token 行在上、花费行在下」（用户：「tok 和计费换一行」）；随后
+  「今日花费金额 + 三个桶金额」改用**三位有效数字**（`formatSpendSignificant`，新增于 `format.ts`；
+  其余金额仍走 `formatSpend` 的至多四位小数）。用例 231 → **233**（新增格式化规则直测 + 用用户
+  实测数字的一整套渲染断言：`今日花费：¥9.58`、`未缓存输入 ¥0.507 · 缓存读取 ¥6.94 · 输出 ¥2.13`、
+  token 行 `2.3M / 328M / 986K`）。
+  注意：取整后三笔桶金额**显示上**可能不再恰好等于今日花费（真实值相加仍然相等，残差由
+  `spendBucketsOf` 并进最大桶），README 已按「各自按三位有效数字渲染」措辞，不再声称显示值可加总。
+* **同日再调（间距）**：用户要求「今日模块的这两行计数，间隔调低，调到第三部分今日会话花费排行的
+  各个标题之间的间隔」——新增 CSS 类 `.dayBucketRow`（排版同 `.costRow` 内的 `.costBreakdown`，
+  纵向 padding 2px）：两行之间 2 + 面板 gap 2 + 2 = **6px**，与相邻排行行 3 + 0 + 3 = 6px 一致；
+  模型分项的 `.costRow`（2/8/6）保持不变。用例断言改为按类名判定（`css.dayBucketRow` /
+  `css.costRow`，并确认内层仍是 `costBreakdown`），全套仍 **233 全绿**。
+* 文档：根 README 双语（详情面板那一条）、ui-billing README 双语（面板段落）同步；
+  ui-billing 与根 `README.i18n.yaml` hash 重算（llm-billing README 未改）。
+
+## 后续微调（同日 · 第三次）：括号判定改为「会话是否今日创建」+ 明细行下间距
+
+* 用户实测反馈：「本会话花费：¥10.5288（¥10.4929）……括号里面今日会话花费判定条件改为此会话是不是
+  今日产生的，原来判定逻辑是金额相等与否，会临时造成金额不相等导致括号出现」。
+  - 根因：主金额是**实时**投影（回合中途持续增长），括号金额取自**60 秒缓存**的排行行，两者本来就
+    会差几分钱，「金额不相等」于是给今天新建的会话闪出括号。
+  - 改法：宿主在既有的 `getDelegatedSpend` 响应里新增 `crossedDay`（被查询会话的创建日 ≠ 查询日；
+    创建时间取不到时为 `false`——**未经证实的跨天不得凭空显示**）：`TodaySpendDetail` 增加 `dayKey`
+    与 `createdAt`（live 取 `header.createdAt`，冷会话取列表 header 的 `createdAt`，都是那一趟扫描
+    顺带收集的），loader 用 `beijingDayKey` 比较；浏览器把 `crossedDay` 透传到面板。
+  - 面板：删掉 `SPEND_SAME_EPSILON` 与金额比较，改为 `spend !== null && !isSubagent && crossedDay`
+    才显示括号（排行未落定时仍不显示；跨天会话当天没花钱则显示「（¥0）」）。
+* 用户同时要求：「今日 token 离上线的距离和最后一行离下线的距离不相等，调整最后一行离下线距离」
+  ——新增 `.dayBucketRow + .dayBucketRow { padding-bottom: 4px }`：最后一行到下方分隔线 = 4 + 面板
+  gap 2 = **6px**，与「今日 Token」到它自己上方那条线的 6px（`.spendRow` 的 padding-top）一致；
+  两行之间仍是 2 + 2 + 2 = 6px（与排行行同距）。
+* **同日再调（对齐）**：用户要求「调整第二行的『未缓存输入』『缓存读取』『输出』，动态调节三项之间的
+  宽度，让它这三个标题对齐上一行三项标题」——两个 `flex` 行改成**一个三列网格**：`.dayBuckets`
+  = `grid-template-columns: minmax(0, max-content) auto minmax(0, max-content) auto minmax(0, max-content)`，
+  DOM 依次是「token 行三格 + 每格后一个 ` · ` 分隔格」再「花费行三格 + 分隔格」（共 10 个子元素）；
+  内容列取两行中较宽者，所以三个标题与中间的点在两行之间严格对齐、列宽随数值动态变化；
+  `minmax(0, max-content)` 保留面板过窄时可换行的退路。原 `.dayBucketRow` 两条规则由
+  `.dayBuckets` / `.dayBucketCell` / `.dayBucketDot` 取代（行距仍 6px、下间距仍 4px + 2px gap）。
+  用例同步改写为按单元格断言（6 个单元格文本、网格 10 个子元素及其顺序、单元格类名、网格紧跟今日行
+  且在会话行之前）。
+* **同日再修（间距回归）**：用户随即指出「第一行按照原来的间隔调整，第二行才根据第一行动态调整」
+  ——根因是分隔列用了 `auto`：CSS Grid 里 `auto` 作为最大值**可被拉伸**，面板的剩余宽度被两条窄
+  分隔列吃掉，于是 **token 行自身的 ` · ` 间距被拉大**。改为 `max-content` 分隔列 + 
+  `justify-content: start`（两者都加，任一条即足以阻止拉伸），现在 token 行严格保持原始间距、
+  花费行才跟随 token 行定义的列对齐；`minmax(0, max-content)` 仍是内容列，保留过窄时换行的退路。
+* **同日再调（收尾两件）**：
+  - 大幅金额收口：用户要求「不足 ¥0.0001 的桶花费按面板其它金额的惯例显示成 ¥0」——
+    `formatSpendSignificant` 在三位有效数字之后再用 `toFixed(4)` 收口（0.000123 → `¥0.0001`，
+    0.00002 → `¥0`）。用例补三条（0.00002 / 0.0000099 → `¥0`；0.000123 → `¥0.0001`）。
+  - 纵向间距还原：用户「还原这个间隔吧」——两行明细的间距回到最初那套（与下方模型分项同一节奏）：
+    两行之间 = 6 + 2 + 2 = 10px，最后一行到下方分隔线 = 6 + 面板 gap 2 = 8px。
+* **同日再调（第二部分节奏）**：用户「调整一下第二部分的上下间隔……使得他看起来均衡，并且跟其他
+  两部分看起来融合的很自然」——按仓库里的面板特写图（`preview-detail.png`，496px 宽 ≈ 1.48×
+  缩放）量出第二部分内部是 30px（表头→模型名）/ 24px（模型名→分项行），表头离自己的行比行与行
+  之间还松。改法：`.spendRow + .modelRow { padding-top: 2px }`，把会话花费行当作模型块的**表头**
+  收紧到 10px（= 模型名到分项行的间距），整面板节奏统一为「同块 10 / 换块 14 / 换区 8 + 分隔线」。
+* **同日再调（用户撤回对齐）**：用户「还原这个间隔吧」+「这个间隔改为没有对齐的那一版」——
+  两行明细**撤掉三列网格**，恢复成两条各自成行的 `.costRow`（token 行在上、花费行在下，各保持
+  自然的 ` · ` 间距，互不对齐）。`.dayBuckets` / `.dayBucketCell` /
+  `.dayBucketDot` 三条 CSS 与 `todayBucketCells()` 一并删除，恢复 `todayBucketLines()`（两行字符串）；
+  用例回到两条整行文本的断言（含「紧跟今日行、在会话行之前」的顺序断言）。全套 **234 全绿**，
+  只重打并重装客户端包，文档与 hash 同步。
+* **同日定稿（行距归第三部分）**：用户「这两行的间隔不用回调」「这两行的间隔是回到第三部分，
+  会话排行的间隔」——撤掉网格后两行明细的行距**不是**模型分项那套，而是**今日会话花费排行**那套：
+  单独建 `.dayBucketRow { padding: 2px 8px }` + `.dayBucketRow + .dayBucketRow { padding-bottom: 4px }`，
+  于是两行之间 = 2 + 面板 gap 2 + 2 = 6px（与相邻两条 `rankingRow` 的标题间距同为 3 + 3 = 6px 等值），
+  末行到下一分隔线 = 4 + 2 = 6px（与 `今日 Token` 行到自身边框的 6px 一致）；`todayBucketLines()`
+  两行字符串不变、仍不对齐。
+* **同日再调（模型块内收紧）**：用户「『DeepSeek-V41-Flash / ¥13.8221』与『未缓存输入 … 输出 …』
+  这两行靠近一点，这两行的距离应比『本会话花费 / DeepSeek-V41-Flash』那两行大标题近」——上一轮把
+  会话花费行当表头收紧到 10px 之后，块内（模型名→它的分项行）也是 10px，两者等值，层次读不出来。
+  改法：模型名与它的分项行作为一个**紧凑对**——`.modelRow { padding: 6px 8px 4px }` +
+  `.costRow { padding: 0 8px 6px }`，块内 = 4 + 面板 gap 2 + 0 = **6px**（与今日两行明细同节奏），
+  表头→首块仍是 2 + 6 + 2 = **10px**，换块仍是 costRow 下 6 + 2 + 模型行上 6 = **14px**。面板节奏
+  由「同块 10」改为「**同对 6 / 表头→块 10 / 换块 14 / 换区 8 + 分隔线**」；`.modelRow` 的下内边距
+  只影响块内（块间隔由 `.costRow` 的下内边距决定），所以三档层次反而更清楚。52 条徽标 spec 通过、
+  全套 234 全绿，只重打并重装客户端包；README 未描述该处像素节奏，无需改动。
+* **同日再调（全部花费金额统一三位有效数字）**：用户「把其他花费的金额也改成三位有效数字」——
+  上一轮只有今日花费与它的三个桶走 `formatSpendSignificant`，本轮把**所有花费金额**都换过去：
+  本会话行（含括号内的今日份）、每个模型行的金额与它那三个桶、排行金额，以及徽标副行
+  （`BalanceBadge.tsx` 的 `formatSpend(spend.total)`）。**只有余额行**（面板 `API 剩余金额` 与徽标
+  主行 `剩余金额`）保持 `formatSpend` 的至多四位小数——余额不是花费读数。`formatSpend` 的 JSDoc
+  改成「余额行的渲染器」，`formatSpendSignificant` 的说明改成「插件渲染的每个花费金额（今日行与
+  三个桶、本会话行与括号、模型行与分项、排行、徽标副行），四位小数封顶、低于 ¥0.0001 显示 ¥0」。
+  用例：单位断言补 `13.8221 → ¥13.8`、`10.4422 → ¥10.4`；新增一条端到端用例（模型行 `¥13.8`、
+  分项 `未缓存输入 ¥0.604 · 缓存读取 ¥10.4 · 输出 ¥2.78`、本会话行与徽标副行 `¥13.8`、排行 `¥13.9`、
+  余额仍是 `¥110.00`）；「实时 10.5288 对缓存 10.4929」那条的断言随渲染改成 `¥10.5`。
+  **未改动**：每条消息的回合花费（`TurnCostAction`，逐回合的小额、四位小数更能分辨）与未注册的
+  输入框花费卡片（`SpendCard`）——等用户定夺。
+* **同日再调（一级距离）**：用户「让会话排行之间的距离定义为一级距离；图上的两个模型分花费，互相之间的
+  距离统一为一级距离，而不是两两间隔开」——把**排行行的 6px 定为一级距离**，模型列表里的每一个间隔都用它：
+  `.modelRow { padding: 4px 8px }` + `.costRow { padding: 0 8px }`，于是「模型名 → 它自己的分项行」=
+  4 + 面板 gap 2 + 0 = 6px，「上一块的分项行 → 下一块的模型名」= 0 + gap 2 + 4 = 6px（块与块不再按上一轮的
+  14px 两两分家）；`.ranking { margin-top: 4px }` 把「最后一行 → 排行区上边框」补回 6px（模型行不再有下内边距，
+  这段距离不能再挂在它身上）。表头 `本会话花费` → 首个模型名仍是 10px（`.spendRow + .modelRow { padding-top: 2px }`），
+  是全列表里唯一不是一级距离的间隔，正好标记它是列表的主人。另外补一条兜底
+  `.costRow:last-child { padding-bottom: 6px }`：排行区还没有内容可显示时，最后一行就是面板的最后一个子元素，
+  由它取回 6px 下内边距，面板底部不会贴住文字。53 条徽标 spec 通过、全套 235 全绿，
+  只重打并重装客户端包；README 未描述模型列表的像素节奏，无需改动。
+* **同日修正（末行到分隔线按墨迹算）**：用户「第 2 行桶明细 → 分隔线你说也是 6，但看起来明显比两行桶之间的
+  距离短」——**盒间距相同并不等于视觉相同**：两行桶明细之间 6px 盒 → **11px 墨迹**（2.5 半行距 + 2 + 2 + 2
+  + 2.5 半行距），而末行到分隔线 6px 盒只有 **8.5px 墨迹**（2.5 + 4 + 2），因为**分隔线没有半行距**，
+  文字行有。修法：把两处「末行 → 分隔线」的盒距从 6 提到 8 —— `.dayBucketRow + .dayBucketRow
+  { padding-bottom: 6px }` 与 `.ranking { margin-top: 6px }`，墨迹变成 2.5 + 8 = **10.5px**，
+  与一级距离的 11px 差半个像素，肉眼即等距。带半行距的完整视觉账已写进这两处注释，避免后续再按盒距误判。
+  53 条徽标 spec 通过、全套 235 全绿，只重打并重装客户端包。
+* **同日再调（分隔线下侧统一 12px 墨迹）**：用户「分隔线到各个元素的距离都改成『排行区分隔线 → 今日会话花费
+  标题』的 12 左右」——以排行区标题那条为基准（1 边框 + 2 `.ranking` 上内边距 + 6 标题上内边距 + 3 半行距 =
+  **12px 墨迹**），把两个 `.spendRow` 表头（`今日 Token`／`本会话花费`）的上内边距从 6 提到 8：
+  1 + 8 + 2.5 = **11.5px 墨迹**（差半个像素）。下内边距保持 6px，所以「表头 → 它拥有的列表」的 15～15.5px
+  表头距离不变，`.spendRow + .modelRow` 那条 10px 盒距也不用动。分隔线**上侧**不动，仍是上一轮定为一级距离的
+  10.5～11.5px。53 条徽标 spec 通过、全套 235 全绿，只重打并重装客户端包。
+* **同日定稿（二级距离）**：用户「像这种最后一行到分割线底的也同样得 12 左右，**这个距离定义为二级距离**」——
+  给出正式词汇：**一级距离** = 行与行之间（盒 6px，墨迹 11～11.5px）；**二级距离** = 区块末行到收尾分隔线、
+  以及分隔线到其下首行（两侧都约 12px 墨迹），因为分隔线没有半行距，二级要用更多盒距。修法：把两处仍为
+  10.5px 的上侧也提到 11.5px —— `.dayBucketRow + .dayBucketRow { padding-bottom: 7px }`、
+  `.ranking { margin-top: 7px }`（各 +1px 盒距）；`.amountRow` 那条本来就是 11.5px，不动。现在六处二级距离为
+  11.5 / 11.5 / 11.5（三条分隔线上侧）与 11.5 / 11.5 / 12（下侧，含基准的排行区标题）。词汇与两档算法写进
+  `.panel` 的注释（一级/二级各自的组成与例外：表头 → 列表 10px 盒 / 15～15.5px 墨迹）。53 条徽标 spec 通过、
+  全套 235 全绿，只重打并重装客户端包。
+* 用例：234 全绿（徽标 spec 新增两条——「今天创建的会话不显示括号（含实时 10.5288 对缓存 10.4929
+  的回归用例）」；宿主 balance spec 断言 `crossedDay` 三态：老会话 true、无创建时间 false、
+  子代理自身 false）。
+* 文档：根 README 双语、ui-billing README 双语、llm-billing README 双语（`crossedDay` 口径）同步；
+  三处 `README.i18n.yaml` hash 重算（llm-billing 也改了）。宿主与客户端都重打并重装。
+
+## 验证
+
+* `pnpm run test`：**234 用例全绿**（today-spend 48 → 51：subtree 纯函数两例 + 同趟读取一例；
+  balance 28 → 29：`getDelegatedSpend` 网关一例；ui-billing 新增 `spends.spec.ts` 3 例、
+  badge 45 → 46、browser-plugin 12 → 13）。
+* `pnpm run build` / `pnpm run lint` / `pnpm run verify` 全绿；三包重新 pack 装入 web profile
+  （版本仍 0.3.12，阶段 A 不 bump）。
+* 待用户重启 `dsh web` 并硬刷新验证：会话行金额 = 本会话 + 其子代理；模型分项之和等于该金额；
+  跨天才出现括号；「?」提示多一行说明。
+
+---
+
 # HANDOFF — 今日会话排行把子代理会话并入父会话（2026-09-12 已实施，阶段 A 未提交）
 
 ## 需求（用户原话）
