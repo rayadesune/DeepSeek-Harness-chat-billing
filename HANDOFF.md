@@ -1,3 +1,38 @@
+# HANDOFF — 面板新增「余额序列口径的今日消费」（2026-09-17 · API 加减口径）
+
+* 需求：面板 `API 剩余金额` 的金额后加一个「今日消费」小字（与另外两个紧跟数字同样式、只有数字没有文字），
+  口径**纯按 API 加减** —— 以当日第一次查询余额为首、减去当前金额；消费与充值统计规则照
+  `C:\Users\admin\Desktop\me\code\balanceinfo` 程序；并在 info 提示里补一行说明这个数字的含义
+* 口径（对照 balanceinfo `client/src/utils/balance.ts` + `components/Dashboard.tsx`）：
+  `今日消费 = max(0, 当日首次查询余额 − 当前余额 + 当日充值)`，当日充值 = 相邻两次采样余额**上涨**按
+  **10 元步进向上取整**（`ceil(growth/10)*10`，growth ≤ 0 记 0）；「当日」用**本地自然日**
+  （balanceinfo 的 `toLocalDayKey`），与宿主「北京日」的 token 计价口径刻意分成两个数字
+* 改动（全部在 `packages/ui-billing` 客户端半面，宿主与 Remote 未动）：
+  - 新增 `src/client/balanceDay.ts`：整数「分」账本（`{day, currencies:{first,last,recharge}}`）+
+    `createBalanceDayTracker(storage)`，每次采样写穿 `localStorage`（键 `dsh.billing.balance-day.v1`），
+    存储缺失/抛错退化为内存，坏 JSON 与版本不符读作「无记录」
+  - `src/client/index.ts`：注入面新增 `getBalanceDaySpend(balance)`，采样只发生在 `getBalance` 这一个入口
+    （`getCachedBalance` 是重放已记过的值，不采样，避免用陈旧值挪动当日基准）
+  - `useBillingData` 从屏幕上的同一个 balance state 派生 `balanceDaySpend`（不发 Remote、不会与金额不同步）；
+    `BalancePanel` 在金额行渲染 `.amountToday` 小字（amount-only 的 `label.amount.todaySpend`，与另两个
+    rider 共用同一条一级样式规则），`null`（当天无该币种采样）时整块不渲染而不是显示 `¥0`
+  - `useBillingData` 新增可见页余额轮询：`BALANCE_POLL_MS`（5 分钟），`visibilitychange` 隐藏即停、回前台
+    立刻补一次；失败沿用「保留最后一次已落定值」
+  - locale 提示 4 行 → 5 行：新增「API 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值
+    （充值按 10 元步进识别）。」；原「紧跟的数字为本会话今日花费」改为「本会话花费后的数字为…」（现在有两个
+    紧跟数字，旧说法有歧义），测试的字数预算与行断言同步
+* 取舍：**加轮询**（用户在看到首日数字偏小后拍板）—— 「今日消费」的基准是「当天第一次采样到的余额」，
+  采样节奏就是它的分辨率：原来只在挂载/切会话/手动刷新时查询，页面跨 0 点开着也不会在 0 点后采样，中途充值
+  也只能在下一次挂载才被发现。现按 balanceinfo 本体的节奏补齐：**页面可见时每 5 分钟轮询**（走缓存路径，
+  宿主 15 秒 TTL 仍合并），页面隐藏暂停、回到前台立刻补一次（跨 0 点睡过去的标签页因此会重新起算当天基准）。
+  注意这与「今天」无关：本插件是新装上的，今天的第一条采样只能是装上之后第一次查询的金额，今天早上到装上
+  之前的消耗取不回来（API 无历史接口），从这个新版本起才有完整的一天
+* 校验：`pnpm run test` 全套（**260 例 / 9 文件全绿**）+ `local-install.mjs ui-billing --face client`（构建 →
+  打包 → 装入 web profile，产物命中 `label.amount.todaySpend` / `amountToday`）；文档：两包 README 双语 +
+  两处 `README.i18n.yaml` blob hash
+
+---
+
 # HANDOFF — 文档修复（2026-09-16 · README 预览图在收录站不显示）
 
 * 问题：收录站详情页 https://awesome-dsh-plugin.com/zh/p/rayadesune/DeepSeek-Harness-chat-billing/
