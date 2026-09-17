@@ -88,8 +88,9 @@
    - LEVEL ONE `11px/16px` tertiary tabular-nums — the detail figures: the bucket
      breakdown 未缓存输入 ¥X · 缓存读取 ¥Y · 输出 ¥Z (today's two lines and every
      model's), a whole today session-spend ranking row (rank, middot, title,
-     amount), the "…N more sessions" footer, and the two riders that follow a
-     row's own figure (this session's share of today, the day's cache-hit share).
+     amount), the "…N more sessions" footer, and the three riders that follow a
+     row's own figure (this session's share of today, the day's cache-hit share,
+     and today's consumption measured from the API balance series).
    - LEVEL TWO `12px/18px` secondary — the section and list titles: the model name
      with its row amount, and the 今日会话花费 ranking title. A level's TEXT and its
      NUMBERS may differ in tone: a level-two member's amount takes that level's own
@@ -149,16 +150,19 @@
   line-height: 22px;
 }
 
-/* The two riders: a row's own figure followed by a second one that belongs to it
-   — this session's share of today after 本会话花费, and the day's cache-hit share
-   after 今日 Token. Both are LEVEL ONE (the panel's most detailed tone) and carry
-   NO parentheses: the level-one tone is what sets a rider apart from the figure
-   beside it. The locale string brings one leading space and this margin adds the
-   rest of the ~8px a ranking amount keeps from an ellipsized title, so a rider
-   never crowds the figure it follows. The session rider renders only when the
-   session crossed a Beijing day — see BalancePanel. */
+/* The three riders: a row's own figure followed by a second one that belongs to it
+   — this session's share of today after 本会话花费, the day's cache-hit share after
+   今日 Token, and today's consumption measured from the API balance series after the
+   API 剩余金额 headline. All three are LEVEL ONE (the panel's most detailed tone) and
+   carry NO parentheses: the level-one tone is what sets a rider apart from the figure
+   beside it. The locale string brings one leading space and this margin adds the rest
+   of the ~8px a ranking amount keeps from an ellipsized title, so a rider never crowds
+   the figure it follows. The session rider renders only when the session crossed a
+   Beijing day, and the amount rider only once today holds a balance sample — see
+   BalancePanel. */
 .sessionToday,
-.todayHit {
+.todayHit,
+.amountToday {
   margin-left: 5px;
   color: var(--billing-type-1-tone);
   font-size: var(--billing-type-1-size);

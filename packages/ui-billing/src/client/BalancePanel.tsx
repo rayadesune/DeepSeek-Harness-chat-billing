@@ -1,7 +1,8 @@
 /**
- * Session-header billing detail panel: the API-remaining row, today's billed
- * token count (the day's cache-hit share following it) and today's spend
- * across every session with the three TODAY
+ * Session-header billing detail panel: the API-remaining row carrying today's
+ * consumption measured from the balance series (see balanceDay.ts), today's
+ * billed token count (the day's cache-hit share following it) and today's
+ * spend across every session with the three TODAY
  * BUCKET modules under them (one two-line module per billing bucket: its token
  * count, then its cost, styled exactly like the per-model blocks further down),
  * this session's CONVERSATION spend (its own billed work plus the subagent
@@ -68,6 +69,12 @@ function todayBucketLines(
 export interface BalancePanelProps {
   /** Primary balance line, e.g. `¥123.45`; `—` when the provider reports none. */
   amount: string
+  /**
+   * Today's consumption measured from the balance series itself (the
+   * `balanceDay.ts` caliber), riding the amount; `null` before today's first
+   * sample for the amount's currency, which renders no rider at all.
+   */
+  balanceDaySpend: number | null
   /** The session this panel belongs to: the row looked up in today's ranking. */
   sessionId: SessionId
   /** The WHOLE conversation's billed spend (this session plus the subagents it delegated). */
@@ -84,7 +91,7 @@ export interface BalancePanelProps {
 }
 
 /** The detail box opened from the badge trigger. */
-export function BalancePanel({ amount, sessionId, spend, todaySpend, sessionsSpend, isSubagent, crossedDay, refreshing, onRefresh, t }: BalancePanelProps) {
+export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todaySpend, sessionsSpend, isSubagent, crossedDay, refreshing, onRefresh, t }: BalancePanelProps) {
   // This session's share of today rides the same all-session ranking read the
   // section below renders, so both numbers come from one host-side "today":
   // `undefined` while that read has not settled, and a confirmed `0` when it
@@ -145,7 +152,24 @@ export function BalancePanel({ amount, sessionId, spend, todaySpend, sessionsSpe
   return (
     <div className={css.panel} role="dialog" aria-label={t('panel.aria')}>
       <div className={css.amountRow}>
-        <span className={css.amountLabel}>{t('label.amount', { amount })}</span>
+        <span className={css.amountLabel}>
+          {t('label.amount', { amount })}
+          {/*
+            Today's consumption from the balance series itself, riding the
+            amount exactly the way the other two riders follow theirs: a bare
+            amount in level-one type, no wording and no parentheses (the info
+            hint names it). It renders only once today holds a sample for this
+            currency — a figure nothing measured stays away rather than reading
+            as ¥0.
+          */}
+          {balanceDaySpend !== null
+            ? (
+              <span className={css.amountToday}>
+                {t('label.amount.todaySpend', { amount: formatSpendSignificant(balanceDaySpend) })}
+              </span>
+            )
+            : null}
+        </span>
         <span className={css.amountActions}>
           {/*
             `side="bottom"`: the DSH bubble's viewport fit only corrects the
@@ -154,8 +178,8 @@ export function BalancePanel({ amount, sessionId, spend, todaySpend, sessionsSpe
             below — the right side would leave a tall bubble cut off.
 
             The label is a plain string (the primitive takes no JSX), so the
-            version rides the hint text itself as its own line after a blank
-            one (`\n\nv{version}`).
+            version rides the hint text itself as its own last line
+            (`\nv{version}`, with no blank line before it).
           */}
           <Tooltip label={t('info.hint', { version: PLUGIN_VERSION })} side="bottom" delayMs={200} maxWidth={300}>
             <button type="button" className={css.infoButton} aria-label={t('info.aria')}>

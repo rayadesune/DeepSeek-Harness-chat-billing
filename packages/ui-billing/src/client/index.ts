@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { DeepSeekBalance } from '@rayadesu/dsh-llm-billing/types'
 import { BalanceBadge, type BalanceBadgeInjected } from './BalanceBadge.tsx'
+import { browserBalanceDayStorage, createBalanceDayTracker } from './balanceDay.ts'
 import { TurnCostAction, type TurnCostActionInjected } from './TurnCostAction.tsx'
 import { createTurnCostStore } from './turnCostStore.ts'
 import { en, NS, zh, type BillingKey } from './locales.ts'
@@ -70,13 +71,21 @@ export async function apply(ctx: ClientContext): Promise<void> {
   // mount renders the amount immediately instead of waiting for the network;
   // the host-side TTL then serves the revalidation from its own cache.
   let lastBalance: DeepSeekBalance | null = null
+  // Today's consumption is measured from the balance series ITSELF (see
+  // balanceDay.ts): every queried balance is folded into the day record here,
+  // at the one place a balance enters this half, and persisted so the day's
+  // first sample survives a reload. `getCachedBalance` deliberately does NOT
+  // sample: it replays a value an earlier query already recorded.
+  const balanceDay = createBalanceDayTracker(browserBalanceDayStorage())
   const injected: BalanceBadgeInjected = {
     getBalance: async (force) => {
       const value = unwrap('billing.getBalance', await billing.getBalance(force))
       lastBalance = value
+      balanceDay.record(value)
       return value
     },
     getCachedBalance: () => lastBalance,
+    getBalanceDaySpend: balance => balanceDay.spend(balance),
     getSessionSpend: async (sessionId) => unwrap('billing.getSessionSpend', await billing.getSessionSpend(sessionId)),
     getTodaySpend: async (force) => unwrap('billing.getTodaySpend', await billing.getTodaySpend(force)),
     getTodaySessionsSpend: async (force) => unwrap('billing.getTodaySessionsSpend', await billing.getTodaySessionsSpend(force)),

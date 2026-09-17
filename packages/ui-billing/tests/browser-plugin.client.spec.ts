@@ -19,6 +19,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import '@deepseek-ai/dsh-client-ui-renderer/client'
 import '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
+import { BALANCE_DAY_STORAGE_KEY } from '../src/client/balanceDay.ts'
 import { BalanceBadge, type BalanceBadgeInjected } from '../src/client/BalanceBadge.tsx'
 import { TurnCostAction, type TurnCostActionInjected } from '../src/client/TurnCostAction.tsx'
 import { apply as applyNode } from '../src/index.ts'
@@ -212,6 +213,35 @@ describe('ui-billing browser half', () => {
     expect(getBalance).toHaveBeenLastCalledWith(true)
     getBalance.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no key' } })
     await expect(injected.getBalance()).rejects.toThrow('billing.getBalance failed: internal: no key')
+    await ctx.fiber.dispose()
+  })
+
+  it('folds every queried balance into today\'s consumption from the balance series', async () => {
+    // The API-arithmetic caliber (balanceDay.ts, mirroring the balanceinfo
+    // program): the FIRST balance queried today is the baseline every later one
+    // is measured against. The face records at the one place a balance enters
+    // this half, and the record persists, so a reload keeps the day's baseline
+    // instead of restarting it at the next mount.
+    window.localStorage.clear()
+    const { ctx, getBalance } = await bench()
+    const entry = ctx.slots.entries('conversation.session.header.utilities')[0]!
+    const injected = (entry.inject as unknown as () => BalanceBadgeInjected)()
+    await injected.getBalance()
+    // The day's own first sample: nothing spent yet.
+    expect(injected.getBalanceDaySpend(BALANCE)).toBe(0)
+    getBalance.mockResolvedValueOnce({
+      ok: true,
+      value: { isAvailable: true, lines: [{ currency: 'CNY', total: '100.00', granted: '0.00', toppedUp: '100.00' }] },
+    })
+    const spent = await injected.getBalance(true)
+    expect(injected.getBalanceDaySpend(spent)).toBe(10)
+    // Persisted with the FIRST query of the day as the baseline (11000 cents),
+    // not the latest one.
+    expect(JSON.parse(window.localStorage.getItem(BALANCE_DAY_STORAGE_KEY)!)).toEqual({
+      v: 1,
+      day: expect.any(String),
+      currencies: { CNY: { first: 11_000, last: 10_000, recharge: 0 } },
+    })
     await ctx.fiber.dispose()
   })
 
