@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DeepSeekBalance, DeepSeekDelegatedSpend, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { BalanceBadge, SESSION_RANKING_LIMIT, type BalanceBadgeProps } from '../src/client/BalanceBadge.tsx'
+import { BalanceBadge, BALANCE_POLL_MS, SESSION_RANKING_LIMIT, type BalanceBadgeProps } from '../src/client/BalanceBadge.tsx'
 import { formatCacheHitPercent, formatSpend, formatSpendSignificant, formatTokens } from '../src/client/format.ts'
 import { cacheHitPercentOf } from '../src/client/spendBuckets.ts'
 import css from '../src/client/BalanceBadge.module.css'
@@ -120,6 +120,7 @@ function props(
   getCachedBalance: () => DeepSeekBalance | null = () => null,
   useProjection: (key: string, selector?: (value: unknown) => unknown) => unknown = () => undefined,
   getDelegatedSpend: (sessionId: SessionId, force?: boolean) => Promise<DeepSeekDelegatedSpend> = defaultGetDelegatedSpend,
+  getBalanceDaySpend: (balance: DeepSeekBalance) => number | null = () => null,
 ): BalanceBadgeProps {
   return {
     getBalance,
@@ -128,6 +129,7 @@ function props(
     getTodaySpend,
     getTodaySessionsSpend,
     getDelegatedSpend,
+    getBalanceDaySpend,
     useSession,
     useProjection,
     sessionId: 'session-1',
@@ -189,6 +191,36 @@ describe('BalanceBadge', () => {
     expect(panel().queryByText('¥0.04')).toBeNull()
     expect(panel().getByText('未缓存输入 ¥0.02 · 缓存读取 ¥0.01 · 输出 ¥0.01')).toBeDefined()
     expect(panel().getByText('未缓存输入 ¥0.02 · 缓存读取 ¥0.01 · 输出 ¥0.01')).toBeDefined()
+  })
+
+  it('shows today\'s consumption from the balance series after the amount', async () => {
+    // The API-arithmetic caliber (balanceDay.ts, mirroring the balanceinfo
+    // program): today's first queried balance minus the current one, plus the
+    // day's top-ups. It rides the headline amount as a level-one rider, bare —
+    // no wording and no parentheses (the info hint names it).
+    const getBalanceDaySpend = vi.fn(() => 9.58)
+    render(<BalanceBadge
+      {...props(async () => balance(), undefined, undefined, undefined, undefined, undefined, undefined, undefined, getBalanceDaySpend)}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    const amountRow = await panel().findByText('API 剩余金额：¥110.00')
+    const rider = panel().getByText('¥9.58')
+    // Inside the amount's own label, in the riders' own class: the tone plus the
+    // locale string's leading space are what set it apart from the figure.
+    expect(amountRow.contains(rider)).toBe(true)
+    expect(rider.className).toBe(css.amountToday)
+    expect(rider.textContent).toBe(' ¥9.58')
+    // Measured against the amount on screen, not a remembered one.
+    expect(getBalanceDaySpend).toHaveBeenLastCalledWith(balance())
+  })
+
+  it('renders no consumption rider before today\'s first balance sample', async () => {
+    // `null` means today holds no sample for the amount's currency yet: nothing
+    // measured renders NOTHING rather than a ¥0 that would read as a figure.
+    render(<BalanceBadge {...props(async () => balance())} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await panel().findByText('API 剩余金额：¥110.00')).toBeDefined()
+    expect(document.querySelector(`.${css.amountToday}`)).toBeNull()
   })
 
   it('renders spend amounts at three significant digits', () => {
@@ -394,7 +426,7 @@ describe('BalanceBadge', () => {
   it('defines the panel\'s three type levels and binds every text element to one', () => {
     // The panel's typography is exactly three levels, defined once as custom
     // properties on `.panel` (see the stylesheet's own note) — L1 the detail
-    // figures (bucket lines, a whole ranking row, the two riders), L2 the section
+    // figures (bucket lines, a whole ranking row, the three riders), L2 the section
     // and list titles (model name with its row amount, 今日会话花费), L3 the rows
     // that name a figure (今日 Token, 今日花费, 本会话花费). Every member references
     // its level's tokens, so retuning a level cannot leave one row behind.
@@ -406,7 +438,7 @@ describe('BalanceBadge', () => {
       return /--billing-type-(\d)-/.exec(body)?.[1] ?? 'none'
     }
     for (const [level, selectors] of Object.entries({
-      1: ['.costBreakdown', '.rankingIndex', '.rankingDot', '.rankingName', '.rankingAmount', '.rankingMore', '.sessionToday', '.todayHit'],
+      1: ['.costBreakdown', '.rankingIndex', '.rankingDot', '.rankingName', '.rankingAmount', '.rankingMore', '.sessionToday', '.todayHit', '.amountToday'],
       2: ['.modelName', '.tasks', '.rankingTitle'],
       3: ['.amountLabel'],
     })) {
@@ -430,6 +462,8 @@ describe('BalanceBadge', () => {
     expect(en['label.sessionSpend.today']).toBe(' {amount}')
     expect(zh['label.todayTokens.hit']).toBe(' {percent}%')
     expect(en['label.todayTokens.hit']).toBe(' {percent}%')
+    expect(zh['label.amount.todaySpend']).toBe(' {amount}')
+    expect(en['label.amount.todaySpend']).toBe(' {amount}')
   })
 
   it('shows this session\'s share of today in parentheses once the session crossed a day', async () => {
@@ -588,28 +622,32 @@ describe('BalanceBadge', () => {
     // The DSH Tooltip bubble clamps neither height nor hover: an over-long
     // label is clipped at the viewport edge and vanishes as soon as the
     // pointer leaves the button, so the rate schedule lives in the READMEs.
-    // The budget covers the four lines — the estimate, the line naming what the
-    // session amounts include, the line naming the trailing today amount, and the
-    // trailing `{version}` (≈6 rendered lines at the bubble's 300px cap).
-    expect(zh['info.hint'].length).toBeLessThanOrEqual(122)
-    expect(en['info.hint'].length).toBeLessThanOrEqual(295)
+    // The budget covers the five lines — the estimate, the amount rider with the
+    // caliber behind it, the line naming what the session amounts include, the
+    // line naming the session rider, and the trailing `{version}` (≈7 rendered
+    // lines at the bubble's 300px cap).
+    expect(zh['info.hint'].length).toBeLessThanOrEqual(176)
+    expect(en['info.hint'].length).toBeLessThanOrEqual(450)
   })
 
-  it('names the delegated subagents and the trailing today amount in the hint', () => {
-    // The hint explains what the session amounts cover (this session plus the
-    // subagent sessions it delegated) and what the amount trailing the 本会话花费
-    // figure is: this conversation's spend today. Each is its own line, and the
-    // version stays the last one.
+  it('names the amount rider, the delegated subagents, and the session rider in the hint', () => {
+    // The hint explains what the figure after the API balance measures (today's
+    // consumption from the balance series itself, with the caliber that produces
+    // it), what the session amounts cover (this session plus the subagent
+    // sessions it delegated), and what the figure after 本会话花费 is. Each is its
+    // own line, in panel order, and the version stays the last one.
     const lines = zh['info.hint'].split('\n')
-    expect(lines).toHaveLength(4)
+    expect(lines).toHaveLength(5)
     expect(lines[0]).toContain('估算')
-    expect(lines[1]).toBe('金额含本会话委派的子代理会话。')
-    expect(lines[2]).toBe('紧跟的数字为本会话今日花费。')
-    expect(lines[3]).toBe('v{version}')
+    expect(lines[1]).toBe('API 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。')
+    expect(lines[2]).toBe('金额含本会话委派的子代理会话。')
+    expect(lines[3]).toBe('本会话花费后的数字为本会话今日花费。')
+    expect(lines[4]).toBe('v{version}')
     const enLines = en['info.hint'].split('\n')
-    expect(enLines).toHaveLength(4)
-    expect(enLines[1]).toBe('The amounts include the subagent sessions this session delegated.')
-    expect(enLines[2]).toBe('The figure after it is this session\'s spend today.')
+    expect(enLines).toHaveLength(5)
+    expect(enLines[1]).toBe('The figure after the API balance is today\'s consumption: the day\'s first queried balance minus the current one, plus today\'s top-ups (identified in ¥10 steps).')
+    expect(enLines[2]).toBe('The amounts include the subagent sessions this session delegated.')
+    expect(enLines[3]).toBe('The figure after this session\'s amount is its spend today.')
   })
 
   it('renders the unavailable word when the fetch rejects', async () => {
@@ -716,6 +754,50 @@ describe('BalanceBadge', () => {
     expect(getSessionSpend.mock.calls.length).toBeGreaterThan(spendCallsBeforeMessage)
     expect(getTodaySpend.mock.calls.length).toBeGreaterThan(todayCallsBeforeMessage)
     expect(getBalance).toHaveBeenCalledTimes(1)
+  })
+
+  it('polls the balance every five minutes while the page is visible', async () => {
+    // The day's consumption is measured from the FIRST balance queried on the
+    // local day, so the sampling cadence IS that figure's resolution: a page left
+    // open across midnight takes the new day's baseline within one interval
+    // (balanceinfo's own five-minute poll), and a top-up surfaces within one
+    // interval instead of only at the next mount.
+    vi.useFakeTimers()
+    const getBalance = vi.fn(async () => balance())
+    render(<BalanceBadge {...props(getBalance)} />)
+    // Flush the mount effect's microtask chain (no timers involved).
+    await act(async () => {})
+    expect(getBalance).toHaveBeenCalledTimes(1)
+    await act(async () => { vi.advanceTimersByTime(BALANCE_POLL_MS) })
+    expect(getBalance).toHaveBeenCalledTimes(2)
+    // The poll rides the CACHED path (no `force`): the host's own 15-second TTL
+    // still merges everything inside its window.
+    expect(getBalance).toHaveBeenLastCalledWith()
+    await act(async () => { vi.advanceTimersByTime(BALANCE_POLL_MS) })
+    expect(getBalance).toHaveBeenCalledTimes(3)
+  })
+
+  it('stops polling while the page is hidden and refreshes once when it returns', async () => {
+    // A backgrounded tab costs nothing, and a tab that slept through midnight
+    // re-baselines the new day on the refresh its return triggers.
+    vi.useFakeTimers()
+    const getBalance = vi.fn(async () => balance())
+    render(<BalanceBadge {...props(getBalance)} />)
+    await act(async () => {})
+    expect(getBalance).toHaveBeenCalledTimes(1)
+
+    let hidden = true
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    await act(async () => { fireEvent(document, new Event('visibilitychange')) })
+    await act(async () => { vi.advanceTimersByTime(BALANCE_POLL_MS * 3) })
+    expect(getBalance).toHaveBeenCalledTimes(1)
+
+    hidden = false
+    await act(async () => { fireEvent(document, new Event('visibilitychange')) })
+    expect(getBalance).toHaveBeenCalledTimes(2)
+    await act(async () => { vi.advanceTimersByTime(BALANCE_POLL_MS) })
+    expect(getBalance).toHaveBeenCalledTimes(3)
+    Reflect.deleteProperty(document, 'hidden')
   })
 
   it('debounces a turn storm: turns settling inside the window price once', async () => {

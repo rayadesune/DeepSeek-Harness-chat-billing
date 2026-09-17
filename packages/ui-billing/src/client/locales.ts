@@ -11,6 +11,12 @@ export const zh = {
   // box is worded identically.
   'trigger.balance': '剩余金额：{amount}',
   'label.amount': 'API 剩余金额：{amount}',
+  // Today's consumption measured from the balance series itself (the
+  // balanceinfo caliber: the day's first queried balance − the current one +
+  // the day's top-ups), riding the amount exactly like the other two riders:
+  // the amount only, one leading space, no wording and no parentheses (the info
+  // hint names it). Hidden — not `¥0` — until today holds a balance sample.
+  'label.amount.todaySpend': ' {amount}',
   'label.sessionSpend': '本会话花费：{amount}',
   // This session's share of today, riding the session row itself: the amount only
   // (the row already names the session), no parentheses — the rider's leading
@@ -60,11 +66,13 @@ export const zh = {
   // The hint rides a DSH `Tooltip` (white-space: pre-line, so a `\n` starts a
   // new line): its bubble has no height clamp, so a long label is clipped at the
   // viewport edge, and the bubble cannot be hovered. Keep this SHORT — the full
-  // rate schedule lives in the package READMEs. The second line names what the
+  // rate schedule lives in the package READMEs. The lines follow the panel top
+  // to bottom: the pricing estimate, the amount rider (today's consumption from
+  // the balance series itself, with the caliber that produces it), what the
   // session amounts cover (this session plus the subagent sessions it
-  // delegated), the third the amount in the parentheses; the version stays the
-  // last line, flush with the bubble's left edge, with no blank line before it.
-  'info.hint': '估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\n金额含本会话委派的子代理会话。\n紧跟的数字为本会话今日花费。\nv{version}',
+  // delegated), then the session rider; the version stays the last line, flush
+  // with the bubble's left edge, with no blank line before it.
+  'info.hint': '估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nAPI 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。\n金额含本会话委派的子代理会话。\n本会话花费后的数字为本会话今日花费。\nv{version}',
   'badge.aria': 'DeepSeek 额度：{amount}',
   'panel.aria': 'DeepSeek 额度详情',
   'label.sessionRanking': '今日会话花费',
@@ -77,6 +85,9 @@ export const en: Record<BillingKey, string> = {
   // label without the "API" prefix, and its spend line matches the panel's.
   'trigger.balance': 'Balance: {amount}',
   'label.amount': 'API balance: {amount}',
+  // Amount only, as in the Chinese dictionary: the API-balance rider is the
+  // day's consumption from the balance series itself, named by the info hint.
+  'label.amount.todaySpend': ' {amount}',
   'label.sessionSpend': 'This session: {amount}',
   // Amount only, as in the Chinese dictionary; rendered only when the session's
   // total and its share of today disagree (a day-crossing session).
@@ -108,10 +119,10 @@ export const en: Record<BillingKey, string> = {
   'action.refresh': 'Refresh',
   'info.aria': 'About this spend',
   // Keep the hint short (see the Chinese dictionary note): the Tooltip bubble
-  // clamps neither height nor hover, the second line names what the session
-  // amounts cover, the third the parenthesized amount on the session row, and
-  // the version is the line under the text.
-  'info.hint': 'Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).\nThe amounts include the subagent sessions this session delegated.\nThe figure after it is this session\'s spend today.\nv{version}',
+  // clamps neither height nor hover. The lines mirror the Chinese dictionary —
+  // the estimate, the amount rider and the caliber behind it, what the session
+  // amounts cover, the session rider — with the version as the last line.
+  'info.hint': 'Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).\nThe figure after the API balance is today\'s consumption: the day\'s first queried balance minus the current one, plus today\'s top-ups (identified in ¥10 steps).\nThe amounts include the subagent sessions this session delegated.\nThe figure after this session\'s amount is its spend today.\nv{version}',
   'badge.aria': 'DeepSeek balance {amount}',
   'panel.aria': 'DeepSeek balance details',
   'label.sessionRanking': 'Today session spend',

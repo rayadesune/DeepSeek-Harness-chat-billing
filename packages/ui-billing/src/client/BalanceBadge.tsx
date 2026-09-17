@@ -19,7 +19,7 @@ import { NS } from './locales.ts'
 import css from './BalanceBadge.module.css'
 
 export { SESSION_RANKING_LIMIT } from './BalancePanel.tsx'
-export { TURN_SETTLE_DEBOUNCE_MS } from './useBillingData.ts'
+export { BALANCE_POLL_MS, TURN_SETTLE_DEBOUNCE_MS } from './useBillingData.ts'
 
 /** Registration-side Remote face used by the header badge. */
 export interface BalanceBadgeInjected {
@@ -36,6 +36,14 @@ export interface BalanceBadgeInjected {
    * revalidates in the background.
    */
   getCachedBalance: () => DeepSeekBalance | null
+  /**
+   * Today's consumption measured from the balance series itself: the day's
+   * first queried balance minus the given one, plus the top-ups the series
+   * showed (see balanceDay.ts). Synchronous and side-effect free — every
+   * `getBalance` call has already folded its snapshot into the day record.
+   * `null` when today holds no sample for the snapshot's primary currency.
+   */
+  getBalanceDaySpend: (balance: DeepSeekBalance) => number | null
   /** Read one session's billed spend; rejects with the Remote error message. */
   getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
   /**
@@ -74,9 +82,10 @@ export type BalanceBadgeProps =
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null until the first balance fetch settles.
  */
-export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, sessionId, useSession, useProjection, t }: BalanceBadgeProps) {
+export function BalanceBadge({ getBalance, getCachedBalance, getBalanceDaySpend, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, sessionId, useSession, useProjection, t }: BalanceBadgeProps) {
   const {
     balance,
+    balanceDaySpend,
     spend,
     todaySpend,
     sessionsSpend,
@@ -88,7 +97,7 @@ export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, ge
     rootRef,
     refresh,
     toggleOpen,
-  } = useBillingData({ getBalance, getCachedBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, sessionId, useSession, useProjection })
+  } = useBillingData({ getBalance, getCachedBalance, getBalanceDaySpend, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, sessionId, useSession, useProjection })
 
   if (balance === null) {
     if (error === null) return null
@@ -116,6 +125,7 @@ export function BalanceBadge({ getBalance, getCachedBalance, getSessionSpend, ge
         ? (
           <BalancePanel
             amount={amount}
+            balanceDaySpend={balanceDaySpend}
             sessionId={sessionId}
             spend={spend}
             todaySpend={todaySpend}
