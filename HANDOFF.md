@@ -1,3 +1,25 @@
+# HANDOFF — 发布记录（2026-09-18 · v0.3.14）
+
+* 提交：`4c12442`（feat(ui)：余额序列口径的今日消费 + 可见页 5 分钟轮询）+ `ac03fa6`（docs：双语
+  README 与 HANDOFF 记录口径）+ `3a9e630`（release: v0.3.14，三包版本对齐 + AGENTS.md + lockfile），
+  已推送 origin/main；本条发布记录为随后的 `docs:` 提交
+* tag：`v0.3.14` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.14
+* npm `dist-tags.latest`：`@rayadesu/dsh-llm-billing` / `@rayadesu/dsh-client-ui-billing` /
+  `@rayadesu/dsh-billing` 均为 **0.3.14**（三个包发布后都处于 npm "being processed"，约 200 秒后复核
+  已全部落库）
+* 版本对齐：三包 0.3.13 → **0.3.14**（根 bundle 两条 peerDeps 与 ui-billing 的 peer/dev
+  `@rayadesu/dsh-llm-billing` 范围同步 `^0.3.14`），`pnpm-lock.yaml` 随 `pnpm install` 刷新
+* 发布前校验：`pnpm run test`（**260 用例全绿 / 9 文件**）/ `build`（host + client 两面）/
+  `verify`（`client bundle stamps version 0.3.14`）全绿
+* 本轮内容：面板 `API 剩余金额` 后的「今日消费」（纯 API 加减口径 + 10 元步进充值识别 + localStorage
+  当日记录）+ 余额改为页面可见时每 5 分钟轮询（隐藏暂停、回到前台补一次）
+* 发布流程未使用 token：本机 npm 已登录 `rayadesu`，`npm publish` 直接发布，**未把任何凭据写入仓库**
+* 本机 web profile 仍是 `file:` 引用本地 tarball（那份 tarball 是版本号 bump 之前的同源码构建，
+  面板说明里显示 0.3.13）；切到 npm 源：
+  `dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
+
+---
+
 # HANDOFF — 面板新增「余额序列口径的今日消费」（2026-09-17 · API 加减口径）
 
 * 需求：面板 `API 剩余金额` 的金额后加一个「今日消费」小字（与另外两个紧跟数字同样式、只有数字没有文字），
