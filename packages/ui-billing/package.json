@@ -1,7 +1,7 @@
 {
   "name": "@rayadesu/dsh-client-ui-billing",
   "description": "Session-header DeepSeek account-balance and conversation-spend badge over the billing Remote",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -47,7 +47,7 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@rayadesu/dsh-llm-billing": "^0.3.13",
+    "@rayadesu/dsh-llm-billing": "^0.3.14",
     "@deepseek-ai/dsh-client-locale": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-typert-protocol": "^0.1.6-alpha.1",
@@ -58,7 +58,7 @@
     "@deepseek-ai/dsh-session": "^0.1.6-alpha.1"
   },
   "devDependencies": {
-    "@rayadesu/dsh-llm-billing": "^0.3.13",
+    "@rayadesu/dsh-llm-billing": "^0.3.14",
     "@deepseek-ai/dsh-api-gateway": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-locale": "^0.1.6-alpha.1",
     "@deepseek-ai/dsh-client-store": "^0.1.6-alpha.1",
