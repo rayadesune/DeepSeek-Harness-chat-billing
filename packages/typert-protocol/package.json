@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-typert-protocol",
-  "version": "0.1.6-alpha.1",
-  "description": "Vendored Typert protocol declarations (npm 0.1.6-alpha.1) so the standalone typert generator can resolve Remote/TypertRemoteService from a registered workspace package.",
+  "version": "0.1.7-alpha.2",
+  "description": "Vendored Typert protocol declarations (npm 0.1.7-alpha.2) so the standalone typert generator can resolve Remote/TypertRemoteService from a registered workspace package.",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -23,9 +23,9 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2"
+    "@deepseek-ai/cordis": "^4.0.4"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2"
+    "@deepseek-ai/cordis": "^4.0.4"
   }
 }
