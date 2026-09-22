@@ -9,10 +9,10 @@ importers:
   .:
     dependencies:
       '@rayadesu/dsh-client-ui-billing':
-        specifier: ^0.3.14
+        specifier: ^0.3.15
         version: link:packages/ui-billing
       '@rayadesu/dsh-llm-billing':
-        specifier: ^0.3.14
+        specifier: ^0.3.15
         version: link:packages/llm-billing
     devDependencies:
       '@deepseek-ai/cordis':
@@ -140,7 +140,7 @@ importers:
         specifier: ^0.1.7-alpha.2
         version: 0.1.7-alpha.2(@deepseek-ai/cordis@4.0.4)
       '@rayadesu/dsh-llm-billing':
-        specifier: ^0.3.14
+        specifier: ^0.3.15
         version: link:../llm-billing
       '@shikijs/langs':
         specifier: ^4.3.1
