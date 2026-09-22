@@ -17,7 +17,7 @@
 import { Fragment } from 'react'
 import type { DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { IconQuestionOutline14, IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconQuestionOutlineRegular, IconRefreshOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { formatSpendSignificant, formatTokens, rowTokens } from './format.ts'
 import { spendBucketsOf, cacheHitPercentOf, tokenBucketsOf } from './spendBuckets.ts'
@@ -183,7 +183,7 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
           */}
           <Tooltip label={t('info.hint', { version: PLUGIN_VERSION })} side="bottom" delayMs={200} maxWidth={300}>
             <button type="button" className={css.infoButton} aria-label={t('info.aria')}>
-              <IconQuestionOutline14 className={css.inlineIcon} />
+              <IconQuestionOutlineRegular size={14} className={css.inlineIcon} />
             </button>
           </Tooltip>
           <button
@@ -193,7 +193,7 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
             aria-label={t('action.refresh')}
             data-refreshing={refreshing || undefined}
           >
-            <IconRefreshOutline14 className={refreshing ? css.spinning : css.inlineIcon} />
+            <IconRefreshOutlineRegular size={14} className={refreshing ? css.spinning : css.inlineIcon} />
           </button>
         </span>
       </div>

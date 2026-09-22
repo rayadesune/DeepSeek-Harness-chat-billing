@@ -13,7 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // (tests/module-loader.setup.ts) executes their factories and records the
 // exports under window.__DSH_BUNDLE_EXPORTS__; importing the renderer bundle
 // first registers the ui-renderer SlotRegistry that the locale bundle binds.
-import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
+import { stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -153,10 +153,10 @@ async function bench(): Promise<{
     },
   } as never, () => null)
   ctx.provide('sessions', {})
-  // The locale plugin binds a settings scope, which reads the connection handle
-  // and the forwarded-event port.
-  ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
-  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  // The locale plugin reads its settings namespace through the configForms
+  // service (0.1.7 moved locale onto config forms) and installs the locale
+  // face onto the slot registry.
+  ctx.provide('configForms', { get: () => stubConfigForm().scope } as never)
   // The `remote` Service gives the associate mechanism a target; the generated
   // namespace lives as the sibling `remote.billing` service.
   class RemoteService extends Service {
