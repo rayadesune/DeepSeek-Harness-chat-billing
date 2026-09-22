@@ -5,7 +5,7 @@
  * without its "API" prefix, since the chip is narrow); the spend line arrives
  * precomputed from the parent carrying the PANEL's `label.sessionSpend`.
  */
-import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { NS } from './locales.ts'
 import css from './BalanceBadge.module.css'
@@ -37,7 +37,7 @@ export function BalanceTrigger({ amount, spendLine, open, onToggle, t }: Balance
         <span className={css.linePrimary}>{t('trigger.balance', { amount })}</span>
         {spendLine !== undefined && <span className={css.lineSecondary}>{spendLine}</span>}
       </span>
-      <IconChevronDownOutline14 className={open ? css.chevronOpen : undefined} />
+      <IconChevronDownOutlineRegular size={14} className={open ? css.chevronOpen : undefined} />
     </button>
   )
 }

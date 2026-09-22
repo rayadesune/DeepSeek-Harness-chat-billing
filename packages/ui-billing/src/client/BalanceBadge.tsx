@@ -8,7 +8,7 @@
  */
 import type { DeepSeekBalance, DeepSeekDelegatedSpend, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { IconRefreshOutline14, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconRefreshOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { formatSpendSignificant, primaryLine } from './format.ts'
@@ -105,7 +105,7 @@ export function BalanceBadge({ getBalance, getCachedBalance, getBalanceDaySpend,
       <Tooltip label={error} delayMs={500}>
         <button type="button" className={css.trigger} onClick={refresh} aria-label={t('action.refresh')}>
           <span className={css.unavailable}>{t('state.unavailable')}</span>
-          <IconRefreshOutline14 className={css.inlineIcon} />
+          <IconRefreshOutlineRegular size={14} className={css.inlineIcon} />
         </button>
       </Tooltip>
     )

@@ -32,6 +32,26 @@ declare global {
   }
 }
 
+// jsdom has no ResizeObserver; the 0.1.7 Tooltip holds its bubble hidden until
+// an observer callback reports the laid-out border box. Synchronously report a
+// plausible size so bubbles render immediately under testing-library.
+if (typeof window !== 'undefined' && typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class ResizeObserverStub {
+    callback: ResizeObserverCallback
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback
+    }
+    observe(target: Element): void {
+      this.callback(
+        [{ target, borderBoxSize: [{ inlineSize: 200, blockSize: 40 }] }] as ResizeObserverEntry[],
+        this,
+      )
+    }
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+}
+
 if (typeof window !== 'undefined') {
   // Anchored inside packages/ui-billing so node resolution walks that
   // package's node_modules first (react, react-dom, cordis, slots, …).

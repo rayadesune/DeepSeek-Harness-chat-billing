@@ -19,6 +19,11 @@ const rendererSrcClient = fileURLToPath(
   new URL('./packages/ui-billing/tests/fixtures/renderer-src/client', import.meta.url),
 )
 
+/** Local copy of the session-controller src file the published test-runtime imports. */
+const sessionControllerSrcClient = fileURLToPath(
+  new URL('./packages/ui-billing/tests/fixtures/session-controller-src/client', import.meta.url),
+)
+
 /** Lower standard TypeScript decorators before Vite's default parser sees source files. */
 function standardDecoratorPlugin() {
   return {
@@ -83,13 +88,18 @@ export default defineConfig({
           new URL('./packages/ui-billing/node_modules/use-sync-external-store', import.meta.url),
         ),
       },
-      // The published test-runtime imports renderer src files that the npm
-      // renderer does not ship (bind.ts / scoped-slots.tsx /
-      // session-provider.tsx). Resolve them to local fixture copies: files
-      // under node_modules would hit Node's refusal to strip types there.
+      // The published test-runtime imports DSH src files that the npm
+      // packages do not ship (renderer bind.ts / scoped-slots.tsx /
+      // bindings.tsx, session-controller scope.ts). Resolve them to local
+      // fixture copies: files under node_modules would hit Node's refusal to
+      // strip types there.
       {
         find: '@deepseek-ai/dsh-client-ui-renderer/src/client',
         replacement: rendererSrcClient,
+      },
+      {
+        find: '@deepseek-ai/dsh-api-session-controller/src/client',
+        replacement: sessionControllerSrcClient,
       },
     ],
   },
