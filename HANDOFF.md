@@ -1,3 +1,21 @@
+# HANDOFF — 发布记录（2026-09-23 · v0.3.15）
+
+* 提交：`ee8d53f`（fix(ui)：适配 DSH 0.1.7 客户端面）+ `e2ed1c9`（chore(deps)：依赖基线升至
+  0.1.7-alpha.2）+ `f7415a2`（docs：双语与 HANDOFF 记录）+ `5b05963`（release: v0.3.15），
+  已推送 origin/main；本条发布记录为随后的 `docs:` 提交
+* tag：`v0.3.15` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.15
+* npm `dist-tags.latest`：三包发布成功、registry 已收录 0.3.15（ui-billing 的 latest 标签复核时
+  仍显示 0.3.14，属发布后 "being processed" 缓存延迟，版本列表已确认 0.3.15 落库）
+* 发布前校验：`pnpm run test`（**260 用例全绿 / 9 文件**）/ `build`（host + client 两面，16 codec
+  全带 create）/ `verify`（`client bundle stamps version 0.3.15`）全绿
+* 本轮内容：适配 dsh 源码 checkout `dsh-v0.1.7-alpha.2`（图标体系换代、locale 走 configForms、
+  typert loader 只认 create 工厂——0.1.7 generator 已原生带、cordis 单实例收敛、上游两处漏声明
+  依赖补齐、test-runtime src 导入的 fixture 跟进）；详见同日「适配 DSH 0.1.7-alpha.2」条目
+* 发布流程未把任何凭据写入仓库：token 仅作为 `npm publish --//registry.npmjs.org/:_authToken=…`
+  内联传参使用
+
+---
+
 # HANDOFF — 适配 DSH 0.1.7-alpha.2 基线（2026-09-23 · 阶段 A，未提交）
 
 * 背景：dsh 源码 checkout 升到 `dsh-v0.1.7-alpha.2`（vendor 同步 cordis 4.0.4 / schemastery
