@@ -4,16 +4,19 @@
  * remains a Typert compiler responsibility.
  * @module @deepseek-ai/dsh-typert-protocol
  */
-import { Service, type Context } from '@deepseek-ai/cordis';
+import { Context, Service } from '@deepseek-ai/cordis';
 import type { TypertContextMap } from './types.ts';
 export { RemoteError, remoteErrorOf } from './remote-error.ts';
+export { TYPERT_OWNED_VALUE, isTypertOwnedValue, typertOwnedValue } from './owned-value.ts';
+export type { TypertOwnedValue } from './owned-value.ts';
+export { isRemoteJsonValue, isRemoteUplinkItem } from './json-value.ts';
 /**
  * Test one generated Remote name against the Connection endpoint grammar.
  * @param value - namespace, method, lookup, or Context segment.
  * @returns whether the value can cross the shared RPC carrier unchanged.
  */
 export declare function isTypertRemoteSegment(value: string): boolean;
-export type { InvocationDescriptor, InvocationParameterDescriptor, InvocationSourceLocation, RemoteErrorCode, RemoteErrorDetailsMap, RemoteFailure, RemoteResult, TypertClientEventListener, TypertClientRemote, TypertClientContextAdapter, TypertCodec, TypertContext, TypertContextMap, TypertContextRegistry, TypertContextWire, TypertDisposer, TypertForwardableEvent, TypertForwardableEventEntry, TypertHostContextAdapter, TypertHostContextResolver, TypertLocalRegistry, TypertLookup, TypertLookupDefinition, TypertLookupHost, TypertLookupMap, TypertLookupProvider, TypertLookupResolver, TypertLookupRegistry, TypertLookupWire, TypertRemoteScopeApi, TypertRemoteScopeMap, TypertRemoteScopeNamespace, TypertRemoteContribution, TypertRemoteEvent, TypertRemoteEventSelection, TypertRemoteMap, TypertRemoteNamespace, TypertRemoteNamespaceMap, TypertRemoteRegistry, TypertRegistryChange, TypertRegistryListener, TypertSchema, TypertRegistryContract, } from './types.ts';
+export type { InvocationDescriptor, InvocationParameterDescriptor, InvocationSourceLocation, PeerId, PeerScope, RemoteErrorCode, RemoteErrorDetailsMap, RemoteFailure, RemoteInvocation, RemoteResult, RemoteStream, RemoteStreamHandle, TypertClientEventListener, TypertClientRemote, TypertClientContextAdapter, TypertCodec, TypertContext, TypertContextMap, TypertContextRegistry, TypertContextWire, TypertDisposer, TypertForwardableEvent, TypertForwardableEventEntry, TypertHostContextAdapter, TypertHostContextResolver, TypertLocalRegistry, TypertLookup, TypertLookupDefinition, TypertLookupHost, TypertLookupMap, TypertLookupProvider, TypertLookupResolver, TypertLookupRegistry, TypertLookupWire, TypertRemoteScopeApi, TypertRemoteScopeMap, TypertRemoteScopeNamespace, TypertRemoteContribution, TypertRemoteEvent, TypertRemoteEventSelection, TypertRemoteMap, TypertRemoteNamespace, TypertRemoteNamespaceMap, TypertRemoteRegistry, TypertRegistryChange, TypertRegistryListener, TypertSchema, TypertRegistryContract, } from './types.ts';
 /** Options for an explicit Service-to-Gateway binding. */
 export interface TypertGatewayBindingOptions {
     /** Wire namespace; defaults to the Cordis service key. */
@@ -44,12 +47,15 @@ export interface RemoteMethodMarker {
 }
 /** Options for a non-unary Remote method. */
 export interface RemoteMethodOptions {
-    /** Deliver each Iterable item over the shared logical-stream carrier. */
+    /** `stream`: deliver each Iterable item over the shared logical-stream carrier. */
     readonly mode: 'stream';
 }
 type RemoteMethodDecorator = <This extends object, Args extends unknown[], Result>(method: (this: This, ...args: Args) => Result, context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>) => void;
 /**
- * Bind one visible Service field to a Cordis key and Remote namespace.
+ * Bind one visible Service field to a Cordis key and Remote namespace. A
+ * service that owns a Cordis Context also gives its tree `ctx.invocation`,
+ * `undefined` outside a Remote call, so no `TypertRemoteService` is needed for
+ * a Host composition to read it.
  * @param service - owning Service instance, normally `this`.
  * @param serviceKey - exact Cordis service key.
  * @param options - optional distinct wire namespace.
@@ -94,4 +100,3 @@ export declare function RemoteScope(key: Extract<keyof TypertContextMap, string>
  * @returns markers in class declaration order.
  */
 export declare function remoteMethods(service: object): readonly RemoteMethodMarker[];
-//# sourceMappingURL=index.d.ts.map

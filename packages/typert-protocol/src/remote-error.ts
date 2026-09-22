@@ -28,4 +28,3 @@ export declare class RemoteError<Code extends RemoteErrorCode = RemoteErrorCode>
  * @returns the failure when the marker matches, otherwise undefined.
  */
 export declare function remoteErrorOf(value: unknown): RemoteFailure | undefined;
-//# sourceMappingURL=remote-error.d.ts.map

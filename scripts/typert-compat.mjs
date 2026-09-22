@@ -2,27 +2,23 @@
 /**
  * Compatibility patch for the generated Typert codec shape.
  *
- * `@deepseek-ai/dsh-typert-generator@0.1.6-alpha.1` — the newest line on npm —
- * emits every strict codec as `{ mode, typeSymbol, schema }`, and the
- * `dsh-typert-loader` published on that same line validates `schema` as a zod
- * v4 schema object. The harness checkout `dsh` actually runs from is AHEAD of
- * that publish: `perf(typert): materialize generated schemas on first use`
- * changed the descriptor to `{ mode, typeSymbol, create() }`, and its loader
- * rejects every codec whose `create` is not a function — which is exactly how a
+ * `@deepseek-ai/dsh-typert-generator@0.1.6-alpha.1` — the baseline this repo
+ * used through v0.3.14 — emitted every strict codec as
+ * `{ mode, typeSymbol, schema }`, while the harness checkout rejected any
+ * codec whose `create` was not a function, which is exactly how a
  * freshly-built plugin broke profile boot on 2026-09-15:
  *
  *   typert-loader: @rayadesu/dsh-llm-billing invocation
  *   "@rayadesu/dsh-llm-billing#billing/getBalance" parameter codec has no create() factory
  *
- * Neither reader rejects the field it does not use (the newer loader reads
- * `create`, the published one reads `schema`), so carrying BOTH keeps a single
- * artifact loadable on the newer checkout runtime and on the published alpha
- * line. The browser half needs the same treatment: the newer api-gateway client
- * parses through `codec.create()`.
+ * Since the 0.1.7-alpha.2 baseline the generator emits `create` natively, so
+ * a current build passes through unchanged. The step stays as a safety net:
+ * it is idempotent and exits non-zero when an artifact carries a strict codec
+ * without a `create` factory (or an unrecognized shape), so a generator
+ * downgrade or shape drift cannot slip past unnoticed.
  *
  * Run after every build that regenerates the typert artifacts (`build:host`
- * does) and before packing/publishing. Idempotent, and exits non-zero when a
- * codec cannot be bridged, so a generator swap cannot slip past unnoticed.
+ * does) and before packing/publishing.
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'

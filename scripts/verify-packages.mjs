@@ -51,16 +51,20 @@ for (const packageDir of readdirSync(join(ROOT, 'packages'))) {
       } else {
         notices.push(`${manifest.name}: typert host manifest owned correctly`)
       }
-      // The DSH runtime in the harness checkout reads a strict codec's
-      // `create()` factory (the published alpha loader reads `schema`); an
-      // artifact carrying only one of the two fails profile boot on the other.
-      // scripts/typert-compat.mjs bridges them after tsdown — this gate keeps a
-      // build that skipped that step out of the registry.
-      const codecs = readFileSync(host, 'utf8').match(/mode: 'strict',/g)?.length ?? 0
-      const bridged = readFileSync(host, 'utf8').match(/create: \(\) =>/g)?.length ?? 0
-      if (codecs !== bridged) {
+      // Every strict codec must reach the DSH runtime with a `create` factory:
+      // the 0.1.7 checkout loader rejects a codec without one. Generator
+      // 0.1.6-alpha.1 emitted `create: () => schema` only after the compat
+      // bridge; generator 0.1.7+ emits `create: schema` natively — accept
+      // either form per codec block, so a build whose codecs never gained a
+      // factory (which fails profile boot) cannot reach the registry. Blocks
+      // are the unit (a bare `create:` line count would also hit the
+      // manifest's TYPERT.schemas entries).
+      const source = readFileSync(host, 'utf8')
+      const blocks = source.match(/mode: 'strict',\n(?:[ \t]*(?:typeSymbol|schema|create): [^\n]*,\n)+/g) ?? []
+      const bridged = blocks.filter(block => /^[ \t]*create:/m.test(block)).length
+      if (blocks.length !== bridged) {
         failures.push(
-          `${manifest.name}: ${String(codecs)} strict codec(s) but ${String(bridged)} create() factor(ies) — `
+          `${manifest.name}: ${String(blocks.length)} strict codec(s) but ${String(bridged)} create() factor(ies) — `
           + 'run node scripts/typert-compat.mjs (build:host does it)',
         )
       }

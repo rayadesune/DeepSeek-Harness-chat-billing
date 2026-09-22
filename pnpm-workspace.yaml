@@ -3,7 +3,7 @@ packages:
   - packages/ui-billing
 
 # typert-protocol (packages/typert-protocol) is intentionally NOT a pnpm
-# workspace member: it vendors the npm 0.1.6-alpha.1 type declarations only for
+# workspace member: it vendors the npm 0.1.7-alpha.2 type declarations only for
 # the typert generator's TypeScript program (resolved through the tsconfig
 # `paths` alias + project references). Keeping it out of the workspace lets
 # `@deepseek-ai/dsh-typert-protocol` resolve from npm at runtime/tests, where
@@ -11,7 +11,7 @@ packages:
 # Workspace matching (linkWorkspacePackages) lets @rayadesu/dsh-llm-billing
 # resolve to the local package even though it is not on the npm registry;
 # peer auto-install then fetches the remaining @deepseek-ai/dsh-* peers
-# (published at 0.1.6-alpha.1) so the tree is self-contained at DSH boot.
+# (published at 0.1.7-alpha.2) so the tree is self-contained at DSH boot.
 autoInstallPeers: true
 linkWorkspacePackages: true
 # pnpm >=11 gates every dependency on a 1-day minimum release age. This repo
