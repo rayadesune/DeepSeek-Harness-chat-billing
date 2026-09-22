@@ -1,3 +1,41 @@
+# HANDOFF — 适配 DSH 0.1.7-alpha.2 基线（2026-09-23 · 阶段 A，未提交）
+
+* 背景：dsh 源码 checkout 升到 `dsh-v0.1.7-alpha.2`（vendor 同步 cordis 4.0.4 / schemastery
+  3.18.4），插件按旧基线 0.1.6-alpha.1 构建后不可用；本轮把依赖基线整体升档并适配破坏面
+* 破坏点与修复：
+  - typert codec：0.1.7 loader 只认带 `create` 工厂的 codec；0.1.7 generator 已原生产出
+    `create: schema`，产物直接可用。`typert-compat.mjs` 降级为安全网（无 create / 未知形状
+    即非零退出），`verify` 改为按 codec 块判定（逐行计数会误伤清单里 `TYPERT.schemas` 的
+    `create` 条目）
+  - cordis 双实例：换装依赖后 `.pnpm` 残留两个 peer 组合的 cordis 4.0.4，`Context.invariants`
+    的模块增强不合并、host 编译报 `Property 'invariants' does not exist`。pnpm v11 删 lockfile
+    后仍以现有 node_modules 为真值回写（"Already up to date"），必须**清空 node_modules 强制
+    重解析**才收敛为单实例（include@1.0.9 + loader@1.0.5）
+  - 客户端包漏声明依赖（AGENTS 既有条款两例）：primitives 产物 import `simple-icons`（上游仅
+    devDep）、`dsh-client-web` 产物 import `dsh-client-ui-dockkit`（清单完全未声明）→ 补进
+    ui-billing devDeps
+  - 已发布 test-runtime 的 lib import 三个未随包发布的 `src/` 路径 → 沿用 fixture + vitest
+    alias 机制：刷新 `renderer-src`（scoped-slots/bindings + 新增 errors.ts）、新增
+    `session-controller-src/client/scope.ts` 及对应 alias
+  - locale 插件改走 `configForms`（不再 `settingsScope`，test-runtime 删 `stubSettingsScope`
+    换 `stubConfigForm`）→ browser-plugin spec 的 bench 提供 `configForms` stub
+  - 图标改名：`Icon*Outline14` → `Icon*OutlineRegular`（补 `size={14}` 保 14px 观感）
+  - jsdom 无 ResizeObserver：0.1.7 Tooltip 等 observer 报尺寸才显示气泡 → module-loader.setup
+    加同步回调尺寸的 stub
+  - 内嵌 `packages/typert-protocol` 刷新到 0.1.7-alpha.2（新增 json-value/owned-value/PeerId
+    等；`dsh-brand` 类型依赖以本地内联 `Branded` 替代，保持零新依赖）
+* 校验（完整档，一轮）：`pnpm run test` 260/260 全绿（9 文件）→ `pnpm run build`（host+client
+  两面，16 codec 全带 create）→ `pnpm run verify` 全绿
+* 本地安装：`scripts/local-install.mjs ui-billing llm-billing --face both` 装入 web profile
+  （0.3.14 同版本重打重装），抽查 `TYPERT.package` 与 16 个 `create:` 均在装好的 lib 内
+* 文档跟改：AGENTS.md（依赖基线行、漏声明条款、typert 条款）、根双语 README + llm-billing
+  双语 README（基线行与 typert 段）、两处 `README.i18n.yaml` hash 重录、pnpm-workspace 注释
+* 用户侧同步：全局 npm 的 dsh CLI 已按用户要求卸载（用户以源码构建运行 dsh）；profile 内
+  用户单独安装的 `dsh-browser-use` / `dsh-computer-use` 仍钉 0.1.6-alpha.1，与本轮无关、
+  需要时另装
+
+---
+
 # HANDOFF — 发布记录（2026-09-18 · v0.3.14）
 
 * 提交：`4c12442`（feat(ui)：余额序列口径的今日消费 + 可见页 5 分钟轮询）+ `ac03fa6`（docs：双语

@@ -130,7 +130,7 @@ commands.
 
 The two plugin packages declare the DeepSeek Harness packages they build on
 (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-credentials`, `@deepseek-ai/dsh-session`,
-and the client runtime packages) as `peerDependencies` at `^0.1.6-alpha.1`. A dsh
+and the client runtime packages) as `peerDependencies` at `^0.1.7-alpha.2`. A dsh
 profile does not auto-install peers, so these are provided by the dsh
 installation itself through the `profiles/node_modules` fallback rather than
 fetched from the registry — no extra packages to install, and no registry token
@@ -139,12 +139,14 @@ needed on the installing machine.
 Two of those published client packages import runtime modules their manifests
 list only under `devDependencies` (`dsh-client-store` → `zustand`/`immer`;
 `dsh-client-ui-primitives` → the markdown view stack: `mdast-util-*`,
-`micromark-*`, `shiki`, `katex`, `diff`, `anser`, `clsx`). The shipped bundles
+`micromark-*`, `shiki`, `katex`, `diff`, `anser`, `clsx`, `simple-icons`;
+`dsh-client-web` → `dsh-client-ui-dockkit`, which its manifest does not declare
+at all). The shipped bundles
 are external and load them from the dsh installation at runtime, but this
 standalone workspace resolves them itself, so `ui-billing` declares them as its
 own `devDependencies` for the browser-half specs.
 
-The plugin builds against the 0.1.6-alpha.1 published line and keeps both DSH
+The plugin builds against the 0.1.7-alpha.2 published line and keeps both DSH
 runtime families readable: the live `Session` log surface
 (`Session.events` + `header.seedLength` at/before 0.1.1-rc.2,
 `snapshotEvents()` + `inheritedEventCount` since 0.1.2-alpha.4), and the
@@ -201,18 +203,17 @@ it. If a typert manifest ever names a package other than its own
 
 The typert generator recognizes `Remote`/`TypertRemoteService` only from a
 workspace-registered protocol package, so `packages/typert-protocol` vendors
-the published `@deepseek-ai/dsh-typert-protocol@0.1.6-alpha.1` declarations; when
+the published `@deepseek-ai/dsh-typert-protocol@0.1.7-alpha.2` declarations; when
 the dsh dependency line moves, refresh it from the installed package.
 
-The generated codecs also straddle a baseline skew. The newest *published*
-generator emits `{ mode, typeSymbol, schema }`, while the harness checkout the
-web app actually runs from is ahead of that publish (`perf(typert): materialize
-generated schemas on first use`) and reads `{ mode, typeSymbol, create() }`,
-refusing any codec whose `create` is not a function. `scripts/typert-compat.mjs`
-— run at the end of `build:host`, enforced by `verify` — adds the `create`
-factory beside the emitted `schema`, so a single artifact loads on both lines.
-Run `pnpm run build:host` (not bare `tsdown`) after touching anything that
-regenerates these artifacts.
+The generated codecs must carry a `create` factory: the `dsh-typert-loader`
+refuses any strict codec without one (`... parameter codec has no create()
+factory`), which fails the host line's activation. Generator 0.1.7+ emits
+`create` natively, so a current build passes through unchanged;
+`scripts/typert-compat.mjs` — run at the end of `build:host`, enforced by
+`verify` — stays as a safety net that exits non-zero if a codec ever ships
+without its factory. Run `pnpm run build:host` (not bare `tsdown`) after
+touching anything that regenerates these artifacts.
 
 Publishing (the bundle and both plugins share one version; `prepublishOnly`
 runs the `verify` gate automatically). Use `npm publish` from **inside each

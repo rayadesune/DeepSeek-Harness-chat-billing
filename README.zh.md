@@ -121,17 +121,18 @@ dsh plugin --profile web update --latest  # 忽略声明的版本区间，把所
 
 两个插件包把它们依赖的 DeepSeek Harness 包（`@deepseek-ai/cordis`、
 `@deepseek-ai/dsh-credentials`、`@deepseek-ai/dsh-session` 以及客户端运行时包）
-声明为 `peerDependencies`（`^0.1.6-alpha.1`）。dsh profile 默认不自动安装 peer，所以
+声明为 `peerDependencies`（`^0.1.7-alpha.2`）。dsh profile 默认不自动安装 peer，所以
 这些由 dsh 安装本身通过 `profiles/node_modules` 回退提供，而不是从 registry 拉取——
 无需额外安装，安装机也不需要 registry token。
 
 这些已发布的客户端包里有两个会把只写在 `devDependencies` 里的运行时模块直接 import 进
 产物（`dsh-client-store` → `zustand`/`immer`；`dsh-client-ui-primitives` → markdown 视图栈
-`mdast-util-*`、`micromark-*`、`shiki`、`katex`、`diff`、`anser`、`clsx`）。发布的 bundle
+`mdast-util-*`、`micromark-*`、`shiki`、`katex`、`diff`、`anser`、`clsx`、`simple-icons`；
+`dsh-client-web` → 清单里完全没声明的 `dsh-client-ui-dockkit`）。发布的 bundle
 把这些留作外部依赖、运行时由 dsh 安装提供，但本仓库是独立 workspace、要自己解析，所以
 `ui-billing` 把它们声明为自己的 `devDependencies` 供浏览器半测使用。
 
-插件按 0.1.6-alpha.1 发布线构建，同时兼容读取两代 DSH 运行时：live `Session` 日志面
+插件按 0.1.7-alpha.2 发布线构建，同时兼容读取两代 DSH 运行时：live `Session` 日志面
 （0.1.1-rc.2 及以前为 `Session.events` + `header.seedLength`，0.1.2-alpha.4 起为
 `snapshotEvents()` + `inheritedEventCount`），以及持久化服务面（0.1.1-rc.2 及以前为
 `inspect`/`listSnapshots`，0.1.2-alpha.5 的 handle 化改造后为
@@ -180,16 +181,14 @@ host 面会从源码重新生成 `lib/typert.host.js` 与 `lib/typert.remote-cli
 的 name 不一致，`verify` 会在发布前直接失败。
 
 typert 生成器只认工作区内已注册协议包里的 `Remote`/`TypertRemoteService` 声明，所以
-`packages/typert-protocol` 内嵌了 npm 上 `@deepseek-ai/dsh-typert-protocol@0.1.6-alpha.1` 的
+`packages/typert-protocol` 内嵌了 npm 上 `@deepseek-ai/dsh-typert-protocol@0.1.7-alpha.2` 的
 声明文件；dsh 依赖线升级时，从安装包重新刷新它。
 
-生成出来的 codec 还横跨了一次基线错位：npm 上最新的**发布版**生成器输出
-`{ mode, typeSymbol, schema }`，而 Web 实际运行的那份 harness checkout 领先于该次发布
-（`perf(typert): materialize generated schemas on first use`），读的是
-`{ mode, typeSymbol, create() }`，`create` 不是函数就拒绝注册。`scripts/typert-compat.mjs`
-挂在 `build:host` 末尾、并由 `verify` 把关，在生成的 `schema` 旁补上 `create` 工厂，
-让同一份产物在两条线上都能加载。**动到会重新生成这些产物的代码后，请跑
-`pnpm run build:host`，不要只跑 tsdown。**
+生成的每个 strict codec 必须带 `create` 工厂：`dsh-typert-loader` 对没有 `create` 的
+codec 直接拒绝注册（`... parameter codec has no create() factory`），宿主行随之启动
+失败。0.1.7 起生成器原生产出 `create`，当前构建直接可用；`scripts/typert-compat.mjs`
+挂在 `build:host` 末尾、并由 `verify` 把关，降级为安全网——一旦再有 codec 缺工厂就非零
+退出。**动到会重新生成这些产物的代码后，请跑 `pnpm run build:host`，不要只跑 tsdown。**
 
 发布（bundle 与两个插件包统一版本号；`prepublishOnly` 会自动跑 `verify` 门禁）。
 要用 `npm publish` 且**必须在各包目录内执行**——`pnpm publish` 会失败（token 读取方式问题），

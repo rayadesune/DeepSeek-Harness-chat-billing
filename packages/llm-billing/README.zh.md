@@ -47,7 +47,7 @@
 
 ## 运行时兼容性
 
-0.1.2-alpha.4 起，DSH 把 live `Session` 的日志读取表面从 `Session.events` 改为 `Session.snapshotEvents()`（无参 = 当前全量日志）与 `Session.ownEvents()`，并把 `SessionHeader.seedLength` 移至 `Session.inheritedEventCount`（持久化侧 `inspect()` 的结果在 `meta` 之外携带该值，`listSnapshots()` 的 header 只剩布尔 `isSeeded`）。插件的所有日志读取都走结构适配器 `liveSessionEvents` / `forkBoundaryOf` / `isSeededSession`，同时接受 ≤ 0.1.1-rc.2 与 0.1.2-alpha.4+ 两种形状——npm 发布基线（`^0.1.6-alpha.1`）与超前于它的 monorepo 运行时代码均无需改动即可工作。遇到两种形状都没有的未知运行时表面时，插件会显式失败而不是静默按零花费计价。排行的血缘读取同样以结构方式完成：header 里既没有 `origin: 'subagent'` 也没有非零 `delegationDepth` 的会话（旧日志，或创建时就没有这两个字段的会话）直接视作顶层会话、保留自己一行。
+0.1.2-alpha.4 起，DSH 把 live `Session` 的日志读取表面从 `Session.events` 改为 `Session.snapshotEvents()`（无参 = 当前全量日志）与 `Session.ownEvents()`，并把 `SessionHeader.seedLength` 移至 `Session.inheritedEventCount`（持久化侧 `inspect()` 的结果在 `meta` 之外携带该值，`listSnapshots()` 的 header 只剩布尔 `isSeeded`）。插件的所有日志读取都走结构适配器 `liveSessionEvents` / `forkBoundaryOf` / `isSeededSession`，同时接受 ≤ 0.1.1-rc.2 与 0.1.2-alpha.4+ 两种形状——npm 发布基线（`^0.1.7-alpha.2`）与超前于它的 monorepo 运行时代码均无需改动即可工作。遇到两种形状都没有的未知运行时表面时，插件会显式失败而不是静默按零花费计价。排行的血缘读取同样以结构方式完成：header 里既没有 `origin: 'subagent'` 也没有非零 `delegationDepth` 的会话（旧日志，或创建时就没有这两个字段的会话）直接视作顶层会话、保留自己一行。
 
 持久化服务的表面同样换代：0.1.1-rc.2 提供 `inspect(id)` / `listSnapshots()`，而 handle 化 seam 提供 `open(id, 'read')` + `SessionHandle.read()` / `list()`。扫描器通过 `persistenceInspect` / `persistenceListSnapshots` 同时读取两代表面（handle 总会关闭，读取失败时也一样），因此同一套插件既能服务已发布的 alpha 线，也能服务重构后的 checkout。`SessionHandle.read()` 自身也有两代：最初返回裸事件数组，DSH `9b78f99dec`（0.1.5-alpha.1 checkout 中）起返回 `{ eventState, events }`；`handleReadEvents` 同时接受两种形状，冷读因此不受该变更影响。
 
