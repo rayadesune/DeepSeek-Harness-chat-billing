@@ -355,6 +355,50 @@ describe('BalanceBadge', () => {
     expect(document.querySelector(`.${css.todayHit}`)).toBeNull()
   })
 
+  it('names today\'s unpriced usage instead of claiming there was none', async () => {
+    const today: DeepSeekTodaySpend = {
+      total: 0,
+      models: [],
+      unpriced: { events: 2, tokens: 3_500, models: ['mimo-v2.7-flash'] },
+    }
+    render(<BalanceBadge {...props(async () => balance(), async () => SPEND, async () => today)} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    // The empty state must not claim "no usage": usage WAS recorded, it simply
+    // matched no rate — the MiMo-V2.6 gap, where a plain ¥0 read as "nothing
+    // happened" and nothing invited the reader to doubt it.
+    expect(await panel().findByText(`今日 Token：${zh['stat.unpricedOnly']}`)).toBeDefined()
+    expect(panel().getByText(`今日花费：${zh['stat.unpricedOnly']}`)).toBeDefined()
+    // Named, because "some usage may be missing" is only actionable with a model.
+    const notice = panel().getByText('未计价用量：mimo-v2.7-flash（无匹配费率）')
+    expect(notice.classList.contains(css.costBreakdown)).toBe(true)
+  })
+
+  it('flags usage priced at a substituted family rate', async () => {
+    const today: DeepSeekTodaySpend = {
+      total: 3.52,
+      models: [{
+        model: 'mimo-v2.7-flash',
+        displayName: 'mimo-v2.7-flash',
+        cost: 3.52,
+        peakCost: 3.52,
+        offPeakCost: 0,
+        cacheHitInputTokens: 0,
+        cacheMissInputTokens: 1_500_000,
+        outputTokens: 1_000_000,
+        cacheHitInputCost: 1.5,
+        cacheMissInputCost: 1.5,
+        outputCost: 2,
+      }],
+      estimated: { events: 1, tokens: 2_500_000, models: ['mimo-v2.7-flash'] },
+    }
+    render(<BalanceBadge {...props(async () => balance(), async () => SPEND, async () => today)} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    // The sample IS counted, so the figure shows normally — what it must also
+    // say is that the rate behind it is a proxy, not this model's own.
+    expect(await panel().findByText('今日花费：¥3.52')).toBeDefined()
+    expect(panel().getByText('估算用量：mimo-v2.7-flash（按同类费率）')).toBeDefined()
+  })
+
   it('puts this session\'s spend on its own line, under today\'s tokens and spend', async () => {
     render(<BalanceBadge {...props(async () => balance())} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))

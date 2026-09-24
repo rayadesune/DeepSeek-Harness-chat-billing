@@ -125,14 +125,17 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
   const todayTokens = todaySpend === null
     ? '—'
     : todaySpend.models.length === 0
-      ? t('stat.none')
+      ? todaySpend.unpriced === undefined ? t('stat.none') : t('stat.unpricedOnly')
       : t('unit.tokens', {
         count: formatTokens(todaySpend.models.reduce((sum, row) => sum + rowTokens(row), 0)),
       })
   const todayAmount = todaySpend === null
     ? '—'
     : todaySpend.models.length === 0
-      ? t('stat.none')
+      // Two empties that look identical in a figure: nothing was measured, or
+      // usage was measured and matched no rate. Only the second is actionable,
+      // so it must never borrow the first's wording.
+      ? todaySpend.unpriced === undefined ? t('stat.none') : t('stat.unpricedOnly')
       : formatSpendSignificant(todaySpend.total)
   // The day's cache-hit share rides the token figure bare — no parentheses, in
   // the same level-one style as the session row's today amount (see the
@@ -144,6 +147,19 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
   const todayHit = todaySpend === null || todaySpend.models.length === 0
     ? null
     : cacheHitPercentOf(todaySpend)
+  // Today's pricing gaps, NAMED: the models whose usage matched no rate row at
+  // all, and the ones priced at a substituted family rate. A figure that
+  // silently omits them invites no doubt — the exact failure being fixed here.
+  const todayNotices = todaySpend === null
+    ? []
+    : [
+      ...(todaySpend.unpriced === undefined
+        ? []
+        : [t('notice.unpriced', { models: todaySpend.unpriced.models.join(', ') })]),
+      ...(todaySpend.estimated === undefined
+        ? []
+        : [t('notice.estimated', { models: todaySpend.estimated.models.join(', ') })]),
+    ]
   // A lone priced model renders no name row at all: in a session that only ever
   // billed one model the name says nothing new, and its amount IS the 本会话花费
   // figure on the row above. Its bucket line below still carries the whole split,
@@ -225,6 +241,11 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
           </div>
         </>
       )}
+      {todayNotices.length > 0 && todayNotices.map(notice => (
+        <div className={css.dayBucketRow} key={notice}>
+          <span className={css.costBreakdown}>{notice}</span>
+        </div>
+      ))}
       <div className={css.spendRow}>
         <span className={css.amountLabel}>
           {t('label.sessionSpend', { amount: sessionAmount })}
