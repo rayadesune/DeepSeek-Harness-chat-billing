@@ -1,3 +1,47 @@
+# HANDOFF — 全量优化 P0–P4（2026-09-24 · 阶段 A，未提交）
+
+* 范围：P0 计价容错 → P1 结构拆分 → P2 性能 → P3 健壮性 → P4 体验/i18n，全部实施（用户先拍板「回退 + 明确标注」「本轮只做 P0」，后改为全做）。
+
+* 改动：
+  - **P0 计价容错（核心）**：`billing.ts` 新增 `familyPricingOf`（最长公共前缀 + 同变体优先，且限制在同一家族，避免 `deepseek-*` 落到 `mimo-*`）；抽出 `priceUsageWith` 复用计价算术；`applyBillingEvent` 未命中价目表时①回退家族费率并计入总额、标 `estimated`；②连家族都没有时完全不计价但把用量记进 `unpriced`，host 侧去重 warn（上限 64 个 id，避免刷屏）。
+    - `types.ts` 增 `DeepSeekUnpricedUsage` 与 `unpriced` / `estimated` 两字段，写成 `| undefined` 以通过 `exactOptionalPropertyTypes`。
+    - **`projection.ts` 的 zod schema 是 `.strict()`**：漏声明新字段不是被剥掉，而是整个 unit 校验失败，故补 `usageTallySchema`。
+    - `subtractSpend` / `mergeTodaySpend` / `addEventContribution` / `negateSpend` 四个构造函数都显式传递 tally，否则 fold 途中会被静默丢弃。
+  - **P2 性能**：新增 `beijingDayRangeOfKey`（按 dayKey 求数值界限），替掉 `computeTodaySpend` 与 today-spend 扫描里「逐事件构造日期字符串比较」；冷失败缓存由「仅按 revision 跳过」改为「revision + 300s TTL」（`COLD_FAILED_RETRY_MS`），避免单次瞬时读失败让会话永久消失。
+  - **P3 健壮性**：`balance.ts` 抽出 `requestBalanceOnce`，对 transport/429/5xx 重试至多 3 次（150ms 倍增退避，尊重 AbortSignal），401/403 不重试并给出「检查 DEEPSEEK_API_KEY」的可执行提示。`AGENTS.md` 补 DSH 依赖线升级 checklist。
+  - **P4 体验**：面板区分「暂无消耗记录」与「有消耗，但未匹配到费率」；有未计价/估算时列出具体模型名（可操作）；locales 中英同步新增 3 键。
+  - **P1 结构**：费率数据抽到 `pricing-table.ts`（以后加模型只改数据文件，不碰引擎）；`today-spend.ts` 968→636 行，拆出 `persistence.ts`（两套持久化 seam）/ `cache.ts`（60s 缓存 + 并发）/ `session-lineage.ts`（委派关系与标题），`today-spend.ts` 用 `export *` 保持导出面完全不变。
+
+* 校验：`test 271/271` 全绿、`lint` 干净、`build`（host+client）绿、`verify` 盖章 0.3.16；两包重打装入 web profile，产物 marker 逐项核对通过（warn 文案 / DEEPSEEK_API_KEY 提示 / 未计价 notice / 空态新文案）。
+
+* 已知取舍与未做项：
+  - **`truncated` 没有穿透到聚合体**：`TODAY_SPEND_MAX_EVENTS`(20 万) 超限时仍只 warn（且不当次缓存部分结果）。贯穿第三个可选字段到所有 spend 构造函数的收益低于风险，故保留现状。
+  - **家族回退是估算**：若新模型真的改了价，`estimated` 那部分金额会偏离真实账单，UI 已标注来源。
+  - **行为变更**：过去「当天全部样本都未计价」会让今日各项整段为空；现在会开日并携带 `unpriced`，从而看得见（这正是本轮要修的现象）。
+
+* 待用户验证（重启 `dsh web` 后）：①正常对话的行尾花费与今日花费恢复；②换成未收录模型时应出现「未计价用量：<model>」行，而不是一个 ¥0；③面板文案能区分「没用量」和「有量但没费率」两种空态。
+# HANDOFF — 全量优化 P0–P4（2026-09-24 · 阶段 A，未提交）
+
+* 范围：P0 计价容错 → P1 结构拆分 → P2 性能 → P3 健壮性 → P4 体验/i18n，全部实施（用户先拍板「回退 + 明确标注」「本轮只做 P0」，后改为全做）。
+
+* 改动：
+  - **P0 计价容错（核心）**：`billing.ts` 新增 `familyPricingOf`（最长公共前缀 + 同变体优先，且限制在同一家族，避免 `deepseek-*` 落到 `mimo-*`）；抽出 `priceUsageWith` 复用计价算术；`applyBillingEvent` 未命中价目表时①回退家族费率并计入总额、标 `estimated`；②连家族都没有时完全不计价但把用量记进 `unpriced`，host 侧去重 warn（上限 64 个 id，避免刷屏）。
+    - `types.ts` 增 `DeepSeekUnpricedUsage` 与 `unpriced` / `estimated` 两字段，写成 `| undefined` 以通过 `exactOptionalPropertyTypes`。
+    - **`projection.ts` 的 zod schema 是 `.strict()`**：漏声明新字段不是被剥掉，而是整个 unit 校验失败，故补 `usageTallySchema`。
+    - `subtractSpend` / `mergeTodaySpend` / `addEventContribution` / `negateSpend` 四个构造函数都显式传递 tally，否则 fold 途中会被静默丢弃。
+  - **P2 性能**：新增 `beijingDayRangeOfKey`（按 dayKey 求数值界限），替掉 `computeTodaySpend` 与 today-spend 扫描里「逐事件构造日期字符串比较」；冷失败缓存由「仅按 revision 跳过」改为「revision + 300s TTL」（`COLD_FAILED_RETRY_MS`），避免单次瞬时读失败让会话永久消失。
+  - **P3 健壮性**：`balance.ts` 抽出 `requestBalanceOnce`，对 transport/429/5xx 重试至多 3 次（150ms 倍增退避，尊重 AbortSignal），401/403 不重试并给出「检查 DEEPSEEK_API_KEY」的可执行提示。`AGENTS.md` 补 DSH 依赖线升级 checklist。
+  - **P4 体验**：面板区分「暂无消耗记录」与「有消耗，但未匹配到费率」；有未计价/估算时列出具体模型名（可操作）；locales 中英同步新增 3 键。
+  - **P1 结构**：费率数据抽到 `pricing-table.ts`（以后加模型只改数据文件，不碰引擎）；`today-spend.ts` 968→636 行，拆出 `persistence.ts`（两套持久化 seam）/ `cache.ts`（60s 缓存 + 并发）/ `session-lineage.ts`（委派关系与标题），`today-spend.ts` 用 `export *` 保持导出面完全不变。
+
+* 校验：`test 271/271` 全绿、`lint` 干净、`build`（host+client）绿、`verify` 盖章 0.3.16；两包重打装入 web profile，产物 marker 逐项核对通过（warn 文案 / DEEPSEEK_API_KEY 提示 / 未计价 notice / 空态新文案）。
+
+* 已知取舍与未做项：
+  - **`truncated` 没有穿透到聚合体**：`TODAY_SPEND_MAX_EVENTS`(20 万) 超限时仍只 warn（且不当次缓存部分结果）。贯穿第三个可选字段到所有 spend 构造函数的收益低于风险，故保留现状。
+  - **家族回退是估算**：若新模型真的改了价，`estimated` 那部分金额会偏离真实账单，UI 已标注来源。
+  - **行为变更**：过去「当天全部样本都未计价」会让今日各项整段为空；现在会开日并携带 `unpriced`，从而看得见（这正是本轮要修的现象）。
+
+* 待用户验证（重启 `dsh web` 后）：①正常对话的行尾花费与今日花费恢复；②换成未收录模型时应出现「未计价用量：<model>」行，而不是一个 ¥0；③面板文案能区分「没用量」和「有量但没费率」两种空态。
 # HANDOFF — 发布记录（2026-09-24 · v0.3.16）
 
 * 提交：`531734e`（fix(billing)：补 MiMo-V2.6 费率行）+ `0c0386d`（style(ui)：面板补

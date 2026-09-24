@@ -63,6 +63,11 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
 - **workspace 关掉 pnpm 发布龄门槛**：`pnpm-workspace.yaml` 显式 `minimumReleaseAge: 0`。
   pnpm ≥11 默认 1 天门槛会把刚发布的 alpha 包挡在 lockfile 校验外，而校验阶段不认
   `minimumReleaseAgeExclude`（那是解析期自动追加的），本仓库又要紧跟 DSH alpha 基线。
+- **DSH 依赖线升级 checklist**：`@deepseek-ai/dsh-*` 全线对齐同一基线（`llm-billing` 的 peer+dev、`ui-billing`
+  的 peer+dev、根的 devDependencies 三处一起改）。升级按序做：① 改三处版本号 → ② `pnpm install` 刷
+  lockfile（本仓库已关发布龄门槛）→ ③ `pnpm run build`（顺带确认 typert generator 仍产出 `create` 工厂，
+  没产出时 `scripts/typert-compat.mjs` 会非零退出）→ ④ `pnpm run test`；⑤ 若测试报 `Cannot find package`，
+  按上一条「补漏声明依赖」补进 `ui-billing` 的 devDependencies。
 - **密钥不进仓库**：`DEEPSEEK_API_KEY` 等一律由用户环境或凭据 seam 提供，仓库不含真实值。
 - **README 双语**：每个 README 遵循 DSH 结构 `README.md`(EN) + `README.zh.md`(ZH) +
   `README.i18n.yaml`（记录两文件 git blob hash，改动后需更新）。
