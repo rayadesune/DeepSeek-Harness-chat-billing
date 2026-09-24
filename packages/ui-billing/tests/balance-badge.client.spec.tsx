@@ -373,12 +373,23 @@ describe('BalanceBadge', () => {
     expect(notice.classList.contains(css.costBreakdown)).toBe(true)
   })
 
-  it('flags usage priced at a substituted family rate', async () => {
+  it('says the same thing on the session row as on the today row', async () => {
+    const unpricedSession: DeepSeekSessionSpend = { total: 0, models: [], unpriced: { events: 1, tokens: 2_500_000, models: ['deepseek-chat'] } }
+    const unpricedToday: DeepSeekTodaySpend = { total: 0, models: [], unpriced: { events: 1, tokens: 2_500_000, models: ['deepseek-chat'] } }
+    render(<BalanceBadge {...props(async () => balance(), async () => unpricedSession, async () => unpricedToday)} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    // Both rows describe the same session, so neither may claim "no usage" —
+    // the session row used to, which contradicted the today row right below it.
+    expect(await panel().findByText(`本会话花费：${zh['stat.unpricedOnly']}`)).toBeDefined()
+    expect(panel().getByText(`今日花费：${zh['stat.unpricedOnly']}`)).toBeDefined()
+  })
+
+  it('keeps priced usage normal and lists unpriced models beside it', async () => {
     const today: DeepSeekTodaySpend = {
       total: 3.52,
       models: [{
-        model: 'mimo-v2.7-flash',
-        displayName: 'mimo-v2.7-flash',
+        model: 'mimo-v2.5',
+        displayName: 'mimo-v2.5',
         cost: 3.52,
         peakCost: 3.52,
         offPeakCost: 0,
@@ -389,14 +400,14 @@ describe('BalanceBadge', () => {
         cacheMissInputCost: 1.5,
         outputCost: 2,
       }],
-      estimated: { events: 1, tokens: 2_500_000, models: ['mimo-v2.7-flash'] },
+      unpriced: { events: 1, tokens: 2_500_000, models: ['deepseek-chat'] },
     }
     render(<BalanceBadge {...props(async () => balance(), async () => SPEND, async () => today)} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
-    // The sample IS counted, so the figure shows normally — what it must also
-    // say is that the rate behind it is a proxy, not this model's own.
+    // The priced part reads as an ordinary figure; the unpriced part is named
+    // rather than folded into it at some guessed rate.
     expect(await panel().findByText('今日花费：¥3.52')).toBeDefined()
-    expect(panel().getByText('估算用量：mimo-v2.7-flash（按同类费率）')).toBeDefined()
+    expect(panel().getByText('未计价用量：deepseek-chat（无匹配费率）')).toBeDefined()
   })
 
   it('puts this session\'s spend on its own line, under today\'s tokens and spend', async () => {
@@ -758,12 +769,13 @@ describe('BalanceBadge', () => {
       .mockRejectedValueOnce(new Error('boom'))
     const getTodaySpend = vi.fn()
       .mockResolvedValueOnce(TODAY_SPEND)
+      .mockResolvedValueOnce(TODAY_SPEND)
       .mockRejectedValueOnce(new Error('boom'))
     render(<BalanceBadge {...props(async () => balance(), getSessionSpend, getTodaySpend)} />)
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
     fireEvent.click(await screen.findByRole('button', { name: zh['action.refresh'] }))
     await waitFor(() => { expect(getSessionSpend).toHaveBeenCalledTimes(2) })
-    await waitFor(() => { expect(getTodaySpend).toHaveBeenCalledTimes(2) })
+    await waitFor(() => { expect(getTodaySpend).toHaveBeenCalledTimes(3) })
     // A failed refetch keeps the previous values instead of blanking them.
     expect(panel().getByText('本会话花费：¥0.04')).toBeDefined()
     expect(panel().getByText('今日花费：¥0.31')).toBeDefined()
@@ -798,6 +810,28 @@ describe('BalanceBadge', () => {
     expect(getSessionSpend.mock.calls.length).toBeGreaterThan(spendCallsBeforeMessage)
     expect(getTodaySpend.mock.calls.length).toBeGreaterThan(todayCallsBeforeMessage)
     expect(getBalance).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-reads only this session on a session switch, leaving the account-level reads alone', async () => {
+    const getBalance = vi.fn(async () => balance())
+    const getSessionSpend = vi.fn(async () => SPEND)
+    const getTodaySpend = vi.fn(async () => TODAY_SPEND)
+    // One props object: fresh function identities per render would re-trigger
+    // the effects for a reason other than the session switch under test.
+    const base = props(getBalance, getSessionSpend, getTodaySpend)
+    const { rerender } = render(<BalanceBadge {...base} />)
+    await waitFor(() => { expect(getBalance).toHaveBeenCalledTimes(1) })
+    expect(getSessionSpend).toHaveBeenCalledTimes(1)
+    expect(getTodaySpend).toHaveBeenCalledTimes(1)
+
+    // Another conversation: this session's own reads re-run, while the balance
+    // and today's spend do not — neither answer varies by session, and
+    // re-reading them (waiting on the day's whole-session scan) is what held
+    // the header spinner on every switch.
+    rerender(<BalanceBadge {...base} sessionId={'session-2' as SessionId} />)
+    await waitFor(() => { expect(getSessionSpend).toHaveBeenCalledTimes(2) })
+    expect(getBalance).toHaveBeenCalledTimes(1)
+    expect(getTodaySpend).toHaveBeenCalledTimes(1)
   })
 
   it('polls the balance every five minutes while the page is visible', async () => {
@@ -873,17 +907,58 @@ describe('BalanceBadge', () => {
     expect(getBalance).toHaveBeenCalledTimes(1)
   })
 
-  it('passes force to getTodaySpend only on the manual refresh, not on mount', async () => {
+  it('passes force to getTodaySpend on the manual refresh, not on mount or a panel open', async () => {
     const getTodaySpend = vi.fn(async (_force?: boolean) => TODAY_SPEND)
     render(<BalanceBadge {...props(async () => balance(), async () => SPEND, getTodaySpend)} />)
     await act(async () => {})
     // The mount read is a plain (cached) read — no force.
     expect(getTodaySpend.mock.calls[0]?.[0]).toBeFalsy()
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    await act(async () => {})
+    // Opening the panel re-reads the day row, through the cached path too.
+    expect(getTodaySpend.mock.calls[1]?.[0]).toBeFalsy()
     fireEvent.click(screen.getByRole('button', { name: zh['action.refresh'] }))
     await act(async () => {})
     // The manual refresh bypasses the host-side cache.
+    expect(getTodaySpend.mock.calls[2]?.[0]).toBe(true)
+  })
+
+  it('forces the day reads when a turn settles, so the figure is not a turn behind', async () => {
+    vi.useFakeTimers()
+    let running = false
+    const getBalance = vi.fn(async () => balance())
+    const getSessionSpend = vi.fn(async () => SPEND)
+    const getTodaySpend = vi.fn(async (_force?: boolean) => TODAY_SPEND)
+    const getDelegatedSpend = vi.fn(async (_sessionId: SessionId, _force?: boolean) => NO_DELEGATION)
+    const base = props(getBalance, getSessionSpend, getTodaySpend, () => running, undefined, undefined, undefined, getDelegatedSpend)
+    const { rerender } = render(<BalanceBadge {...base} />)
+    await act(async () => {})
+    // The mount reads are plain (cached) reads.
+    expect(getTodaySpend.mock.calls[0]?.[0]).toBeFalsy()
+    expect(getDelegatedSpend.mock.calls[0]?.[1]).toBeFalsy()
+
+    running = true
+    rerender(<BalanceBadge {...base} />)
+    running = false
+    rerender(<BalanceBadge {...base} />)
+    await act(async () => { vi.advanceTimersByTime(2_000) })
+    // The settle asks for the post-turn value: a plain read would be answered
+    // from the value on hand with a refresh running behind it — one turn late.
     expect(getTodaySpend.mock.calls[1]?.[0]).toBe(true)
+    expect(getDelegatedSpend.mock.calls[1]?.[1]).toBe(true)
+  })
+
+  it('re-reads today\'s spend when the panel opens, so an idle switch does not leave the day row behind', async () => {
+    const getTodaySpend = vi.fn(async () => TODAY_SPEND)
+    render(<BalanceBadge {...props(async () => balance(), async () => SPEND, getTodaySpend)} />)
+    await act(async () => {})
+    expect(getTodaySpend).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    await act(async () => {})
+    expect(getTodaySpend).toHaveBeenCalledTimes(2)
+    // Opening is not a refresh: it takes the cached path.
+    expect(getTodaySpend.mock.calls[1]?.[0]).toBeFalsy()
   })
 
   it('keeps both spend values when a turn-settle recompute rejects', async () => {

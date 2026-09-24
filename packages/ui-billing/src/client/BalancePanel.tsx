@@ -118,7 +118,10 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
   const sessionAmount = spend === null
     ? '—'
     : spend.models.length === 0
-      ? t('stat.none')
+      // The same two empties as the today row: nothing was measured, or usage
+      // was measured and no rate row matched. Both rows must say the same thing
+      // about the same session.
+      ? spend.unpriced === undefined ? t('stat.none') : t('stat.unpricedOnly')
       : formatSpendSignificant(spend.total)
   // The count is DSH's compact notation plus DSH's own ` tok` unit; the
   // placeholder states stay bare (no ` tok` after a `—`).
@@ -147,19 +150,12 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
   const todayHit = todaySpend === null || todaySpend.models.length === 0
     ? null
     : cacheHitPercentOf(todaySpend)
-  // Today's pricing gaps, NAMED: the models whose usage matched no rate row at
-  // all, and the ones priced at a substituted family rate. A figure that
-  // silently omits them invites no doubt — the exact failure being fixed here.
-  const todayNotices = todaySpend === null
+  // Today's pricing gap, NAMED: the wire models whose usage has no rate row. A
+  // figure that silently omits them invites no doubt — which is exactly the
+  // failure being fixed here. Nothing is ever priced by a guessed rate.
+  const todayNotices = todaySpend === null || todaySpend.unpriced === undefined
     ? []
-    : [
-      ...(todaySpend.unpriced === undefined
-        ? []
-        : [t('notice.unpriced', { models: todaySpend.unpriced.models.join(', ') })]),
-      ...(todaySpend.estimated === undefined
-        ? []
-        : [t('notice.estimated', { models: todaySpend.estimated.models.join(', ') })]),
-    ]
+    : [t('notice.unpriced', { models: todaySpend.unpriced.models.join(', ') })]
   // A lone priced model renders no name row at all: in a session that only ever
   // billed one model the name says nothing new, and its amount IS the 本会话花费
   // figure on the row above. Its bucket line below still carries the whole split,
