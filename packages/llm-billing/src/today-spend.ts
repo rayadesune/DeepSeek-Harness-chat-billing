@@ -55,286 +55,21 @@
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import type { ResolvedBilling } from './billing.ts'
-import { beijingDayKey, beijingPartsOf, BillingFolder, emptyTodaySpend, forkBoundaryOf, isSeededSession, mergeTodaySpend } from './billing.ts'
+import { beijingDayRangeOfKey, beijingPartsOf, BillingFolder, emptyTodaySpend, forkBoundaryOf, isSeededSession, mergeTodaySpend } from './billing.ts'
 import type { BillingFoldState } from './billing.ts'
 import type { DeepSeekTodaySessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from './types.ts'
 import { BILLING_UNIT_KEY, foldOwnBilling, type BillingUnitFold, type BillingUnitState } from './projection.ts'
+import { foldSessionTitle, isSubagentSession, rollUpSubagentSpend, type SessionLineage } from './session-lineage.ts'
+import { COLD_FAILED_CACHE_LIMIT, COLD_FAILED_RETRY_MS, COLD_RESOLVE_CACHE_LIMIT, COLD_RESOLVE_CONCURRENCY, withConcurrency } from './cache.ts'
+import { liveSessionEvents, persistenceInspect, persistenceListSnapshots } from './persistence.ts'
+import type { ScannerPersistedHeader, ScannerPersistence, ScannerSession, SessionHeaderSlice } from './persistence.ts'
 
-/**
- * Fold one session's durable display title: the latest `session/title`
- * event's text (last-wins, matching the `title` projection), or `null` before
- * the first title lands. The fold runs over the complete log, so an explicit
- * user rename is picked up as soon as its event commits.
- * @param events - one session's complete event log.
- * @returns the session's current title, or `null` when untitled.
- */
-export function foldSessionTitle(events: readonly SessionEvent[]): string | null {
-  for (let index = events.length - 1; index >= 0; index--) {
-    const event = events[index]!
-    // `session/title` joined the SessionEvent union after the npm
-    // 0.1.1-rc.2 baseline this package builds against; read its payload
-    // through the structural escape hatch (runtime logs carry it).
-    if ((event as { type: string }).type !== 'session/title') continue
-    const data = (event as { data: { title?: unknown } }).data
-    return typeof data.title === 'string' ? data.title : null
-  }
-  return null
-}
+// Re-exported so the package's import surface is unchanged: these names were
+// declared here before the module was split.
+export * from './session-lineage.ts'
+export * from './persistence.ts'
+export * from './cache.ts'
 
-/**
- * Structural slice of a session's durable lineage: the header fields DSH
- * stamps on a delegation child (`origin: 'subagent'`, the delegating session's
- * id, and the depth that survives persistence). All three are read
- * structurally, so the scanner works on every runtime family — a log written
- * before the fields existed simply carries none of them and reads as a
- * top-level session.
- */
-export interface SessionLineage {
-  /** The session this one was forked from or delegated by; absent for a top-level session. */
-  readonly parentSession?: SessionId
-  /** DSH's subagent-child classification (`childSessionMeta` stamps it). */
-  readonly origin?: 'subagent'
-  /** Delegation depth: absent (zero) at the top level, parent depth + 1 for a subagent child. */
-  readonly delegationDepth?: number
-}
-
-/**
- * Whether one session's durable header marks it as a subagent child. Either
- * marker is enough: `origin` is DSH's navigation classification and
- * `delegationDepth` is its persisted recursion budget, so a header carrying
- * only the depth (or only the origin) is still a delegation child. A session
- * created without either — an ordinary session, a user fork, or a cold resume
- * — is top-level.
- * @param header - the session's lineage slice; `undefined` reads as top-level.
- * @returns true when the session was created as a subagent child.
- */
-export function isSubagentSession(header: SessionLineage | undefined): boolean {
-  if (header === undefined) return false
-  return header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0
-}
-
-/**
- * The top-level session one session's ranking row belongs to: the session
- * itself for a top-level session, and for a subagent child the first ancestor
- * up the `parentSession` chain that is not itself a subagent child. A
- * multi-generation delegation (a subagent that spawned subagents) therefore
- * lands on the same root row as its parent, and a child whose parent header is
- * unknown is attributed to the parent id its own header names — the parent is
- * authoritative even when its log is not part of this scan.
- * @param id - the session whose row is being attributed.
- * @param lineage - lineage of every session this scan saw, by id.
- * @returns the session id whose ranking row the input belongs to.
- */
-export function topLevelSessionOf(
-  id: SessionId,
-  lineage: ReadonlyMap<SessionId, SessionLineage>,
-): SessionId {
-  let current = id
-  // A malformed log could claim a delegation cycle; each step visits a
-  // distinct ancestor, so a repeat ends the walk instead of spinning.
-  const seen = new Set<SessionId>([current])
-  for (;;) {
-    const header = lineage.get(current)
-    if (!isSubagentSession(header)) return current
-    const parent = header?.parentSession
-    if (parent === undefined || seen.has(parent)) return current
-    seen.add(parent)
-    current = parent
-  }
-}
-
-/**
- * Fold every subagent child's row into the top-level row it belongs to
- * ({@link topLevelSessionOf}), so the ranking lists conversations rather than
- * every delegation a conversation started. A child's spend is added to its
- * ancestor's `total`; the ancestor's `ownTotal` keeps its own spend only. A
- * top-level session whose own day was empty but whose subagents priced
- * something still gets a row (with `ownTotal` 0), carrying the title the scan
- * resolved for it in `titles`.
- * @param rows - one row per session that priced something today (own spends).
- * @param lineage - lineage of every session this scan saw, by id.
- * @param titles - resolved display titles by session id; a session absent from
- *   the map has no resolved title and its created row reports `null`.
- * @returns the merged rows, sorted by `total` descending.
- */
-export function rollUpSubagentSpend(
-  rows: readonly DeepSeekTodaySessionSpend[],
-  lineage: ReadonlyMap<SessionId, SessionLineage>,
-  titles: ReadonlyMap<SessionId, string | null> = new Map(),
-): DeepSeekTodaySessionSpend[] {
-  const merged = new Map<SessionId, DeepSeekTodaySessionSpend>()
-  for (const row of rows) {
-    const target = topLevelSessionOf(row.sessionId, lineage)
-    const carried = merged.get(target)
-    if (carried === undefined) {
-      // A row's own session keeps its own total as `ownTotal`; a row created
-      // for an ancestor that priced nothing today carries zero there.
-      merged.set(target, target === row.sessionId
-        ? row
-        : { sessionId: target, title: titles.get(target) ?? null, total: row.total, ownTotal: 0 })
-      continue
-    }
-    merged.set(target, { ...carried, total: carried.total + row.total })
-  }
-  return [...merged.values()].sort((left, right) => right.total - left.total)
-}
-
-/**
- * Structural slice of a live session's header: the fork boundary of both DSH
- * runtime families plus the delegation lineage the ranking roll-up reads.
- */
-export interface SessionHeaderSlice extends SessionLineage {
-  /** ≤ 0.1.1-rc.2: the durable fork boundary carried by the header; absent for an unseeded session. */
-  readonly seedLength?: number
-  /** 0.1.2-alpha.4+: whether the session has a fork-inherited prefix. */
-  readonly isSeeded?: boolean
-  /**
-   * Durable creation instant (epoch ms). The conversation read uses it to tell
-   * whether a session's spend can span more than the queried day; it is also
-   * part of the projection-cache record identity.
-   */
-  readonly createdAt?: number
-}
-
-/**
- * Structural slice of a live session the scanner reads, accepting both DSH
- * runtime families: the ≤ 0.1.1-rc.2 baseline exposes the log as
- * `events` (+ `header.seedLength`), while 0.1.2-alpha.4+ exposes
- * `snapshotEvents()` and `inheritedEventCount` (and dropped the header field).
- */
-export interface ScannerSession {
-  readonly id: SessionId
-  /** ≤ 0.1.1-rc.2: the full event log snapshot. */
-  readonly events?: readonly SessionEvent[]
-  /** 0.1.2-alpha.4+: materialize an immutable log snapshot; no args = the full current log. */
-  snapshotEvents?(fromSeq?: number, toSeqExclusive?: number): readonly SessionEvent[]
-  /** 0.1.2-alpha.4+: the durable inherited-prefix length (0 for an unseeded session). */
-  readonly inheritedEventCount?: number
-  /** Durable header slice: `seedLength` (older runtime) or `isSeeded` (newer runtime), plus lineage. */
-  readonly header?: SessionHeaderSlice
-}
-
-/**
- * Read one live session's complete event log across both runtime families.
- * @throws when the session exposes neither the legacy `events` snapshot nor
- *   the newer `snapshotEvents()` reader — an unknown runtime surface must
- *   fail loudly rather than silently price an empty log.
- */
-export function liveSessionEvents(session: ScannerSession): readonly SessionEvent[] {
-  if (session.events !== undefined) return session.events
-  // Optional-call form keeps the receiver bound (snapshotEvents uses `this`).
-  if (session.snapshotEvents !== undefined) return session.snapshotEvents()
-  throw new Error('llm-billing: session log surface is neither Session.events nor Session.snapshotEvents')
-}
-
-/** Structural slice of a listed persisted session (the snapshot header is a full SessionHeader). */
-export interface ScannerPersistedHeader extends SessionHeaderSlice {
-  readonly id: SessionId
-  /** Session format generation; part of the projection-cache record identity. */
-  readonly version?: number
-  /** Working directory recorded on the header; part of the projection-cache record identity. */
-  readonly cwd?: string
-}
-
-/** One stored-session read: the full event log plus the durable inherited boundary. */
-export interface ScannerPersistedRead {
-  readonly events: readonly SessionEvent[]
-  /** Inherited-prefix length (fork seed length); 0 for an unseeded session. */
-  readonly seedLength: number
-}
-
-/** ≤ 0.1.1-rc.2 persistence slice: service-level `inspect` / `listSnapshots`. */
-export interface ScannerPersistenceLegacy {
-  listSnapshots(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
-  inspect(id: SessionId): Promise<{
-    meta?: SessionHeaderSlice
-    /** 0.1.2-alpha.4+: the exact inherited cut travels beside, not inside, the header. */
-    inheritedEventCount?: number
-    events: readonly SessionEvent[]
-  }>
-}
-
-/**
- * One handle read result across DSH generations. The handle seam first
- * returned the bare event array; since `9b78f99dec` (2026-09-06, in the
- * 0.1.5-alpha.1 checkout) it returns `{ eventState, events }`. Both shapes are
- * accepted so the same build serves the npm alpha line and the checkout.
- */
-export type ScannerHandleRead =
-  | readonly SessionEvent[]
-  | { readonly events: readonly SessionEvent[] }
-
-/**
- * Unwrap a handle read across both return shapes.
- * @param read - the handle's read result.
- * @returns the event array.
- */
-export function handleReadEvents(read: ScannerHandleRead): readonly SessionEvent[] {
-  // `Array.isArray` does not narrow readonly arrays out of a union, so the
-  // branches are asserted explicitly.
-  if (Array.isArray(read)) return read as readonly SessionEvent[]
-  return (read as { readonly events: readonly SessionEvent[] }).events
-}
-
-/** 0.1.2-alpha.5+ handle-based persistence slice: service-level `list` / `open` + `SessionHandle`. */
-export interface ScannerPersistenceHandle {
-  list(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
-  open(id: SessionId, access: 'read'): Promise<{
-    readonly header?: SessionHeaderSlice
-    /** 0.1.2-alpha.5+: the handle carries the exact inherited cut beside the header. */
-    readonly inheritedEventCount?: number
-    read(): Promise<ScannerHandleRead>
-    close(): Promise<void>
-  }>
-}
-
-/** Structural union the scanner reads through, accepting both persistence runtime families. */
-export type ScannerPersistence = ScannerPersistenceLegacy | ScannerPersistenceHandle
-
-function isHandlePersistence(persistence: ScannerPersistence): persistence is ScannerPersistenceHandle {
-  return typeof (persistence as Partial<ScannerPersistenceHandle>).open === 'function'
-}
-
-/**
- * List every stored session snapshot across both persistence runtime families:
- * `listSnapshots` (≤ 0.1.1-rc.2) or `list` (0.1.2-alpha.5+).
- * @param persistence - the persistence service slice.
- * @returns one snapshot per stored session.
- */
-export function persistenceListSnapshots(
-  persistence: ScannerPersistence,
-): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]> {
-  return isHandlePersistence(persistence)
-    ? persistence.list()
-    : (persistence as ScannerPersistenceLegacy).listSnapshots()
-}
-
-/**
- * Read one stored session's complete event log and durable inherited boundary
- * across both persistence runtime families: legacy `inspect` (≤ 0.1.1-rc.2)
- * or `open` + handle `read` (0.1.2-alpha.5+; the handle is closed after the
- * read). Both throw when the session does not exist.
- * @param persistence - the persistence service slice.
- * @param id - the stored session to read.
- * @returns the session's complete event log plus its inherited-prefix boundary.
- */
-export async function persistenceInspect(
-  persistence: ScannerPersistence,
-  id: SessionId,
-): Promise<ScannerPersistedRead> {
-  if (isHandlePersistence(persistence)) {
-    const handle = await persistence.open(id, 'read')
-    try {
-      return { events: handleReadEvents(await handle.read()), seedLength: forkBoundaryOf(handle) }
-    } finally {
-      await handle.close()
-    }
-  }
-  const inspection = await (persistence as ScannerPersistenceLegacy).inspect(id)
-  return { events: inspection.events, seedLength: forkBoundaryOf(inspection) }
-}
-
-/** Structural slices of the optional services the scanner reads through. */
 export interface TodaySpendScannerDeps {
   /** Resolves the live SessionStore at scan time (absent in headless assemblies). */
   sessions?: () => { list(): readonly ScannerSession[] } | undefined
@@ -376,93 +111,8 @@ export interface TodaySpendScannerDeps {
 }
 
 /**
- * Bounded parallel fan-out: run `run` over `items` with at most `limit` in
- * flight. A shared index counter hands each worker its next job, so the
- * dispatch is O(n) overall (array `shift()` would be O(n) per pop).
+ * The live SessionStore slice a scan reads (resolved once per scan).
  */
-async function withConcurrency<T>(
-  items: readonly T[],
-  limit: number,
-  run: (item: T) => Promise<void>,
-): Promise<void> {
-  const total = items.length
-  let next = 0
-  await Promise.all(Array.from(
-    { length: Math.min(limit, total) },
-    async () => {
-      for (let job = next; job < total; job = next) {
-        next += 1
-        await run(items[job]!)
-      }
-    },
-  ))
-}
-
-/**
- * The A1 cache: one Beijing-day key + a 60s window, an in-flight promise that
- * coalesces concurrent misses, and a `force` bypass for the manual refresh
- * path. Cross-day invalidation is automatic (the day key changes); a failed
- * scan leaves the previous value in place and retries on the next call.
- * @typeParam T - the cached aggregate's value shape (the spend or its
- *   per-session breakdown).
- */
-export class TodaySpendCache<T = DeepSeekTodaySpend> {
-  private cachedDayKey: string | undefined
-  private cachedValue: T | undefined
-  private cachedAt = 0
-  private inFlight: Promise<T> | undefined
-
-  /**
-   * @param scan - the aggregate computation behind a miss.
-   * @param ttlMs - time window in milliseconds (default 60 000).
-   * @param now - clock source (injectable for tests).
-   */
-  constructor(
-    private readonly scan: (dayKey: string) => Promise<T>,
-    private readonly ttlMs = 60_000,
-    private readonly now: () => Date = () => new Date(),
-  ) {}
-
-  /**
-   * Read today's spend, cached per Beijing day within the TTL window.
-   * @param force - bypass the time window (manual refresh); the day-key gate
-   *   and the in-flight coalescing still apply to non-force callers.
-   * @returns today's spend.
-   */
-  get(force = false): Promise<T> {
-    const now = this.now()
-    const dayKey = beijingDayKey(now)
-    if (!force && this.cachedDayKey === dayKey && this.cachedValue !== undefined
-      && now.getTime() - this.cachedAt < this.ttlMs) {
-      return Promise.resolve(this.cachedValue)
-    }
-    // A scan already in flight is fresh by definition, so a forced caller
-    // joins it instead of starting a second pass.
-    if (this.inFlight !== undefined) return this.inFlight
-    const run = (async (): Promise<T> => {
-      try {
-        const value = await this.scan(dayKey)
-        this.cachedDayKey = dayKey
-        this.cachedValue = value
-        this.cachedAt = now.getTime()
-        return value
-      } finally {
-        this.inFlight = undefined
-      }
-    })()
-    this.inFlight = run
-    return run
-  }
-}
-
-/** Max session-ids kept in the scanner's cold-resolution cache before eviction. */
-export const COLD_RESOLVE_CACHE_LIMIT = 1024
-/** Max session-ids kept in the scanner's cold-failure cache before eviction. */
-export const COLD_FAILED_CACHE_LIMIT = 1024
-/** Bounded parallel fan-out for cold-session resolution. */
-export const COLD_RESOLVE_CONCURRENCY = 8
-
-/** The live SessionStore slice a scan reads (resolved once per scan). */
 type SessionStore = NonNullable<ReturnType<NonNullable<TodaySpendScannerDeps['sessions']>>>
 /** The projection-registry slice a scan reads (absent → events path). */
 type ProjectionsService = NonNullable<ReturnType<NonNullable<TodaySpendScannerDeps['projections']>>>
@@ -594,8 +244,13 @@ export class TodaySpendScanner {
    * from the aggregate and the ranking on every scan after the first.
    */
   private readonly coldResolved = new Map<SessionId, ColdResolution>()
-  /** Cold sessions whose resolution failed: id → revision (retried only when the log changes). */
-  private readonly coldFailed = new Map<SessionId, SessionPersistenceRevision>()
+  /**
+   * Cold sessions whose resolution failed, id → the revision it failed at plus
+   * when. Keyed by revision too, so an unchanged log is not re-read every scan,
+   * but the retry is TIME-boxed: a purely revision-keyed failure would hide a
+   * session permanently when its log never changes again.
+   */
+  private readonly coldFailed = new Map<SessionId, { revision: SessionPersistenceRevision, at: number }>()
 
   constructor(private readonly deps: TodaySpendScannerDeps) {}
 
@@ -747,7 +402,12 @@ export class TodaySpendScanner {
         adopt(header.id, resolved)
         continue
       }
-      if (this.coldFailed.get(header.id) === revision) continue
+      // Skipped while the SAME revision is still inside its retry window; once
+      // the window lapses the read is attempted again even though nothing
+      // changed, which is what rescues a transient failure.
+      const failed = this.coldFailed.get(header.id)
+      if (failed !== undefined && failed.revision === revision
+        && Date.now() - failed.at < COLD_FAILED_RETRY_MS) continue
       pending.push({ header, revision, seeded })
     }
     await withConcurrency(pending, COLD_RESOLVE_CONCURRENCY, async ({ header, revision, seeded }) => {
@@ -757,7 +417,7 @@ export class TodaySpendScanner {
         this.rememberCold(header.id, { revision, ...resolved })
       } else if (persistenceAvailable) {
         evictOldest(this.coldFailed, COLD_FAILED_CACHE_LIMIT)
-        this.coldFailed.set(header.id, revision)
+        this.coldFailed.set(header.id, { revision, at: Date.now() })
       }
     })
     for (const { header } of pending) {
@@ -790,6 +450,14 @@ export class TodaySpendScanner {
     const liveIds = new Set<SessionId>()
     let collected = 0
     let truncated = false
+    // The queried day as numbers — one conversion per scan instead of a date
+    // string per event, since the counting below walks every event of every
+    // log. A key that does not parse falls back to the string test rather than
+    // silently claiming no event belongs to the day.
+    const dayRange = beijingDayRangeOfKey(dayKey)
+    const onDay = dayRange === undefined
+      ? (event: SessionEvent): boolean => beijingPartsOf(event.time).dayKey === dayKey
+      : (event: SessionEvent): boolean => event.time >= dayRange.start && event.time < dayRange.end
     /** Price one complete log, announce it, and return what to remember. */
     const collect = (
       id: SessionId,
@@ -802,7 +470,7 @@ export class TodaySpendScanner {
         // The cap counts the queried day's events; the fold still sees every
         // event up to the cap (model tracking and attempt replacement need
         // the surrounding events).
-        if (beijingPartsOf(event.time).dayKey === dayKey) {
+        if (onDay(event)) {
           collected += 1
           if (collected > maxEvents) {
             truncated = true
