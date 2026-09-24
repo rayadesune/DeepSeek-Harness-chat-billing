@@ -990,3 +990,49 @@ describe('attempt pricing (DSH tokenUsage semantics)', () => {
     expect(negateSpend(spend).total).toBeCloseTo(-spend.total, 10)
   })
 })
+
+describe('unlisted models (family fallback and unpriced tallies)', () => {
+  const BILLING = resolveBilling(undefined)
+  // 2026-08-20 10:00 Beijing.
+  const PEAK = Date.parse('2026-08-20T02:00:00Z')
+  const USAGE: TokenUsage = { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 500_000 }
+  const todayOf = (model: string): DeepSeekTodaySpend => computeTodaySpend(
+    [assistantMessage(model, USAGE, PEAK, 0)], BILLING, CATALOG, new Date(PEAK),
+  )
+
+  it('bills a later point release at its family rate instead of dropping it', () => {
+    // `mimo-v2.7-flash` ships before any rate row exists: it must not read as
+    // zero the way MiMo-V2.6 did, so it bills at the closest row of its family.
+    const spend = todayOf('mimo-v2.7-flash')
+    expect(spend.total).toBeCloseTo(todayOf(MIMO).total, 10)
+    expect(spend.total).toBeGreaterThan(0)
+  })
+
+  it('prefers the same variant, so a flash does not bill at pro rates', () => {
+    // Every mimo row shares the family token, so only the trailing variant
+    // separates them — and the pro row is ~3x the input rate.
+    expect(todayOf('mimo-v2.7-flash').total).toBeLessThan(todayOf('mimo-v2.7-pro').total)
+  })
+
+  it('records the substitution so the figure can be flagged as an estimate', () => {
+    const spend = todayOf('mimo-v2.7-flash')
+    expect(spend.estimated).toEqual({ events: 1, tokens: 3_500_000, models: ['mimo-v2.7-flash'] })
+    expect(spend.unpriced).toBeUndefined()
+  })
+
+  it('never crosses families — an unrelated brand stays unpriced', () => {
+    const spend = todayOf('totally-unknown-flash')
+    expect(spend.total).toBe(0)
+    expect(spend.models).toEqual([])
+    expect(spend.unpriced).toEqual({ events: 1, tokens: 3_500_000, models: ['totally-unknown-flash'] })
+    expect(spend.estimated).toBeUndefined()
+  })
+
+  it('sums both tallies when sessions are merged', () => {
+    const merged = mergeTodaySpend(todayOf('totally-unknown-flash'), todayOf('mimo-v2.7-flash'))
+    expect(merged.unpriced?.tokens).toBe(3_500_000)
+    expect(merged.estimated?.tokens).toBe(3_500_000)
+    expect(merged.unpriced?.models).toEqual(['totally-unknown-flash'])
+    expect(merged.estimated?.models).toEqual(['mimo-v2.7-flash'])
+  })
+})

@@ -15,7 +15,7 @@
 
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel, DeepSeekSessionTurnSpends, DeepSeekTodaySpend, DeepSeekTurnSpend, DeepSeekTurnSpendRow } from './types.ts'
+import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel, DeepSeekSessionTurnSpends, DeepSeekTodaySpend, DeepSeekTurnSpend, DeepSeekTurnSpendRow, DeepSeekUnpricedUsage } from './types.ts'
 
 /** One token price point, in CNY per 1M tokens. */
 export interface DeepSeekTokenPrice {
@@ -89,117 +89,10 @@ export interface BillingConfig {
   models?: BillingConfigModel[]
 }
 
-/**
- * Published peak-hour windows (Beijing time): 09:00–12:00 and 14:00–18:00,
- * applied on weekdays (Monday–Friday) only — weekends are always off-peak
- * (effective 2026-08-23).
- */
-export const DEFAULT_PEAK_HOURS: readonly PeakHourWindow[] = [
-  { start: 9, end: 12 },
-  { start: 14, end: 18 },
-]
+import { DEFAULT_MODEL_PRICING, DEFAULT_PEAK_HOURS } from './pricing-table.ts'
 
-/**
- * Inclusive epoch ms of the published V4 Flash series re-pricing:
- * 2026-09-10 12:00 Beijing time (UTC+8, no DST) = 04:00 UTC. Samples before
- * this instant keep the base rates; samples at or after it bill at the second
- * revision.
- */
-export const FLASH_SERIES_RATE_CHANGE_AT = Date.UTC(2026, 8, 10, 4, 0, 0)
-
-/**
- * Inclusive epoch ms of the announced V4 Pro route switch: 2026-09-14 12:00
- * Beijing time (UTC+8, no DST) = 04:00 UTC. From that instant the V4 Pro route
- * is served by V4.1 Flash and billed at the V4.1 Flash rates.
- */
-export const V4_PRO_ROUTE_SWITCH_AT = Date.UTC(2026, 8, 14, 4, 0, 0)
-
-/** The V4 Flash series' base rates (effective 2026-08-17), CNY per 1M tokens. */
-const FLASH_BASE_RATES: DeepSeekRateRevision = {
-  peak: { cacheHitInput: 0.10, cacheMissInput: 3.0, output: 9.0 },
-  offPeak: { cacheHitInput: 0.05, cacheMissInput: 1.5, output: 4.5 },
-}
-
-/**
- * The V4 Flash series' second revision (effective
- * {@link FLASH_SERIES_RATE_CHANGE_AT}): off-peak 0.02 / 1.0 / 4.0, peak at
- * twice those prices.
- */
-const FLASH_REPRICED_RATES: DeepSeekRateRevision = {
-  effectiveFrom: FLASH_SERIES_RATE_CHANGE_AT,
-  peak: { cacheHitInput: 0.04, cacheMissInput: 2.0, output: 8.0 },
-  offPeak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 4.0 },
-}
-
-/**
- * The V4.1 Flash rates as they reach the retired V4 Pro route from
- * {@link V4_PRO_ROUTE_SWITCH_AT}: the same price pair as the flash series'
- * second revision, carried at its own effective instant.
- */
-const V4_PRO_SWITCHED_RATES: DeepSeekRateRevision = {
-  effectiveFrom: V4_PRO_ROUTE_SWITCH_AT,
-  peak: FLASH_REPRICED_RATES.peak,
-  offPeak: FLASH_REPRICED_RATES.offPeak,
-}
-
-/**
- * Official peak/off-peak rates (CNY per 1M tokens) per model, as dated
- * revisions. Base rows are the schedule effective 2026-08-17; the V4 Flash
- * series (V4.1 Flash, V4 Flash, V4 Flash Vision Exp) carries the second
- * revision effective 2026-09-10 12:00 Beijing, and the V4 Pro row the V4.1
- * Flash rates from its announced route switch (2026-09-14 12:00 Beijing) —
- * the MiMo series (V2.5, and V2.6 which kept V2.5's pricing) is untouched by
- * either adjustment. Rows sharing a model are that model's rate history.
- */
-export const DEFAULT_MODEL_PRICING: readonly BillingConfigModel[] = [
-  // deepseek-flash is the V4.1 Flash route, DSH's default catalog entry; image
-  // inputs are converted to tokens at the same per-token price.
-  { model: 'deepseek-flash', ...FLASH_BASE_RATES },
-  { model: 'deepseek-flash', ...FLASH_REPRICED_RATES },
-  { model: 'deepseek-v4-flash', ...FLASH_BASE_RATES },
-  { model: 'deepseek-v4-flash', ...FLASH_REPRICED_RATES },
-  // deepseek-v4.1-flash-expires-on-0910 was the V4.1 Flash preview route,
-  // retired when the model was released on 2026-09-10; its rows stay so the
-  // logs that used it keep pricing.
-  { model: 'deepseek-v4.1-flash-expires-on-0910', ...FLASH_BASE_RATES },
-  { model: 'deepseek-v4.1-flash-expires-on-0910', ...FLASH_REPRICED_RATES },
-  {
-    model: 'deepseek-v4-pro',
-    peak: { cacheHitInput: 0.30, cacheMissInput: 9.0, output: 27.0 },
-    offPeak: { cacheHitInput: 0.15, cacheMissInput: 4.5, output: 13.5 },
-  },
-  // From the announced route switch V4 Pro is served by V4.1 Flash and billed
-  // at the V4.1 Flash rates.
-  { model: 'deepseek-v4-pro', ...V4_PRO_SWITCHED_RATES },
-  // deepseek-v4-flash-vision-exp bills at the same rates as deepseek-v4-flash;
-  // images are converted to tokens at the same per-token price.
-  { model: 'deepseek-v4-flash-vision-exp', ...FLASH_BASE_RATES },
-  { model: 'deepseek-v4-flash-vision-exp', ...FLASH_REPRICED_RATES },
-  // MiMo series (Xiaomi): flat rate, no peak/off-peak distinction. V2.6 keeps
-  // V2.5's published API pricing (2026-09-22 launch, "API pricing unchanged
-  // from V2.5"); cache writes bill at the miss rate, though Xiaomi's launch
-  // window makes them free provider-side for a limited time.
-  {
-    model: 'mimo-v2.5-pro',
-    peak: { cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 },
-    offPeak: { cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 },
-  },
-  {
-    model: 'mimo-v2.5',
-    peak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
-    offPeak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
-  },
-  {
-    model: 'mimo-v2.6-pro',
-    peak: { cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 },
-    offPeak: { cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 },
-  },
-  {
-    model: 'mimo-v2.6-flash',
-    peak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
-    offPeak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
-  },
-]
+// Re-exported: these names were declared here before the table moved out.
+export { DEFAULT_MODEL_PRICING, DEFAULT_PEAK_HOURS, FLASH_SERIES_RATE_CHANGE_AT, V4_PRO_ROUTE_SWITCH_AT } from './pricing-table.ts'
 
 /** Resolved billing configuration: a pricing table plus peak-hour windows. */
 export interface ResolvedBilling {
@@ -355,6 +248,25 @@ export function beijingDayKey(now: Date): string {
 }
 
 /**
+ * The Beijing calendar day NAMED by `dayKey` as an epoch-millisecond range:
+ * `start` inclusive, `end` exclusive. Derived from the key itself rather than
+ * from a clock, because a scan prices whatever day it was asked for — today,
+ * or a day a caller is replaying.
+ *
+ * The conversion needs no calendar arithmetic: `Date.UTC` builds midnight UTC
+ * of that civil date, and Beijing midnight is a fixed offset earlier (no DST).
+ * @param dayKey - a `YYYY-MM-DD` Beijing day key.
+ * @returns the day's bounds, or `undefined` when the key is not that shape.
+ */
+export function beijingDayRangeOfKey(dayKey: string): { readonly start: number, readonly end: number } | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey)
+  if (match === null) return undefined
+  const utcMidnight = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  if (Number.isNaN(utcMidnight)) return undefined
+  return { start: utcMidnight - BEIJING_OFFSET_MS, end: utcMidnight + DAY_MS - BEIJING_OFFSET_MS }
+}
+
+/**
  * Structural source of a session's durable inherited-prefix boundary. The
  * field moved between DSH runtimes:
  *
@@ -502,6 +414,95 @@ export function priceEventAt(
   return priceUsage(parts, reported, event.data.message.source.model, billing, names)
 }
 
+/** Every token one usage sample reports, whether or not it gets priced. */
+function usageTokens(usage: TokenUsage): number {
+  return usage.inputTokens + usage.outputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+}
+
+/** Length of the shared leading run of two strings. */
+function commonPrefixLength(left: string, right: string): number {
+  const max = Math.min(left.length, right.length)
+  let index = 0
+  while (index < max && left[index] === right[index]) index += 1
+  return index
+}
+
+/** The trailing `-`-separated segment of a model id (`mimo-v2.6-flash` → `flash`). */
+function variantOf(id: string): string {
+  return id.slice(id.lastIndexOf('-') + 1)
+}
+
+/** Max distinct model ids remembered for the once-only warning. */
+const UNPRICED_WARN_LIMIT = 64
+
+/** Model ids already reported, so a long-running host logs each one once. */
+const reportedUnpricedModels = new Set<string>()
+
+/**
+ * Report a model carrying no rate row of its own, at most once per id (and at
+ * most {@link UNPRICED_WARN_LIMIT} ids per process). Every figure reads as
+ * zero when the upstream model is unknown, which looks exactly like "no usage"
+ * rather than a missing row — the one thing this warning exists to separate.
+ * @param model - the unlisted wire model id.
+ * @param billed - whether a family rate was substituted (false → not billed at all).
+ */
+function reportUnpricedModel(model: string, billed: boolean): void {
+  if (reportedUnpricedModels.has(model) || reportedUnpricedModels.size >= UNPRICED_WARN_LIMIT) return
+  reportedUnpricedModels.add(model)
+  const suffix = billed ? ' — billed at the closest family rate' : ' — its usage is NOT billed'
+  console.warn(`[llm-billing] no pricing row for model "${model}"${suffix}`)
+}
+
+/**
+ * The rate rows to substitute for an unlisted model id: the known id sharing
+ * the LONGEST common prefix with it, restricted to its own family (the leading
+ * `-` segment, so `deepseek-*` never resolves to `mimo-*`), preferring the row
+ * of the same variant (`-flash` for `-flash`) and then the greatest id. A new
+ * point release therefore bills at its family's current rate instead of
+ * dropping out of every figure.
+ * @param model - the unlisted wire model id.
+ * @param models - the resolved pricing table.
+ * @returns the substitute rows and the id they came from, or `undefined` when the family has no member.
+ */
+function familyPricingOf(
+  model: string,
+  models: ReadonlyMap<string, DeepSeekModelPricing>,
+): { readonly pricing: DeepSeekModelPricing, readonly id: string } | undefined {
+  const familyEnd = model.indexOf('-')
+  if (familyEnd <= 0) return undefined
+  const family = model.slice(0, familyEnd + 1)
+  const variant = variantOf(model)
+  let best: { readonly pricing: DeepSeekModelPricing, readonly id: string } | undefined
+  let bestShared = 0
+  for (const id of models.keys()) {
+    if (!id.startsWith(family)) continue
+    const shared = commonPrefixLength(model, id)
+    // Sharing only the family token is too weak to bill from.
+    if (shared <= familyEnd) continue
+    if (best === undefined || shared > bestShared) {
+      best = { pricing: models.get(id)!, id }
+      bestShared = shared
+      continue
+    }
+    if (shared < bestShared) continue
+    // Same prefix length: prefer the same variant, then the greater id.
+    const candidateMatches = variantOf(id) === variant
+    const bestMatches = variantOf(best.id) === variant
+    if (candidateMatches !== bestMatches) {
+      if (candidateMatches) {
+        best = { pricing: models.get(id)!, id }
+        bestShared = shared
+      }
+      continue
+    }
+    if (id > best.id) {
+      best = { pricing: models.get(id)!, id }
+      bestShared = shared
+    }
+  }
+  return best
+}
+
 /**
  * Price one provider-reported usage sample for one model at the rates of the
  * sample's own Beijing-time hour and weekday — the peak or off-peak price of
@@ -524,6 +525,22 @@ export function priceUsage(
 ): BillingEventContribution | undefined {
   const pricing = billing.models.get(model)
   if (pricing === undefined) return undefined
+  return priceUsageWith(parts, usage, model, pricing, billing, names)
+}
+
+/**
+ * {@link priceUsage} over an already-resolved row, so an unlisted model can
+ * bill at a substituted family rate without duplicating the arithmetic.
+ * @returns the priced contribution.
+ */
+function priceUsageWith(
+  parts: BeijingParts,
+  usage: TokenUsage,
+  model: string,
+  pricing: DeepSeekModelPricing,
+  billing: ResolvedBilling,
+  names: ReadonlyMap<string, string>,
+): BillingEventContribution {
   const peak = isPeakParts(billing, parts.hour, parts.weekday)
   const revision = ratesAt(pricing.revisions, parts.time)
   const price = peak ? revision.peak : revision.offPeak
@@ -553,6 +570,76 @@ export function priceUsage(
 /** A spend with no priced usage. */
 export function emptyTodaySpend(): DeepSeekTodaySpend {
   return { total: 0, models: [] }
+}
+
+/** Sum two usage tallies (pure); an absent side stays absent. */
+function mergeUsageTally(
+  left: DeepSeekUnpricedUsage | undefined,
+  right: DeepSeekUnpricedUsage | undefined,
+): DeepSeekUnpricedUsage | undefined {
+  if (left === undefined) return right
+  if (right === undefined) return left
+  return {
+    events: left.events + right.events,
+    tokens: left.tokens + right.tokens,
+    models: [...new Set([...left.models, ...right.models])],
+  }
+}
+
+/** Add one affected sample to a tally (pure). */
+function addUsageTally(
+  previous: DeepSeekUnpricedUsage | undefined,
+  model: string,
+  tokens: number,
+): DeepSeekUnpricedUsage {
+  const models = previous?.models ?? []
+  return {
+    events: (previous?.events ?? 0) + 1,
+    tokens: (previous?.tokens ?? 0) + tokens,
+    models: models.includes(model) ? models : [...models, model],
+  }
+}
+
+/**
+ * The advisory tallies carried BESIDE the priced rows, summed over `spends` as
+ * a partial you can spread into any spend literal. Keys stay absent rather
+ * than becoming `undefined` (`exactOptionalPropertyTypes`), so a fully priced
+ * spend stays structurally identical to what every existing test asserts.
+ */
+function usageTalliesOf(spends: readonly DeepSeekTodaySpend[]): {
+  unpriced?: DeepSeekUnpricedUsage
+  estimated?: DeepSeekUnpricedUsage
+} {
+  let unpriced: DeepSeekUnpricedUsage | undefined
+  let estimated: DeepSeekUnpricedUsage | undefined
+  for (const spend of spends) {
+    unpriced = mergeUsageTally(unpriced, spend.unpriced)
+    estimated = mergeUsageTally(estimated, spend.estimated)
+  }
+  return {
+    ...(unpriced === undefined ? {} : { unpriced }),
+    ...(estimated === undefined ? {} : { estimated }),
+  }
+}
+
+/** Note one sample that matched no pricing row and was therefore not billed. */
+function noteUnpriced(spend: DeepSeekTodaySpend, model: string, tokens: number): DeepSeekTodaySpend {
+  return {
+    total: spend.total,
+    models: spend.models,
+    ...(spend.estimated === undefined ? {} : { estimated: spend.estimated }),
+    unpriced: addUsageTally(spend.unpriced, model, tokens),
+  }
+}
+
+/** Note one sample priced at a substituted family rate rather than its own. */
+function noteEstimated(spend: DeepSeekTodaySpend, model: string, tokens: number): DeepSeekTodaySpend {
+  return {
+    total: spend.total,
+    models: spend.models,
+    ...(spend.unpriced === undefined ? {} : { unpriced: spend.unpriced }),
+    estimated: addUsageTally(spend.estimated, model, tokens),
+  }
 }
 
 /** The today-spend shape of a single priced contribution. */
@@ -620,6 +707,9 @@ export function negateSpend(spend: DeepSeekTodaySpend): DeepSeekTodaySpend {
   const negate = (value: number): number => -value
   return {
     total: negate(spend.total),
+    // Carried, not inverted: the tallies are counts of what was missed, not
+    // billed amounts, so subtracting a priced sample cannot cancel them.
+    ...usageTalliesOf([spend]),
     models: spend.models.map(row => ({
       ...row,
       cost: negate(row.cost),
@@ -655,7 +745,7 @@ export function subtractSpend(target: DeepSeekTodaySpend, source: DeepSeekTodayS
       rows.set(row.model, next)
     }
   }
-  return { total: target.total - source.total, models: [...rows.values()] }
+  return { total: target.total - source.total, models: [...rows.values()], ...usageTalliesOf([target]) }
 }
 
 /**
@@ -794,8 +884,42 @@ export function applyBillingEvent(
   if (!isTokenUsage(usage)) return state
   const model = type === 'assistant/message' ? data?.message?.source?.model : state.model
   if (typeof model !== 'string' || model.length === 0) return state
-  const priced = priceUsage(beijingPartsOf(event.time), usage, model, billing, names)
-  if (priced === undefined) return state
+  const parts = beijingPartsOf(event.time)
+  const rows = billing.models.get(model)
+  // Whether this sample was priced at a SUBSTITUTED row rather than its own, and
+  // so belongs in the spend's `estimated` tally.
+  let substitute = false
+  let priced: BillingEventContribution
+  if (rows !== undefined) {
+    priced = priceUsageWith(parts, usage, model, rows, billing, names)
+  } else {
+    // Unlisted upstream model: bill it at the closest family rate instead of
+    // dropping it, so a model that ships ahead of its rate row (MiMo-V2.6)
+    // no longer zeroes out every figure it appears in.
+    const fallback = familyPricingOf(model, billing.models)
+    if (fallback === undefined) {
+      reportUnpricedModel(model, false)
+      const tokens = usageTokens(usage)
+      // Mirror the priced day rule so the tally reaches the day view: an
+      // unpriced sample opens the day when the fold has none yet and rolls it
+      // forward. Otherwise the very case this exists for — a session whose
+      // EVERY sample is unpriced — would keep reading as "no usage at all"
+      // with nothing recorded anywhere the today figure is read from.
+      const opens = state.dayKey === '' || parts.dayKey > state.dayKey
+      const sameDay = parts.dayKey === state.dayKey
+      return {
+        ...state,
+        dayKey: opens ? parts.dayKey : state.dayKey,
+        spend: opens
+          ? noteUnpriced(emptyTodaySpend(), model, tokens)
+          : sameDay ? noteUnpriced(state.spend, model, tokens) : state.spend,
+        session: noteUnpriced(state.session, model, tokens),
+      }
+    }
+    reportUnpricedModel(model, true)
+    substitute = true
+    priced = priceUsageWith(parts, usage, model, fallback.pricing, billing, names)
+  }
 
   let session = state.session
   let spend = state.spend
@@ -817,11 +941,15 @@ export function applyBillingEvent(
     dayKey = priced.dayKey
     spend = addEventContribution(emptyTodaySpend(), priced)
   }
+  const replaced = substitute && usageTokens(usage) > 0
   return {
     ...state,
     dayKey,
-    spend,
-    session,
+    // A substituted rate lands in `total`, so the sample is flagged where it
+    // was counted: on the session row always, and on the day row when the day
+    // is the one being folded for.
+    spend: !replaced || dayKey !== priced.dayKey ? spend : noteEstimated(spend, model, usageTokens(usage)),
+    session: !replaced ? session : noteEstimated(session, model, usageTokens(usage)),
     last: { turn, step, dayKey: priced.dayKey, spend: contributionSpend(priced) },
   }
 }
@@ -879,7 +1007,7 @@ export function addEventContribution(
   const row = contributionModel(priced)
   const rows = spend.models.map(existing => existing.model === priced.model ? mergeModelRows(existing, row) : existing)
   if (!rows.some(existing => existing.model === priced.model)) rows.push(row)
-  return { total: spend.total + priced.cost, models: rows }
+  return { total: spend.total + priced.cost, models: rows, ...usageTalliesOf([spend]) }
 }
 
 /**
@@ -896,7 +1024,7 @@ export function mergeTodaySpend(target: DeepSeekTodaySpend, source: DeepSeekToda
     const existing = rows.get(row.model)
     rows.set(row.model, existing === undefined ? row : mergeModelRows(existing, row))
   }
-  return { total: target.total + source.total, models: [...rows.values()] }
+  return { total: target.total + source.total, models: [...rows.values()], ...usageTalliesOf([target, source]) }
 }
 
 /**
@@ -1112,10 +1240,13 @@ export function computeTodaySpend(
   now: Date = new Date(),
 ): DeepSeekTodaySpend {
   const day = beijingDayKey(now)
+  // Events past the reference day cannot contribute: one numeric bound for the
+  // scan instead of a date string per event.
+  const dayRange = beijingDayRangeOfKey(day)
+  const dayEnd = dayRange?.end ?? Number.POSITIVE_INFINITY
   const folder = new BillingFolder(billing, catalog)
   for (const event of events) {
-    // Only events up to the reference day can contribute.
-    if (beijingPartsOf(event.time).dayKey > day) continue
+    if (event.time >= dayEnd) continue
     folder.add(event)
   }
   return folder.fold.dayKey === day ? folder.fold.spend : emptyTodaySpend()
