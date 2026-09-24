@@ -124,6 +124,11 @@
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   background: var(--dsw-specific-menu);
+  /* DSH 0.1.7 made --dsw-specific-menu translucent (0.5–0.58 alpha) and pairs
+     it with the menu blur in its own dialogs (ui-chat's stat dialog, menus);
+     without the same backdrop-filter the fill alone lets the transcript bleed
+     straight through the panel. */
+  backdrop-filter: var(--dsw-menu-backdrop-filter);
   box-shadow: var(--dsw-shadow-lv3);
 }
 

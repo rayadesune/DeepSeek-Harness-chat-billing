@@ -85,6 +85,9 @@
   border: 0;
   border-radius: 12px;
   background: var(--dsw-specific-menu);
+  /* DSH 0.1.7 made --dsw-specific-menu translucent; its own dialogs pair the
+     fill with this blur, so the card does too (see BalanceBadge.module.css). */
+  backdrop-filter: var(--dsw-menu-backdrop-filter);
   --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
   box-shadow: var(--dsw-elevation-prominent);
   font-size: 12px;
