@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Billing Badge">
+  <rect x="1" y="1" width="46" height="46" rx="12" fill="#a855f7"/>
+  <path d="M13.5 12.5 L24 24.5 L34.5 12.5" fill="none" stroke="#ffffff" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24 24.5 L24 37" fill="none" stroke="#ffffff" stroke-width="4.2" stroke-linecap="round"/>
+  <path d="M14.5 29 L33.5 29" fill="none" stroke="#ffffff" stroke-width="4.2" stroke-linecap="round"/>
+  <path d="M14.5 34.5 L33.5 34.5" fill="none" stroke="#ffffff" stroke-width="4.2" stroke-linecap="round"/>
+</svg>

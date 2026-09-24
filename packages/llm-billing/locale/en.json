@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Billing Core",
+    "description": "DeepSeek account balance and session/today spend behind the billing Remote (peak/off-peak pricing)."
+  }
+}

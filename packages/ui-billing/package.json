@@ -1,6 +1,7 @@
 {
   "name": "@rayadesu/dsh-client-ui-billing",
   "description": "Session-header DeepSeek account-balance and conversation-spend badge over the billing Remote",
+  "icon": "./icon.svg",
   "version": "0.3.16",
   "type": "module",
   "main": "lib/index.js",
@@ -19,6 +20,7 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -103,6 +105,8 @@
     "simple-icons": "16.31.0"
   },
   "files": [
+    "locale/*.json",
+    "icon.svg",
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",

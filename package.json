@@ -2,6 +2,7 @@
   "name": "@rayadesu/dsh-billing",
   "version": "0.3.16",
   "description": "DeepSeek Harness billing plugin: account balance and this session's billed spend with a session-header badge.",
+  "icon": "./icon.svg",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -25,8 +26,15 @@
     "test": "vitest run",
     "verify": "node scripts/verify-packages.mjs"
   },
+  "exports": {
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
   "files": [
     "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
     "README.md",
     "README.zh.md",
     "README.i18n.yaml",
