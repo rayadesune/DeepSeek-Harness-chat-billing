@@ -70,6 +70,8 @@ const CATALOG = [
   { id: VISION_EXP, name: 'DeepSeek-V4-Flash-Vision-Exp' },
   { id: MIMO_PRO, name: 'MiMo-V2.5-Pro' },
   { id: MIMO, name: 'MiMo-V2.5' },
+  { id: 'mimo-v2.6-pro', name: 'MiMo-V2.6-Pro' },
+  { id: 'mimo-v2.6-flash', name: 'MiMo-V2.6-Flash' },
 ]
 
 /**
@@ -859,6 +861,18 @@ describe('MiMo-V2.5 flat-rate billing', () => {
     const peakSpend = computeSessionSpend([assistantMessage(MIMO, USAGE, PEAK)], billing, CATALOG)
     const weekendSpend = computeSessionSpend([assistantMessage(MIMO, USAGE, WEEKEND)], billing, CATALOG)
     expect(peakSpend.total).toBeCloseTo(weekendSpend.total, 10)
+  })
+
+  // V2.6 kept V2.5's published API pricing (2026-09-22 launch), so the same
+  // USAGE costs the same on the V2.6 ids.
+  it('prices the MiMo-V2.6 series at the kept V2.5 rates', () => {
+    const billing = resolveBilling(undefined)
+    const proFlash = computeSessionSpend([assistantMessage('mimo-v2.6-pro', USAGE, PEAK)], billing, CATALOG)
+    expect(proFlash.total).toBeCloseTo(10.525, 10)
+    expect(proFlash.models[0]?.displayName).toBe('MiMo-V2.6-Pro')
+    const flash = computeSessionSpend([assistantMessage('mimo-v2.6-flash', USAGE, PEAK)], billing, CATALOG)
+    expect(flash.total).toBeCloseTo(3.52, 10)
+    expect(flash.models[0]?.displayName).toBe('MiMo-V2.6-Flash')
   })
 })
 
