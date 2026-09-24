@@ -72,12 +72,39 @@ export interface DeepSeekSessionSpend {
   models: readonly DeepSeekSessionSpendModel[]
 }
 
+/**
+ * Provider-reported usage that could NOT be billed at its own published rate.
+ * Purely advisory: it never changes a spend's `total`, and the whole field is
+ * omitted when every sample was priced against its own row.
+ */
+export interface DeepSeekUnpricedUsage {
+  /** Number of usage samples affected. */
+  events: number
+  /** Token count affected: input + cache read + cache write + output tokens. */
+  tokens: number
+  /** The wire model ids affected, in first-seen order. */
+  models: readonly string[]
+}
+
 /** The billed spend of every session on one Beijing-time calendar day. */
 export interface DeepSeekTodaySpend {
   /** Total billed cost in CNY across every priced model and every session. */
   total: number
   /** One row per model that reported usage AND has a pricing row; empty when today has no priced usage. */
   models: readonly DeepSeekSessionSpendModel[]
+  /**
+   * Samples that carried usage but matched NO pricing row and no family to
+   * fall back to: they contribute nothing to {@link total}. Without this, an
+   * upstream model that ships before its rate row reads exactly like "no
+   * usage" (see MiMo-V2.6, which arrived before the table knew it).
+   */
+  unpriced?: DeepSeekUnpricedUsage | undefined
+  /**
+   * Samples priced through a family fallback instead of their own rate row:
+   * they ARE in {@link total}, but at a proxy rate, so that share is an
+   * estimate. Omitted when every sample had its own row.
+   */
+  estimated?: DeepSeekUnpricedUsage | undefined
 }
 
 /** One session's billed spend on one Beijing-time calendar day. */

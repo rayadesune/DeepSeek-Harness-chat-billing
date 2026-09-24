@@ -55,13 +55,11 @@ describe('billingTodaySpend unit', () => {
     expect(unit.key).toBe(BILLING_UNIT_KEY)
   })
 
-  it('keeps the initial empty state for events without priced usage (same reference)', () => {
+  it('keeps the initial empty state for events that bill nothing (same reference)', () => {
     const initial = unit.init()
     const turnStart = { type: 'turn/start', seq: 0, time: DAY1_PEAK, data: { turn: 0 } } as unknown as SessionEvent
-    const unknownModel = assistantMessage('other-model', USAGE, DAY1_PEAK, 1)
     const noUsage = { ...assistantMessage(FLASH, USAGE, DAY1_PEAK, 2), data: { ...assistantMessage(FLASH, USAGE, DAY1_PEAK, 2).data, usage: undefined } } as unknown as SessionEvent
     expect(unit.apply(initial, turnStart)).toBe(initial)
-    expect(unit.apply(initial, unknownModel)).toBe(initial)
     expect(unit.apply(initial, noUsage)).toBe(initial)
     expect(initial).toEqual({
       dayKey: '',
@@ -71,6 +69,21 @@ describe('billingTodaySpend unit', () => {
       model: '',
       last: null,
     })
+  })
+
+  it('tallies a model with no pricing row instead of silently dropping it', () => {
+    const initial = unit.init()
+    const next = unit.apply(initial, assistantMessage('other-model', USAGE, DAY1_PEAK, 1))
+    // Nothing is billed, but the day opens and the reported usage is recorded
+    // rather than vanishing (the MiMo-V2.6 failure mode, where a model shipped
+    // before its rate row and every figure read as plain zero).
+    expect(next).not.toBe(initial)
+    expect(next.spend.total).toBe(0)
+    expect(next.spend.unpriced).toEqual({ events: 1, tokens: 3_500_000, models: ['other-model'] })
+    expect(next.session.unpriced).toEqual({ events: 1, tokens: 3_500_000, models: ['other-model'] })
+    expect(next.session.estimated).toBeUndefined()
+    // The day is the sample's own Beijing day, exactly as priced usage opens it.
+    expect(next.dayKey).toBe(unit.apply(initial, assistantMessage(FLASH, USAGE, DAY1_PEAK, 1)).dayKey)
   })
 
   it('tracks the whole-session total across days while the latest day resets', () => {

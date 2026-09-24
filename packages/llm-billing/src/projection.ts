@@ -51,9 +51,25 @@ const modelRowSchema = z.object({
   outputCost: z.number().nonnegative(),
 }).strict()
 
+/**
+ * The advisory tally of usage that could not be billed at its own rate (see
+ * `DeepSeekTodaySpend.unpriced` / `.estimated`). Declared here because the
+ * unit's schemas are `.strict()`: an undeclared key REJECTS the whole unit
+ * rather than being stripped, so adding these fields to the fold without
+ * declaring them here would fail every projection fold the moment a sample
+ * went unpriced.
+ */
+const usageTallySchema = z.object({
+  events: z.number().int().nonnegative(),
+  tokens: z.number().int().nonnegative(),
+  models: z.array(z.string()),
+}).strict()
+
 const todaySpendSchema = z.object({
   total: z.number().nonnegative(),
   models: z.array(modelRowSchema),
+  unpriced: usageTallySchema.optional(),
+  estimated: usageTallySchema.optional(),
 }).strict()
 
 const billingUnitSchema = z.object({
