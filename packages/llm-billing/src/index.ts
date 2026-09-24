@@ -132,10 +132,11 @@ export interface BillingModel {
 
 /**
  * Advisory display rows mirroring the DSH `llm-deepseek` catalog (V4.1 Flash
- * first, its current default route), plus the MiMo-V2.5 series. The retired
- * preview id `deepseek-v4.1-flash-expires-on-0910` stays so the logs that used
- * it keep a readable label; rows never restrict which models are priced — the
- * pricing table does.
+ * first, its current default route), plus the MiMo series (V2.5, and V2.6
+ * which kept V2.5's pricing). The retired preview id
+ * `deepseek-v4.1-flash-expires-on-0910` stays so the logs that used it keep a
+ * readable label; rows never restrict which models are priced — the pricing
+ * table does.
  */
 const DEFAULT_MODELS: BillingModel[] = [
   { id: 'deepseek-flash', name: 'DeepSeek-V41-Flash' },
@@ -145,6 +146,8 @@ const DEFAULT_MODELS: BillingModel[] = [
   { id: 'deepseek-v4-flash-vision-exp', name: 'DeepSeek-V4-Flash-Vision-Exp' },
   { id: 'mimo-v2.5-pro', name: 'MiMo-V2.5-Pro' },
   { id: 'mimo-v2.5', name: 'MiMo-V2.5' },
+  { id: 'mimo-v2.6-pro', name: 'MiMo-V2.6-Pro' },
+  { id: 'mimo-v2.6-flash', name: 'MiMo-V2.6-Flash' },
 ]
 
 /**

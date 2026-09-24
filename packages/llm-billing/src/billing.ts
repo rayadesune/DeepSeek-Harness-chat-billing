@@ -148,8 +148,8 @@ const V4_PRO_SWITCHED_RATES: DeepSeekRateRevision = {
  * series (V4.1 Flash, V4 Flash, V4 Flash Vision Exp) carries the second
  * revision effective 2026-09-10 12:00 Beijing, and the V4 Pro row the V4.1
  * Flash rates from its announced route switch (2026-09-14 12:00 Beijing) —
- * the MiMo-V2.5 series is untouched by either adjustment. Rows sharing a model
- * are that model's rate history.
+ * the MiMo series (V2.5, and V2.6 which kept V2.5's pricing) is untouched by
+ * either adjustment. Rows sharing a model are that model's rate history.
  */
 export const DEFAULT_MODEL_PRICING: readonly BillingConfigModel[] = [
   // deepseek-flash is the V4.1 Flash route, DSH's default catalog entry; image
@@ -175,7 +175,10 @@ export const DEFAULT_MODEL_PRICING: readonly BillingConfigModel[] = [
   // images are converted to tokens at the same per-token price.
   { model: 'deepseek-v4-flash-vision-exp', ...FLASH_BASE_RATES },
   { model: 'deepseek-v4-flash-vision-exp', ...FLASH_REPRICED_RATES },
-  // MiMo-V2.5 series (Xiaomi): flat rate, no peak/off-peak distinction.
+  // MiMo series (Xiaomi): flat rate, no peak/off-peak distinction. V2.6 keeps
+  // V2.5's published API pricing (2026-09-22 launch, "API pricing unchanged
+  // from V2.5"); cache writes bill at the miss rate, though Xiaomi's launch
+  // window makes them free provider-side for a limited time.
   {
     model: 'mimo-v2.5-pro',
     peak: { cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 },
@@ -183,6 +186,16 @@ export const DEFAULT_MODEL_PRICING: readonly BillingConfigModel[] = [
   },
   {
     model: 'mimo-v2.5',
+    peak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
+    offPeak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
+  },
+  {
+    model: 'mimo-v2.6-pro',
+    peak: { cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 },
+    offPeak: { cacheHitInput: 0.025, cacheMissInput: 3.0, output: 6.0 },
+  },
+  {
+    model: 'mimo-v2.6-flash',
     peak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
     offPeak: { cacheHitInput: 0.02, cacheMissInput: 1.0, output: 2.0 },
   },
