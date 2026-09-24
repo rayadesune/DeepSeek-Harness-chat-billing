@@ -81,6 +81,12 @@ export interface BillingData {
   crossedDay: boolean
   /** Balance fetch failure while no value is present yet. */
   error: string | null
+  /**
+   * Whether a read the user is waiting on is in flight. It follows the group
+   * the change actually re-ran: a session switch covers this session's own two
+   * reads, a manual refresh (which re-runs both groups) covers every read. The
+   * account-level reads never make a switch spin.
+   */
   refreshing: boolean
   open: boolean
   rootRef: RefObject<HTMLDivElement>
@@ -89,16 +95,29 @@ export interface BillingData {
 }
 
 /**
- * Start the badge's data lifecycle for one session. The spend follows the
- * conversation: the host-pushed `billingTodaySpend` projection drives this
- * session's own part live (zero Remote calls), with `getSessionSpend` as the
- * bootstrap/fallback when the projection key is absent; the delegated-subagent
- * subtotal comes from `getDelegatedSpend` on mount, on refresh, and when a turn
- * settles; today's spend is recomputed through `getTodaySpend` on the same
- * events; the balance is fetched on mount, on session switch, and on the manual
- * refresh, and — while the page is visible — polled every
- * {@link BALANCE_POLL_MS}, because the day's consumption is measured from the
- * first balance each local day queried.
+ * Start the badge's data lifecycle for one session. The reads are split by what
+ * they depend on, because only one half of them varies by session:
+ *
+ * - **Session level** (`getSessionSpend`, `getDelegatedSpend`) — re-read on
+ *   mount, on a session switch, on a manual refresh, and when a turn settles.
+ * - **Account level** (`getBalance`, `getTodaySpend`, plus the ranking while
+ *   the panel is open) — re-read on mount, on a manual refresh, and when a turn
+ *   settles, never on a session switch: neither answer depends on which session
+ *   is on screen, and re-fetching them on every switch is what made the header
+ *   spin for as long as the day's scan took.
+ *
+ * The session's own part is also driven live by the host-pushed
+ * `billingTodaySpend` projection (zero Remote calls), with `getSessionSpend` as
+ * the bootstrap/fallback when the projection key is absent; the balance is
+ * additionally polled every {@link BALANCE_POLL_MS} while the page is visible,
+ * because the day's consumption is measured from the first balance each local
+ * day queried.
+ *
+ * A settled turn and the manual refresh read with `force`, a plain read does
+ * not: the host serves a plain read the value on hand while it refreshes behind
+ * it, so a settled turn that read plainly would report the day's pre-turn figure
+ * one turn late. Opening the panel re-reads today's spend too — that is the
+ * moment the reader asks for the day row, and a switch alone never re-reads it.
  * @param props - the badge's injected face and session runtime share.
  */
 export function useBillingData({
@@ -121,7 +140,11 @@ export function useBillingData({
   const [sessionsSpend, setSessionsSpend] = useState<DeepSeekTodaySessionsSpend | null>(null)
   const [delegated, setDelegated] = useState<DeepSeekDelegatedSpend | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
+  // One flag per read group: the spinner follows whichever group a change
+  // actually re-ran (see the hook's doc above), instead of always covering
+  // every line.
+  const [sessionBusy, setSessionBusy] = useState(false)
+  const [accountBusy, setAccountBusy] = useState(false)
   const [open, setOpen] = useState(false)
   const [request, setRequest] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -141,28 +164,50 @@ export function useBillingData({
   // the initial mount (the mount effect already fetched).
   const pricedRunningRef = useRef(running)
 
-  // The fetch effect reads whether values are already present (refreshing vs
-  // first load) without subscribing to balance changes — a ref keeps the
-  // effect's dependency array as the fetch trigger only.
+  // The fetch effects read whether values are already present (a refresh vs
+  // the first load) without subscribing to them — a ref keeps each effect's
+  // dependency array as the fetch trigger only.
   const balanceRef = useRef(balance)
   balanceRef.current = balance
+  const spendRef = useRef(spend)
+  spendRef.current = spend
 
   // Whether the detail panel is open: the ranking fetch is gated on it, so a
   // badge that is never opened never pays for the all-session ranking.
   const openRef = useRef(open)
   openRef.current = open
 
+  // The session-level group: the two reads whose answer depends on WHICH
+  // session is on screen. A switch re-runs only these, so the spinner it starts
+  // covers two Remote calls rather than the day's whole-session scan.
   useEffect(() => {
     let current = true
     const isCurrent = (): boolean => current
-    // A refresh (values already present) keeps the previous values on screen;
-    // the first load has nothing to keep, so it stays on the loading render.
-    setRefreshing(balanceRef.current !== null)
+    // The previous session's spend stays on screen until its replacement lands
+    // (the projection, when composed, swaps it immediately); the first load has
+    // nothing to keep, so it stays on the loading render.
+    setSessionBusy(spendRef.current !== null)
     void Promise.resolve().then(() => {
-      // Each line settles on its own: the badge renders from the balance and
-      // the panel rows from their own spend, so a slow aggregate (today's
-      // spend scans every session) delays neither the balance nor the session
-      // spend.
+      const sessionSpendRequest = fetchLine(isCurrent, () => getSessionSpend(sessionId), setSpend)
+      // The delegated subtotal completes the conversation amount; the same
+      // cached host pass serves it, so it costs no extra scan.
+      const delegatedRequest = fetchLine(isCurrent, () => getDelegatedSpend(sessionId, request > 0), setDelegated)
+      void Promise.allSettled([sessionSpendRequest, delegatedRequest]).then(() => {
+        if (current) setSessionBusy(false)
+      })
+    })
+    return () => { current = false }
+  }, [getSessionSpend, getDelegatedSpend, sessionId, request])
+
+  // The account-level group: neither read varies by session, so this runs on
+  // mount, on the manual refresh, and on a turn settle — never on a session
+  // switch. Each line settles on its own, so a slow aggregate (today's spend
+  // scans every session) delays neither the balance nor the session spend.
+  useEffect(() => {
+    let current = true
+    const isCurrent = (): boolean => current
+    setAccountBusy(balanceRef.current !== null)
+    void Promise.resolve().then(() => {
       const balanceRequest = fetchLine(isCurrent, () => getBalance(request > 0), (value) => {
         setBalance(value)
         setError(null)
@@ -170,31 +215,35 @@ export function useBillingData({
         // A refresh failure keeps the last good value instead of blanking it.
         if (balanceRef.current === null) setError(reason instanceof Error ? reason.message : String(reason))
       })
-      const sessionSpendRequest = fetchLine(isCurrent, () => getSessionSpend(sessionId), setSpend)
       const todaySpendRequest = fetchLine(isCurrent, () => getTodaySpend(request > 0), setTodaySpend)
-      // The delegated subtotal completes the conversation amount; the same
-      // cached host pass serves it, so it costs no extra scan.
-      const delegatedRequest = fetchLine(isCurrent, () => getDelegatedSpend(sessionId, request > 0), setDelegated)
-      // The ranking is only rendered inside the open detail panel.
+      // The ranking is only rendered inside the open detail panel; opening the
+      // panel has its own effect below, and only the manual refresh forces this
+      // one.
       const sessionsSpendRequest = openRef.current
         ? fetchLine(isCurrent, () => getTodaySessionsSpend(request > 0), setSessionsSpend)
         : Promise.resolve()
-      // The refresh spinner covers the whole refresh, whatever settles last.
-      void Promise.allSettled([balanceRequest, sessionSpendRequest, todaySpendRequest, delegatedRequest, sessionsSpendRequest]).then(() => {
-        if (current) setRefreshing(false)
+      void Promise.allSettled([balanceRequest, todaySpendRequest, sessionsSpendRequest]).then(() => {
+        if (current) setAccountBusy(false)
       })
     })
     return () => { current = false }
-  }, [getBalance, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, sessionId, request])
+  }, [getBalance, getTodaySpend, getTodaySessionsSpend, request])
 
-  // Opening the panel loads today's ranking on demand (it is never fetched
-  // while the panel stays closed).
+  // Opening the panel re-reads today's spend AND loads the ranking on demand
+  // (the ranking is never fetched while the panel stays closed). The day row
+  // needs its own read here: a session switch re-reads only the session's own
+  // lines, so while the user browses conversations the day figure the badge
+  // holds is whatever the last read returned — opening the panel is the moment
+  // the reader asks for it, and it must not show a value the host has already
+  // moved past. Both reads go through the cached path: the host serves what it
+  // holds, and past its window refreshes behind the answer.
   useEffect(() => {
     if (!open) return
     let current = true
+    void fetchLine(() => current, () => getTodaySpend(), setTodaySpend)
     void fetchLine(() => current, () => getTodaySessionsSpend(), setSessionsSpend)
     return () => { current = false }
-  }, [getTodaySessionsSpend, open])
+  }, [getTodaySpend, getTodaySessionsSpend, open])
 
   // The balance is polled while the page is VISIBLE, at the balanceinfo
   // program's own cadence. This exists for the balance-series consumption: that
@@ -244,10 +293,16 @@ export function useBillingData({
   // A turn settles: recompute this session's spend, its delegated subtotal, and
   // today's spend across every session. The balance is account-level and this
   // effect never refetches it — its own cadence is the mount fetch plus the
-  // visible-page poll above. The recompute is debounced so a
-  // burst of turns (an agent continuing across turns) prices once instead of
-  // once per turn; the host-side cache then serves the first miss for the rest
-  // of the minute.
+  // visible-page poll above. The recompute is debounced so a burst of turns (an
+  // agent continuing across turns) prices once instead of once per turn.
+  //
+  // Every read here FORCES, and that is the point: the turn just priced its own
+  // usage, so the cached day figure is the one from before it. A plain (cached)
+  // read would be answered from the value on hand with a refresh running behind
+  // it — the reader would then see this turn's cost one turn late. The host
+  // scan yields to its event loop between sessions (see `yieldToEventLoop`), so
+  // waiting for the recompute no longer freezes the GUI; and the scan is
+  // revision-gated, so a forced pass only re-reads the logs that changed.
   useEffect(() => {
     if (running === pricedRunningRef.current) return
     pricedRunningRef.current = running
@@ -259,10 +314,10 @@ export function useBillingData({
       // Each spend line updates on its own: the slow all-session aggregate
       // does not delay the session line.
       void fetchLine(isCurrent, () => getSessionSpend(sessionId), setSpend)
-      void fetchLine(isCurrent, () => getDelegatedSpend(sessionId), setDelegated)
-      void fetchLine(isCurrent, () => getTodaySpend(), setTodaySpend)
+      void fetchLine(isCurrent, () => getDelegatedSpend(sessionId, true), setDelegated)
+      void fetchLine(isCurrent, () => getTodaySpend(true), setTodaySpend)
       // The ranking is only refreshed while its panel is open.
-      if (openRef.current) void fetchLine(isCurrent, () => getTodaySessionsSpend(), setSessionsSpend)
+      if (openRef.current) void fetchLine(isCurrent, () => getTodaySessionsSpend(true), setSessionsSpend)
     }, TURN_SETTLE_DEBOUNCE_MS)
     return () => {
       clearTimeout(timer)
@@ -302,7 +357,7 @@ export function useBillingData({
     isSubagent: delegated?.isSubagent ?? false,
     crossedDay: delegated?.crossedDay ?? false,
     error,
-    refreshing,
+    refreshing: sessionBusy || accountBusy,
     open,
     rootRef,
     refresh: () => { setRequest(value => value + 1) },
