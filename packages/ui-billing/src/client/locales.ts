@@ -64,10 +64,9 @@ export const zh = {
   // figure (¥0), and claiming "no usage" here is exactly what hid the
   // MiMo-V2.6 gap — naming the difference is this key's whole purpose.
   'stat.unpricedOnly': '有消耗，但未匹配到费率',
-  // Named offenders: the wire models today's fold could not price at all, and
-  // the ones priced at a substituted family rate (so their share is a guess).
+  // Named offenders: the wire models today's fold could not price, so the gap
+  // is actionable instead of just suspicious.
   'notice.unpriced': '未计价用量：{models}（无匹配费率）',
-  'notice.estimated': '估算用量：{models}（按同类费率）',
   'stat.untitled': '未命名',
   'state.unavailable': '额度不可用',
   'action.refresh': '刷新',
@@ -127,7 +126,6 @@ export const en: Record<BillingKey, string> = {
   // no rate row matched it, so nothing could be billed.
   'stat.unpricedOnly': 'Recorded, but no rate matched',
   'notice.unpriced': 'Unpriced usage: {models} (no rate matched)',
-  'notice.estimated': 'Estimated usage: {models} (proxy rate)',
   'stat.untitled': 'Untitled',
   'state.unavailable': 'Balance unavailable',
   'action.refresh': 'Refresh',

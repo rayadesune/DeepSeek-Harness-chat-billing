@@ -55,4 +55,19 @@ describe('sumSpends', () => {
     const own = spend(0.04, [row('flash', 0.04)])
     expect(sumSpends(own, spend(0, []))).toEqual(own)
   })
+
+  it('carries the unpriced tally across the merge', () => {
+    // A conversation whose ONLY usage was an unlisted model must not lose that
+    // fact here: the session row would otherwise read "no usage" while the today
+    // row beside it reports the unpriced usage.
+    const own: DeepSeekSessionSpend = { total: 0, models: [], unpriced: { events: 1, tokens: 2_000, models: ['mimo-v2.7-flash'] } }
+    const delegated: DeepSeekSessionSpend = { total: 0, models: [], unpriced: { events: 2, tokens: 3_000, models: ['deepseek-chat'] } }
+    const merged = sumSpends(own, delegated)
+    expect(merged.unpriced).toEqual({ events: 3, tokens: 5_000, models: ['mimo-v2.7-flash', 'deepseek-chat'] })
+  })
+
+  it('leaves the tally absent when both halves priced everything', () => {
+    const merged = sumSpends(spend(0.04, [row('flash', 0.04)]), spend(0.02, [row('pro', 0.02)]))
+    expect(merged.unpriced).toBeUndefined()
+  })
 })

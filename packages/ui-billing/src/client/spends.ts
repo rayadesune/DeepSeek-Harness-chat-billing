@@ -12,7 +12,21 @@
  * sums.
  */
 
-import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel } from '@rayadesu/dsh-llm-billing/types'
+import type { DeepSeekSessionSpend, DeepSeekSessionSpendModel, DeepSeekUnpricedUsage } from '@rayadesu/dsh-llm-billing/types'
+
+/** Merge two unpriced tallies (pure); an absent side stays absent. */
+function addUnpriced(
+  left: DeepSeekUnpricedUsage | undefined,
+  right: DeepSeekUnpricedUsage | undefined,
+): DeepSeekUnpricedUsage | undefined {
+  if (left === undefined) return right
+  if (right === undefined) return left
+  return {
+    events: left.events + right.events,
+    tokens: left.tokens + right.tokens,
+    models: [...new Set([...left.models, ...right.models])],
+  }
+}
 
 /** Sum two model rows of the same wire model (display name taken from the first). */
 function addRows(left: DeepSeekSessionSpendModel, right: DeepSeekSessionSpendModel): DeepSeekSessionSpendModel {
@@ -43,5 +57,13 @@ export function sumSpends(own: DeepSeekSessionSpend, delegated: DeepSeekSessionS
     const existing = rows.get(row.model)
     rows.set(row.model, existing === undefined ? row : addRows(existing, row))
   }
-  return { total: own.total + delegated.total, models: [...rows.values()] }
+  const unpriced = addUnpriced(own.unpriced, delegated.unpriced)
+  return {
+    total: own.total + delegated.total,
+    models: [...rows.values()],
+    // Carried, not summed away: the conversation's unpriced usage has to survive
+    // the merge, or a session whose ONLY usage was unlisted would report "no
+    // usage" here while the today row beside it says the opposite.
+    ...(unpriced === undefined ? {} : { unpriced }),
+  }
 }
