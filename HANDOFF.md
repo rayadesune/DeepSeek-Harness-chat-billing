@@ -1,3 +1,43 @@
+# HANDOFF — 发布记录（2026-09-24 · v0.3.16）
+
+* 提交：`531734e`（fix(billing)：补 MiMo-V2.6 费率行）+ `0c0386d`（style(ui)：面板补
+  backdrop-filter 修 0.1.7 透底）+ `44a93d5`（docs：双语与 HANDOFF 记录）+ `63e3ed2`
+  （release: v0.3.16），已推送 origin/main
+* tag：`v0.3.16` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.16
+* npm `dist-tags.latest`：三包均为 0.3.16（`@rayadesu/dsh-billing` /
+  `@rayadesu/dsh-llm-billing` / `@rayadesu/dsh-client-ui-billing`）
+* 发布前校验：`pnpm run test`（**261 用例全绿 / 9 文件**）/ `build`（host + client 两面）/
+  `verify`（`client bundle stamps version 0.3.16`）全绿
+* 发布小坑：`npm publish` 会对三个包都先报 `E409 Cannot publish over previously staged
+  version "0.3.16"`，但版本随后**延迟落库**（约 20–30 秒后 `npm view <pkg>@0.3.16` 与
+  `dist-tags.latest` 才更新）。不要据此改版本号重发，也不要重复 publish；等半分钟复核即可
+  （本次三包均是 409 之后自行落地，已核对发布产物含 `mimo-v2.6-flash` 与
+  `dsw-menu-backdrop-filter`）
+* 内容：修 DSH 0.1.7 兼容三问题（消息行尾花费不显示 / 今日花费空 / mimo 未计价 → 缺 V2.6
+  费率行；右上角卡片透底 → 缺 backdrop-filter），详见下方同轮「修 DSH 0.1.7 兼容三问题」条目
+
+---
+
+# HANDOFF — 发布记录（2026-09-24 · v0.3.16）
+
+* 提交：`531734e`（fix(billing)：补 MiMo-V2.6 费率行）+ `0c0386d`（style(ui)：面板补
+  backdrop-filter 修 0.1.7 透底）+ `44a93d5`（docs：双语与 HANDOFF 记录）+ `63e3ed2`
+  （release: v0.3.16），已推送 origin/main
+* tag：`v0.3.16` — https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.16
+* npm `dist-tags.latest`：三包均为 0.3.16（`@rayadesu/dsh-billing` /
+  `@rayadesu/dsh-llm-billing` / `@rayadesu/dsh-client-ui-billing`）
+* 发布前校验：`pnpm run test`（**261 用例全绿 / 9 文件**）/ `build`（host + client 两面）/
+  `verify`（`client bundle stamps version 0.3.16`）全绿
+* 发布小坑：`npm publish` 会对三个包都先报 `E409 Cannot publish over previously staged
+  version "0.3.16"`，但版本随后**延迟落库**（约 20–30 秒后 `npm view <pkg>@0.3.16` 与
+  `dist-tags.latest` 才更新）。不要据此改版本号重发，也不要重复 publish；等半分钟复核即可
+  （本次三包均是 409 之后自行落地，已核对发布产物含 `mimo-v2.6-flash` 与
+  `dsw-menu-backdrop-filter`）
+* 内容：修 DSH 0.1.7 兼容三问题（消息行尾花费不显示 / 今日花费空 / mimo 未计价 → 缺 V2.6
+  费率行；右上角卡片透底 → 缺 backdrop-filter），详见下方同轮「修 DSH 0.1.7 兼容三问题」条目
+
+---
+
 # HANDOFF — 修 DSH 0.1.7 兼容三问题（2026-09-23 · 阶段 A，未提交）
 
 * 问题与根因：
