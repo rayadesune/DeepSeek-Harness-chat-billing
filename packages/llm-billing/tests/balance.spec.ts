@@ -126,6 +126,34 @@ describe('fetchDeepSeekBalance', () => {
     await expect(fetchDeepSeekBalance('https://api.deepseek.com', 'key')).rejects.toMatchObject({ code: 'TRANSPORT' })
   })
 
+  it('retries a transient server error and succeeds', async () => {
+    const ok = parseDeepSeekBalance({
+      is_available: true,
+      balance_infos: [{ currency: 'CNY', total_balance: '1', granted_balance: '0', topped_up_balance: '0' }],
+    })
+    const spy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse(500, {}))
+      .mockResolvedValue(jsonResponse(200, {
+        is_available: true,
+        balance_infos: [{ currency: 'CNY', total_balance: '1', granted_balance: '0', topped_up_balance: '0' }],
+      }))
+    // A 500 then a success: one lost answer must not blank the badge for a
+    // whole poll interval.
+    await expect(fetchDeepSeekBalance('https://api.deepseek.com', 'key')).resolves.toEqual(ok)
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a rejected key, and says what to check', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(401, {}))
+    await expect(fetchDeepSeekBalance('https://api.deepseek.com', 'bad')).rejects.toMatchObject({ code: 'AUTH' })
+    // One attempt only: retrying a credential cannot help, and each attempt is
+    // another round trip before the user is told anything.
+    expect(spy).toHaveBeenCalledTimes(1)
+    await expect(fetchDeepSeekBalance('https://api.deepseek.com', 'bad')).rejects.toMatchObject({
+      message: expect.stringContaining('DEEPSEEK_API_KEY'),
+    })
+  })
+
   it('rejects a non-JSON body as TRANSPORT', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('not json', { status: 200 }))
     await expect(fetchDeepSeekBalance('https://api.deepseek.com', 'key')).rejects.toMatchObject({ code: 'TRANSPORT' })

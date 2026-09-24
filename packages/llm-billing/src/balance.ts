@@ -59,19 +59,56 @@ export function parseDeepSeekBalance(body: unknown): DeepSeekBalance {
   return { isAvailable, lines }
 }
 
+/** Attempts one balance fetch makes before giving up on a transient fault. */
+export const BALANCE_FETCH_ATTEMPTS = 3
+/** The first retry's delay in milliseconds; doubled for each further attempt. */
+export const BALANCE_RETRY_BASE_MS = 150
+
 /**
- * Fetch one account-balance snapshot from `{baseURL}/user/balance`.
- * @param baseURL - resolved endpoint base; `/user/balance` is appended.
- * @param apiKey - resolved bearer token for this endpoint.
- * @param signal - optional cancellation.
- * @returns the validated balance snapshot.
- * @throws {@link LlmError} for transport, HTTP, or malformed-response failures.
+ * One attempt's outcome: the parsed snapshot, or the failure that ended the
+ * attempt together with the HTTP status explaining it (`undefined` when the
+ * attempt never got an answer at all).
  */
-export async function fetchDeepSeekBalance(
+type BalanceAttempt =
+  | { readonly ok: true, readonly value: DeepSeekBalance }
+  | { readonly ok: false, readonly status: number | undefined, readonly error: unknown }
+
+/**
+ * Whether another attempt can plausibly succeed. Only faults transient BY
+ * NATURE qualify: a dropped socket (no status), a rate limit, or a server-side
+ * error. A settled 4xx is final — retrying a bad key three times only reports
+ * the truth three times later.
+ */
+function isRetryableStatus(status: number | undefined): boolean {
+  if (status === undefined) return true
+  return status === 429 || status >= 500
+}
+
+/** Wait `ms` before the next attempt, abandoning the wait if the caller aborts. */
+function waitBalanceRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted === true) {
+      reject(signal.reason)
+      return
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/** One balance request attempt, REPORTED rather than thrown so the caller decides. */
+async function requestBalanceOnce(
   baseURL: string,
   apiKey: string,
   signal?: AbortSignal,
-): Promise<DeepSeekBalance> {
+): Promise<BalanceAttempt> {
   let response: Response
   try {
     response = await fetch(`${baseURL}/user/balance`, {
@@ -83,23 +120,72 @@ export async function fetchDeepSeekBalance(
       ...(signal === undefined ? {} : { signal }),
     })
   } catch (error: unknown) {
-    if (signal?.aborted) throw new LlmError('DeepSeek balance request aborted by caller', 'ABORTED', { cause: error })
-    throw new LlmError(`DeepSeek balance request to ${baseURL} failed`, 'TRANSPORT', { cause: error })
+    const wrapped = signal?.aborted === true
+      ? new LlmError('DeepSeek balance request aborted by caller', 'ABORTED', { cause: error })
+      : new LlmError(`DeepSeek balance request to ${baseURL} failed`, 'TRANSPORT', { cause: error })
+    return { ok: false, status: undefined, error: wrapped }
   }
   if (!response.ok) {
-    throw new LlmError(
-      `DeepSeek balance request failed (HTTP ${response.status})`,
-      httpErrorCode(response.status),
-      { status: response.status },
-    )
+    return {
+      ok: false,
+      status: response.status,
+      error: new LlmError(
+        `DeepSeek balance request failed (HTTP ${response.status})`,
+        httpErrorCode(response.status),
+        { status: response.status },
+      ),
+    }
   }
   let body: unknown
   try {
     body = await response.json()
   } catch (error: unknown) {
-    throw new LlmError('DeepSeek balance response was not valid JSON', 'TRANSPORT', { cause: error })
+    // A malformed body is never transient, hence `status` rather than
+    // `undefined`: no retry, just the failure.
+    return { ok: false, status: response.status, error: new LlmError('DeepSeek balance response was not valid JSON', 'TRANSPORT', { cause: error }) }
   }
-  return parseDeepSeekBalance(body)
+  return { ok: true, value: parseDeepSeekBalance(body) }
+}
+
+/**
+ * Fetch one account-balance snapshot from `{baseURL}/user/balance`.
+ *
+ * Retries the faults that can plausibly clear — a dropped socket, a 429, a 5xx
+ * — up to {@link BALANCE_FETCH_ATTEMPTS} attempts, because the badge polls
+ * every few minutes and one lost packet would otherwise blank the balance
+ * until the next interval. Permanent answers (including a rejected key) fail
+ * on the first attempt.
+ * @param baseURL - resolved endpoint base; `/user/balance` is appended.
+ * @param apiKey - resolved bearer token for this endpoint.
+ * @param signal - optional cancellation.
+ * @returns the validated balance snapshot.
+ * @throws {@link LlmError} for transport, HTTP, or malformed-response failures.
+ */
+export async function fetchDeepSeekBalance(
+  baseURL: string,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<DeepSeekBalance> {
+  for (let attempt = 1; ; attempt += 1) {
+    const outcome = await requestBalanceOnce(baseURL, apiKey, signal)
+    if (outcome.ok) return outcome.value
+    const exhausted = attempt >= BALANCE_FETCH_ATTEMPTS
+    const aborted = signal?.aborted === true
+    if (!exhausted && !aborted && isRetryableStatus(outcome.status)) {
+      await waitBalanceRetry(BALANCE_RETRY_BASE_MS * 2 ** (attempt - 1), signal)
+      continue
+    }
+    // A rejected credential is the one failure a user can act on, and retrying
+    // never fixes it: name what to check, not just the status code.
+    if (outcome.status === 401 || outcome.status === 403) {
+      throw new LlmError(
+        `DeepSeek balance request was rejected (HTTP ${outcome.status}) — the API key in effect for ${baseURL} is missing or unauthorized (check DEEPSEEK_API_KEY)`,
+        httpErrorCode(outcome.status),
+        { status: outcome.status },
+      )
+    }
+    throw outcome.error
+  }
 }
 
 /** Thunks the plugin binds to its own resolution and history access. */
