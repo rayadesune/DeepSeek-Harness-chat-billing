@@ -232,16 +232,16 @@ describe('forkBoundaryOf', () => {
   })
 
   it('reads the boundary from every runtime family shape', () => {
-    // 0.1.2-alpha.4+ Session / SessionInspection: the exact cut is a top-level field.
+    // 0.1.2-alpha.4+ Session / SessionHandle: the exact cut is a top-level field.
     expect(forkBoundaryOf({ inheritedEventCount: 3 })).toBe(3)
-    // ≤ 0.1.1-rc.2 Session: the cut lived on the durable header.
+    // ≤ 0.1.1-rc.2 live-session header: the cut lived on the durable header.
     expect(forkBoundaryOf({ header: { seedLength: 4 } })).toBe(4)
-    // ≤ 0.1.1-rc.2 persistence inspect: the cut lived on meta.
-    expect(forkBoundaryOf({ meta: { seedLength: 5 } })).toBe(5)
+    // The durable header slice and the top-level seedLength are equivalent fallbacks.
+    expect(forkBoundaryOf({ seedLength: 5 })).toBe(5)
   })
 
   it('prefers the newer inherited count over legacy header fields', () => {
-    expect(forkBoundaryOf({ inheritedEventCount: 9, header: { seedLength: 2 }, meta: { seedLength: 3 }, seedLength: 4 }))
+    expect(forkBoundaryOf({ inheritedEventCount: 9, header: { seedLength: 2 }, seedLength: 4 }))
       .toBe(9)
   })
 })
@@ -991,7 +991,7 @@ describe('attempt pricing (DSH tokenUsage semantics)', () => {
   })
 })
 
-describe('unlisted models (family fallback and unpriced tallies)', () => {
+describe('unlisted models (recorded, never guessed)', () => {
   const BILLING = resolveBilling(undefined)
   // 2026-08-20 10:00 Beijing.
   const PEAK = Date.parse('2026-08-20T02:00:00Z')
@@ -1000,39 +1000,41 @@ describe('unlisted models (family fallback and unpriced tallies)', () => {
     [assistantMessage(model, USAGE, PEAK, 0)], BILLING, CATALOG, new Date(PEAK),
   )
 
-  it('bills a later point release at its family rate instead of dropping it', () => {
-    // `mimo-v2.7-flash` ships before any rate row exists: it must not read as
-    // zero the way MiMo-V2.6 did, so it bills at the closest row of its family.
+  it('bills nothing for a model with no rate row, and records why', () => {
+    // No rate is inferred from a similar name: `mimo-v2.7-flash` looks like
+    // every other mimo row and may cost nothing like them.
     const spend = todayOf('mimo-v2.7-flash')
-    expect(spend.total).toBeCloseTo(todayOf(MIMO).total, 10)
-    expect(spend.total).toBeGreaterThan(0)
-  })
-
-  it('prefers the same variant, so a flash does not bill at pro rates', () => {
-    // Every mimo row shares the family token, so only the trailing variant
-    // separates them — and the pro row is ~3x the input rate.
-    expect(todayOf('mimo-v2.7-flash').total).toBeLessThan(todayOf('mimo-v2.7-pro').total)
-  })
-
-  it('records the substitution so the figure can be flagged as an estimate', () => {
-    const spend = todayOf('mimo-v2.7-flash')
-    expect(spend.estimated).toEqual({ events: 1, tokens: 3_500_000, models: ['mimo-v2.7-flash'] })
-    expect(spend.unpriced).toBeUndefined()
-  })
-
-  it('never crosses families — an unrelated brand stays unpriced', () => {
-    const spend = todayOf('totally-unknown-flash')
     expect(spend.total).toBe(0)
     expect(spend.models).toEqual([])
-    expect(spend.unpriced).toEqual({ events: 1, tokens: 3_500_000, models: ['totally-unknown-flash'] })
-    expect(spend.estimated).toBeUndefined()
+    expect(spend.unpriced).toEqual({ events: 1, tokens: 3_500_000, models: ['mimo-v2.7-flash'] })
   })
 
-  it('sums both tallies when sessions are merged', () => {
-    const merged = mergeTodaySpend(todayOf('totally-unknown-flash'), todayOf('mimo-v2.7-flash'))
-    expect(merged.unpriced?.tokens).toBe(3_500_000)
-    expect(merged.estimated?.tokens).toBe(3_500_000)
-    expect(merged.unpriced?.models).toEqual(['totally-unknown-flash'])
-    expect(merged.estimated?.models).toEqual(['mimo-v2.7-flash'])
+  it('does not bill an official id that merely shares a brand prefix', () => {
+    // `deepseek-chat` / `deepseek-reasoner` are DeepSeek's own API route ids and
+    // are not in this table's DSH catalogue. Prefix similarity would have priced
+    // them at a V4 Flash rate — a different model at a different price, i.e. a
+    // wrong number that looks authoritative.
+    for (const model of ['deepseek-chat', 'deepseek-reasoner']) {
+      const spend = todayOf(model)
+      expect(spend.total).toBe(0)
+      expect(spend.unpriced?.models).toEqual([model])
+    }
+  })
+
+  it('leaves a listed model priced exactly as its own row says', () => {
+    // The table still does the work: a model with a row is untouched by any of
+    // this, and carries no unpriced tally.
+    expect(todayOf(MIMO).total).toBeGreaterThan(0)
+    expect(todayOf(FLASH).total).toBeGreaterThan(0)
+    expect(todayOf(MIMO).unpriced).toBeUndefined()
+    expect(todayOf(FLASH).unpriced).toBeUndefined()
+  })
+
+  it('sums the unpriced tally when sessions are merged', () => {
+    const merged = mergeTodaySpend(todayOf('deepseek-chat'), todayOf('mimo-v2.7-flash'))
+    expect(merged.total).toBe(0)
+    expect(merged.unpriced?.events).toBe(2)
+    expect(merged.unpriced?.tokens).toBe(7_000_000)
+    expect(merged.unpriced?.models).toEqual(['deepseek-chat', 'mimo-v2.7-flash'])
   })
 })

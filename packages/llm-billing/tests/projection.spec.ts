@@ -81,8 +81,8 @@ describe('billingTodaySpend unit', () => {
     expect(next.spend.total).toBe(0)
     expect(next.spend.unpriced).toEqual({ events: 1, tokens: 3_500_000, models: ['other-model'] })
     expect(next.session.unpriced).toEqual({ events: 1, tokens: 3_500_000, models: ['other-model'] })
-    expect(next.session.estimated).toBeUndefined()
-    // The day is the sample's own Beijing day, exactly as priced usage opens it.
+    // The day still opens — it is the sample's own Beijing day, exactly as
+    // priced usage opens it — so the gap is visible in the day view too.
     expect(next.dayKey).toBe(unit.apply(initial, assistantMessage(FLASH, USAGE, DAY1_PEAK, 1)).dayKey)
   })
 

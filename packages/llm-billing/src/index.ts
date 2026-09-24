@@ -107,7 +107,6 @@ export type {
   ScannerPersistedHeader,
   ScannerPersistence,
   ScannerPersistenceHandle,
-  ScannerPersistenceLegacy,
   ScannerPersistedRead,
   ScannerSession,
   SessionHeaderSlice,
@@ -244,7 +243,7 @@ interface SessionEventsRead {
 /**
  * Read one session's event log and durable seed boundary: the live
  * SessionStore first, then the persistence backend for a flushed session
- * (inspected directly by id — no header listing). The live-session surface
+ * (opened directly by id — no header listing). The live-session surface
  * is read structurally across both DSH runtime families — `Session.events`
  * (≤ 0.1.1-rc.2) or `Session.snapshotEvents()` + `Session.inheritedEventCount`
  * (0.1.2-alpha.4+) — via {@link liveSessionEvents} / {@link forkBoundaryOf}.

@@ -70,12 +70,19 @@ export interface DeepSeekSessionSpend {
   total: number
   /** One row per model that reported usage AND has a pricing row; empty when the session has no priced usage. */
   models: readonly DeepSeekSessionSpendModel[]
+  /**
+   * Samples that carried usage but have NO pricing row, and so contribute
+   * nothing to {@link total} — so a session that only ever used an unlisted
+   * model does not read as "no usage" beside a today row that says otherwise.
+   */
+  unpriced?: DeepSeekUnpricedUsage | undefined
 }
 
 /**
- * Provider-reported usage that could NOT be billed at its own published rate.
- * Purely advisory: it never changes a spend's `total`, and the whole field is
- * omitted when every sample was priced against its own row.
+ * Provider-reported usage that could NOT be billed: it matched no pricing row,
+ * and no rate is ever guessed from a similar-looking model id. Purely advisory
+ * — it never changes a spend's `total`, and the whole field is omitted when
+ * every sample was priced against its own row.
  */
 export interface DeepSeekUnpricedUsage {
   /** Number of usage samples affected. */
@@ -93,18 +100,13 @@ export interface DeepSeekTodaySpend {
   /** One row per model that reported usage AND has a pricing row; empty when today has no priced usage. */
   models: readonly DeepSeekSessionSpendModel[]
   /**
-   * Samples that carried usage but matched NO pricing row and no family to
-   * fall back to: they contribute nothing to {@link total}. Without this, an
-   * upstream model that ships before its rate row reads exactly like "no
-   * usage" (see MiMo-V2.6, which arrived before the table knew it).
+   * Samples that carried usage but have NO pricing row, and so contribute
+   * nothing to {@link total}. Without this, an upstream model that ships before
+   * its rate row reads exactly like "no usage" (see MiMo-V2.6, which arrived
+   * before the table knew it) — the difference is what this field exists to
+   * report. Add the row under `billing.models` to price these.
    */
   unpriced?: DeepSeekUnpricedUsage | undefined
-  /**
-   * Samples priced through a family fallback instead of their own rate row:
-   * they ARE in {@link total}, but at a proxy rate, so that share is an
-   * estimate. Omitted when every sample had its own row.
-   */
-  estimated?: DeepSeekUnpricedUsage | undefined
 }
 
 /** One session's billed spend on one Beijing-time calendar day. */
