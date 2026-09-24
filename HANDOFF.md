@@ -1,3 +1,65 @@
+# HANDOFF — 修 DSH 0.1.7 兼容三问题（2026-09-23 · 阶段 A，未提交）
+
+* 问题与根因：
+  1. **每条消息行尾花费不显示 + 今日花费「暂无消耗记录」**：根因是 MiMo-V2.6 系列没有费率行。
+     价目表只有 mimo-v2.5 / mimo-v2.5-pro，`priceUsage` 对无行模型返回 undefined，今天全部
+     走 Mimo-v2.6-flash 的事件一个都不计价——fold 的 `dayKey` 停在 2026-09-21（投影缓存
+     seq 2576 行可证），于是今日聚合为空、每条消息的本轮花费为 0 被隐藏（会话总额 ¥9.99
+     来自 9-21 的 deepseek-flash 用量，所以徽标仍有数）。ui-chat 0.1.7 的
+     `conversation.chat.assistant-actions` 槽位与渲染链路本身无回归（TurnTailNodeView →
+     MessageIconActions.extraActions 仍在）。
+  2. **右上角卡片太透明**：DSH 0.1.7 把 `--dsw-specific-menu` 改成半透明（暗色 rgba(48,49,54,0.5)、
+     亮色 0.58），自家对话框（ui-chat stat-dialog、MenuView 等）都配
+     `backdrop-filter: var(--dsw-menu-backdrop-filter)`（blur(40px) saturate(150%)）；插件面板
+     只有填充没有模糊，下层文字直接透出。
+* 改动：
+  - `billing.ts`：DEFAULT_MODEL_PRICING 增加 `mimo-v2.6-flash`（0.02/1.0/2.0）与
+    `mimo-v2.6-pro`（0.025/3.0/6.0）——官方口径 API 价格沿用 V2.5（2026-09-22 发布）；
+    缓存写入按未命中价计（小米上线期免费，估算口径略高于实际）
+  - `index.ts`：DEFAULT_MODELS 增加两条展示行（MiMo-V2.6-Pro / MiMo-V2.6-Flash）
+  - `BalanceBadge.module.css` / `SpendCard.module.css`：面板补
+    `backdrop-filter: var(--dsw-menu-backdrop-filter)`
+  - 用例：billing.spec 补 V2.6 沿用 V2.5 费率的计价断言；README 双语 + i18n hash 同步
+* 校验与安装：billing.spec 64/64 绿；`pnpm run build`（host+client）绿；llm-billing /
+  ui-billing 两包 npm pack 装入 web profile（产物 marker 核对通过）。local-install.mjs 本轮
+  spawnSync cmd.exe 报 EBUSY，改为手动分步 pack + add（遗留的 package.json.lock 为其中断
+  残留，属正常可删）。
+* 待用户验证：重启 `dsh web` 后——①卡片不再透底；②新消息行尾出现花费；③今日花费/今日
+  Token 有数（mimo 计价生效）；④9-21 之后的旧 mimo 消息（当时未计价）不会回溯显示。
+
+---
+
+# HANDOFF — 修 DSH 0.1.7 兼容三问题（2026-09-23 · 阶段 A，未提交）
+
+* 问题与根因：
+  1. **每条消息行尾花费不显示 + 今日花费「暂无消耗记录」**：根因是 MiMo-V2.6 系列没有费率行。
+     价目表只有 mimo-v2.5 / mimo-v2.5-pro，`priceUsage` 对无行模型返回 undefined，今天全部
+     走 Mimo-v2.6-flash 的事件一个都不计价——fold 的 `dayKey` 停在 2026-09-21（投影缓存
+     seq 2576 行可证），于是今日聚合为空、每条消息的本轮花费为 0 被隐藏（会话总额 ¥9.99
+     来自 9-21 的 deepseek-flash 用量，所以徽标仍有数）。ui-chat 0.1.7 的
+     `conversation.chat.assistant-actions` 槽位与渲染链路本身无回归（TurnTailNodeView →
+     MessageIconActions.extraActions 仍在）。
+  2. **右上角卡片太透明**：DSH 0.1.7 把 `--dsw-specific-menu` 改成半透明（暗色 rgba(48,49,54,0.5)、
+     亮色 0.58），自家对话框（ui-chat stat-dialog、MenuView 等）都配
+     `backdrop-filter: var(--dsw-menu-backdrop-filter)`（blur(40px) saturate(150%)）；插件面板
+     只有填充没有模糊，下层文字直接透出。
+* 改动：
+  - `billing.ts`：DEFAULT_MODEL_PRICING 增加 `mimo-v2.6-flash`（0.02/1.0/2.0）与
+    `mimo-v2.6-pro`（0.025/3.0/6.0）——官方口径 API 价格沿用 V2.5（2026-09-22 发布）；
+    缓存写入按未命中价计（小米上线期免费，估算口径略高于实际）
+  - `index.ts`：DEFAULT_MODELS 增加两条展示行（MiMo-V2.6-Pro / MiMo-V2.6-Flash）
+  - `BalanceBadge.module.css` / `SpendCard.module.css`：面板补
+    `backdrop-filter: var(--dsw-menu-backdrop-filter)`
+  - 用例：billing.spec 补 V2.6 沿用 V2.5 费率的计价断言；README 双语 + i18n hash 同步
+* 校验与安装：billing.spec 64/64 绿；`pnpm run build`（host+client）绿；llm-billing /
+  ui-billing 两包 npm pack 装入 web profile（产物 marker 核对通过）。local-install.mjs 本轮
+  spawnSync cmd.exe 报 EBUSY，改为手动分步 pack + add（遗留的 package.json.lock 为其中断
+  残留，属正常可删）。
+* 待用户验证：重启 `dsh web` 后——①卡片不再透底；②新消息行尾出现花费；③今日花费/今日
+  Token 有数（mimo 计价生效）；④9-21 之后的旧 mimo 消息（当时未计价）不会回溯显示。
+
+---
+
 # HANDOFF — 发布记录（2026-09-23 · v0.3.15）
 
 * 提交：`ee8d53f`（fix(ui)：适配 DSH 0.1.7 客户端面）+ `e2ed1c9`（chore(deps)：依赖基线升至
