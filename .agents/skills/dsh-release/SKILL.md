@@ -145,7 +145,7 @@ for (const [turn, row] of byTurn) console.log(`turn ${turn}: ${row.requests} req
 
    编译面：改 client 面 `--face client`、改宿主面 `--face host`、跨包或拿不准 `--face both`（**动了 Remote 类型或 typert 产物先 host**，见上文构建顺序硬约束）。三包都改才并列三个包名。**长命令放后台**（`run_in_background`）再用 `job_output` 收一次；抽查计数为 0 就是改动没进产物，脚本会直接报 FAIL。
 
-   **脚本 EBUSY 兜底（手动路径）**：若 `local-install.mjs` 失败，按下面分步做（已验证可用）——先 `npm pack --pack-destination $DSH_HOME/local-tarballs` 进每个改动包目录，再 `dsh plugin --profile web remove <pkg>`（失败可忽略）+ `add <tgz>`。注意 `add` 长命令可能留一个 `.lock` 残锁导致后续写 `package.json` 报占用，遇 `package.json.lock` 存在直接 `rm -f` 再重试即可。
+   **脚本 EBUSY 兜底（手动路径）**：若 `local-install.mjs` 失败，按下面分步做（已验证可用）——先 `npm pack --pack-destination $DSH_HOME/local-tarballs` 进每个改动包目录，再 `dsh plugin --profile web remove <pkg>`（失败可忽略）+ `add <tgz>`。**`--pack-destination` 必须给 Windows 风格路径（`C:/...` 或 `C:\...`）**：MSYS/Git-Bash 风格的 `/c/...` 会让 npm 直接报错（npm 不认 POSIX 挂载盘前缀）；在 PowerShell 里用 `$env:DSH_HOME\local-tarballs` 展开即为合法路径。注意 `add` 长命令可能留一个 `.lock` 残锁导致后续写 `package.json` 报占用，遇 `package.json.lock` 存在直接 `rm -f` 再重试即可。
 
 4. **文档与 hash**：受影响包 README 双语（EN/ZH）+ `README.i18n.yaml` blob hash（`git hash-object`）、`AGENTS.md`、`HANDOFF.md`（本轮问题/根因/改动记录）。同一批微调可以**攒到行为定稿后一次补**（不要每改一个字符串就改一轮文档 + hash），但**交给用户验证之前必须补齐**。
 5. **提交留给阶段 B**：改完只看一眼清单（`git status --short`，必要时 `git diff --stat`）以便阶段 B 归拢，**不要 commit**。
