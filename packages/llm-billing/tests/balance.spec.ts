@@ -12,6 +12,32 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from '../src/balance.ts'
 import { apply as applyBilling } from '../src/index.ts'
 import type { DeepSeekBalance } from '../src/types.ts'
+import type { ScannerPersistenceHandle, SessionHeaderSlice } from '../src/today-spend.ts'
+
+/**
+ * Test-only: production `fetchSessionSpend` reads the real `sessionPersistence`
+ * service through the handle family (`list` / `open`). These fixtures were
+ * authored against the older `listSnapshots` / `inspect` surface, so this
+ * bridge projects them onto a handle-shaped service without rewriting each.
+ */
+function legacyPersistence(legacy: {
+  listSnapshots(): Promise<readonly { header: { id: SessionId }; revision: SessionPersistenceRevision }[]>
+  inspect(id: SessionId): Promise<{ meta?: SessionHeaderSlice; inheritedEventCount?: number; events: readonly SessionEvent[] }>
+}): ScannerPersistenceHandle {
+  return {
+    list: () => legacy.listSnapshots(),
+    open: async (id: SessionId, _access: 'read') => {
+      const read = await legacy.inspect(id)
+      return {
+        header: read.meta,
+        inheritedEventCount: read.inheritedEventCount,
+        read: async () => read.events,
+        close: async () => {},
+      }
+    },
+  }
+}
+
 
 const VALID_WIRE = {
   is_available: true,
@@ -261,12 +287,12 @@ describe('apply / today spend', () => {
     const ctx = new Context()
     ctx.provide('sessions', { list: () => [] } as never)
     const inspect = vi.fn(async () => ({ meta: {}, events: [pricedEvent(0)] }))
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [
         { header: { id: 'session-a' as SessionId }, revision: SessionPersistenceRevision('r-a') },
       ],
       inspect,
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const spend = await gateway.getTodaySpend()
@@ -295,7 +321,7 @@ describe('apply / today spend', () => {
       get: (id: SessionId) => sessions.find(session => session.id === id),
     } as never)
     const inspect = vi.fn()
-    ctx.provide('sessionPersistence', { listSnapshots: async () => [], inspect } as never)
+    ctx.provide('sessionPersistence', legacyPersistence({ listSnapshots: async () => [], inspect }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const own = await gateway.getSessionSpend('session-parent' as SessionId)
@@ -321,12 +347,12 @@ describe('apply / today spend', () => {
     const ctx = new Context()
     ctx.provide('sessions', { list: () => [] } as never)
     const bigEvents = Array.from({ length: 200_000 }, (_, index) => pricedEvent(index))
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [
         { header: { id: 'session-big' }, revision: SessionPersistenceRevision('r-big') },
       ],
       inspect: async () => ({ meta: {}, events: bigEvents }),
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     await expect(gateway.getTodaySpend()).resolves.toMatchObject({
@@ -339,7 +365,7 @@ describe('apply / today spend', () => {
   it('skips a session that fails to inspect instead of failing the whole day', async () => {
     const ctx = new Context()
     ctx.provide('sessions', { list: () => [] } as never)
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [
         { header: { id: 'session-ok' }, revision: SessionPersistenceRevision('r-ok') },
         { header: { id: 'session-bad' }, revision: SessionPersistenceRevision('r-bad') },
@@ -348,7 +374,7 @@ describe('apply / today spend', () => {
         if (id === 'session-bad' as SessionId) throw new Error('corrupt log')
         return { meta: {}, events: [pricedEvent(0)] }
       },
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     await expect(gateway.getTodaySpend()).resolves.toMatchObject({
@@ -362,12 +388,12 @@ describe('apply / today spend', () => {
     ctx.provide('sessions', {
       list: () => [{ id: 'session-live', events: [pricedEvent(0)] }],
     } as never)
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [
         { header: { id: 'session-live' }, revision: SessionPersistenceRevision('r-live') },
       ],
       inspect: async () => { throw new Error('must not be read') },
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     await expect(gateway.getTodaySpend()).resolves.toMatchObject({
@@ -380,12 +406,12 @@ describe('apply / today spend', () => {
     const ctx = new Context()
     ctx.provide('sessions', { list: () => [] } as never)
     const inspect = vi.fn(async () => ({ meta: {}, events: [pricedEvent(0)] }))
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [
         { header: { id: 'session-a' }, revision: SessionPersistenceRevision('r-a') },
       ],
       inspect,
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     await gateway.getTodaySpend()
@@ -423,10 +449,10 @@ describe('apply / session spend cache', () => {
   it('serves the same cached spend while the log length is unchanged', async () => {
     const ctx = new Context()
     const events = [pricedEvent(0)]
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [],
       inspect: async () => ({ meta: {}, events }),
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const first = await gateway.getSessionSpend('session-cache' as SessionId)
@@ -439,10 +465,10 @@ describe('apply / session spend cache', () => {
   it('prices only the appended tail when the log grows', async () => {
     const ctx = new Context()
     const events = [pricedEvent(0)]
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [],
       inspect: async () => ({ meta: {}, events }),
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const first = await gateway.getSessionSpend('session-cache' as SessionId)
@@ -455,10 +481,10 @@ describe('apply / session spend cache', () => {
 
   it('computes a fresh spend for a session it has never priced', async () => {
     const ctx = new Context()
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [],
       inspect: async () => ({ meta: {}, events: [pricedEvent(0)] }),
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const a = await gateway.getSessionSpend('session-a' as SessionId)
@@ -494,10 +520,10 @@ describe('apply / session spend cache', () => {
     ] as unknown as SessionEvent[]
     const ctx = new Context()
     const events: SessionEvent[] = turn(0)
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [],
       inspect: async () => ({ meta: {}, events }),
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const first = await gateway.getSessionTurnSpends('session-turns' as SessionId)
@@ -513,13 +539,13 @@ describe('apply / session spend cache', () => {
 
   it('bills a forked child session from its own events only', async () => {
     const ctx = new Context()
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [],
       inspect: async () => ({
         meta: { seedLength: 2 },
         events: [pricedEvent(0), pricedEvent(1), pricedEvent(2)],
       }),
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const spend = await gateway.getSessionSpend('session-fork' as SessionId)
@@ -531,10 +557,10 @@ describe('apply / session spend cache', () => {
   it('prices only the appended own tail for a growing fork child', async () => {
     const ctx = new Context()
     const events = [pricedEvent(0), pricedEvent(1), pricedEvent(2)]
-    ctx.provide('sessionPersistence', {
+    ctx.provide('sessionPersistence', legacyPersistence({
       listSnapshots: async () => [],
       inspect: async () => ({ meta: { seedLength: 2 }, events }),
-    } as never)
+    }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const first = await gateway.getSessionSpend('session-fork' as SessionId)
@@ -554,7 +580,7 @@ describe('apply / session spend cache', () => {
         inheritedEventCount: 0,
       }),
     } as never)
-    ctx.provide('sessionPersistence', { listSnapshots: async () => [], inspect: async () => { throw new Error('must not be read') } } as never)
+    ctx.provide('sessionPersistence', legacyPersistence({ listSnapshots: async () => [], inspect: async () => { throw new Error('must not be read') } }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const spend = await gateway.getSessionSpend('session-live' as SessionId)
@@ -571,7 +597,7 @@ describe('apply / session spend cache', () => {
         inheritedEventCount: 2,
       }),
     } as never)
-    ctx.provide('sessionPersistence', { listSnapshots: async () => [], inspect: async () => { throw new Error('must not be read') } } as never)
+    ctx.provide('sessionPersistence', legacyPersistence({ listSnapshots: async () => [], inspect: async () => { throw new Error('must not be read') } }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const spend = await gateway.getSessionSpend('session-new-fork' as SessionId)
@@ -589,7 +615,7 @@ describe('apply / session spend cache', () => {
         inheritedEventCount: 0,
       }],
     } as never)
-    ctx.provide('sessionPersistence', { listSnapshots: async () => [], inspect: async () => { throw new Error('must not be read') } } as never)
+    ctx.provide('sessionPersistence', legacyPersistence({ listSnapshots: async () => [], inspect: async () => { throw new Error('must not be read') } }) as never)
     applyBilling(ctx, {})
     const gateway = ctx.get('billing') as unknown as DeepSeekBalanceGateway
     const spend = await gateway.getTodaySpend()

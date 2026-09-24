@@ -7,7 +7,7 @@
  *   `billingTodaySpend` projection cell; cold sessions are answered from the
  *   zero-I/O projection-cache row whenever that row's own day is not the
  *   queried one, and otherwise resolved through one detached local fold over
- *   a full `inspect`. Persisted revisions gate every cold read, so a session
+ *   a full `open` + handle read. Persisted revisions gate every cold read, so a session
  *   whose log did not change since the last resolution costs nothing — and a
  *   failed resolution is remembered by revision instead of being retried on
  *   every scan.
@@ -38,17 +38,17 @@
  * cut, and `apply` skips events below it), so the eager cell is correct for a
  * fork child; the cold path skips the projection cache for a seeded session
  * (its cached row may predate the boundary) and folds its own events with the
- * durable cut instead. The boundary is the durable session state, read across
- * both DSH runtime families — a resumed fork child keeps its original
+ * durable cut instead. The boundary is the durable session state, read from the
+ * live-session and handle surfaces — a resumed fork child keeps its original
  * boundary and an unseeded session stays at 0.
  *
  * The live `Session` log surface changed in 0.1.2-alpha.4: `Session.events`
  * was removed and replaced by `Session.snapshotEvents()` / `ownEvents()`, and
  * `SessionHeader.seedLength` moved to `Session.inheritedEventCount` (the
- * persistence `inspect` result carries it alongside `meta`). Reads go through
- * {@link liveSessionEvents} / {@link forkBoundaryOf}, which accept both
- * families structurally, so the scanner runs on the ≤ 0.1.1-rc.2 npm baseline
- * and on the newer runtime.
+ * opened `SessionHandle` carries it alongside `header`). Reads go through
+ * {@link liveSessionEvents} / {@link forkBoundaryOf}, which accept the
+ * live-session and handle shapes structurally, so the scanner runs on the
+ * older `events` runtime and on the newer `snapshotEvents` runtime.
  * @module @rayadesu/dsh-llm-billing/today-spend
  */
 
@@ -60,7 +60,7 @@ import type { BillingFoldState } from './billing.ts'
 import type { DeepSeekTodaySessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from './types.ts'
 import { BILLING_UNIT_KEY, foldOwnBilling, type BillingUnitFold, type BillingUnitState } from './projection.ts'
 import { foldSessionTitle, isSubagentSession, rollUpSubagentSpend, type SessionLineage } from './session-lineage.ts'
-import { COLD_FAILED_CACHE_LIMIT, COLD_FAILED_RETRY_MS, COLD_RESOLVE_CACHE_LIMIT, COLD_RESOLVE_CONCURRENCY, withConcurrency } from './cache.ts'
+import { COLD_FAILED_CACHE_LIMIT, COLD_FAILED_RETRY_MS, COLD_RESOLVE_CACHE_LIMIT, COLD_RESOLVE_CONCURRENCY, SCAN_YIELD_SESSIONS, withConcurrency, yieldToEventLoop } from './cache.ts'
 import { liveSessionEvents, persistenceInspect, persistenceListSnapshots } from './persistence.ts'
 import type { ScannerPersistedHeader, ScannerPersistence, ScannerSession, SessionHeaderSlice } from './persistence.ts'
 
@@ -295,7 +295,10 @@ export class TodaySpendScanner {
    * otherwise.
    *
    * The aggregate sums every priced session, subagents included — the ranking's
-   * subagent roll-up only regroups rows, so neither total moves.
+   * subagent roll-up only regroups rows, so neither total moves. Both paths
+   * fold in slices and hand the host's event loop back every
+   * {@link SCAN_YIELD_SESSIONS} sessions, so a long scan never starves the
+   * GUI's own round trips.
    * @param dayKey - the Beijing-time calendar-day key to aggregate.
    * @returns the aggregate plus per-session rows sorted by cost descending.
    */
@@ -312,14 +315,14 @@ export class TodaySpendScanner {
    * own latest priced day is NOT the queried day: the row then proves the
    * session contributed nothing to the queried day, so the log is never read.
    * When the row IS the queried day (or no usable row exists) the session is
-   * inspected and folded locally, because the row may trail the log (a crash
+   * opened and folded locally, because the row may trail the log (a crash
    * between the last checkpoint and the session's last event).
    *
    * A cache-served value carries no title (the ladder only stores projection
    * values), so such rows report `title: null`. A SEEDED session (fork child)
    * skips the cache entirely: its cached row was folded over the inherited
-   * prefix too, so it always detaches through inspect with the durable
-   * boundary (the inspect result's inherited count or `meta.seedLength`,
+   * prefix too, so it always detaches through a handle read with the durable
+   * boundary (the handle's `inheritedEventCount` or `header.seedLength`,
    * depending on the runtime family) applied to the local fold.
    * @param header - the listed session header (the cache identity witness).
    * @param seeded - whether the session carries a fork-inherited prefix.
@@ -410,7 +413,13 @@ export class TodaySpendScanner {
         && Date.now() - failed.at < COLD_FAILED_RETRY_MS) continue
       pending.push({ header, revision, seeded })
     }
+    let resolvedCount = 0
     await withConcurrency(pending, COLD_RESOLVE_CONCURRENCY, async ({ header, revision, seeded }) => {
+      // A resolution answered straight from the projection cache performs no
+      // I/O, so without this the fan-out would run a long microtask chain that
+      // never reaches the event loop's poll phase.
+      resolvedCount += 1
+      if (resolvedCount % SCAN_YIELD_SESSIONS === 0) await yieldToEventLoop()
       const resolved = await this.resolveCold(header, seeded, dayKey)
       if (resolved !== undefined) {
         this.coldFailed.delete(header.id)
@@ -420,7 +429,12 @@ export class TodaySpendScanner {
         this.coldFailed.set(header.id, { revision, at: Date.now() })
       }
     })
+    let adopted = 0
     for (const { header } of pending) {
+      // The adopt below merges synchronously; a day with many cold sessions
+      // must not fold them all in one uninterrupted slice.
+      adopted += 1
+      if (adopted % SCAN_YIELD_SESSIONS === 0) await yieldToEventLoop()
       const resolved = this.coldResolved.get(header.id)
       if (resolved !== undefined) adopt(header.id, resolved)
     }
@@ -487,7 +501,13 @@ export class TodaySpendScanner {
     if (sessions !== undefined) {
       const store = sessions()
       if (store !== undefined) {
+        let folded = 0
         for (const session of store.list()) {
+          // The fold below walks this session's whole log synchronously on the
+          // host's main loop; hand the loop back every few sessions so the GUI's
+          // own round trips still get served during a long scan.
+          folded += 1
+          if (folded % SCAN_YIELD_SESSIONS === 0) await yieldToEventLoop()
           liveIds.add(session.id)
           collect(session.id, liveSessionEvents(session), forkBoundaryOf(session), session.header ?? {})
           if (truncated) break
@@ -526,7 +546,7 @@ export class TodaySpendScanner {
   /**
    * Projection path, one pass for both outputs: eager cells for live sessions
    * (title folded from the live log, so a rename is reflected immediately),
-   * revision-gated cold ladder for the rest (title resolved on inspect, `null`
+   * revision-gated cold ladder for the rest (title resolved on the handle read, `null`
    * when answered from the projection cache). A fork child's cell covers its
    * inherited prefix, so its own-events fold supplies both outputs. Lineage
    * (which session delegated which) comes from the same headers the boundary
@@ -548,7 +568,13 @@ export class TodaySpendScanner {
     if (sessions !== undefined) {
       const store = sessions()
       if (store !== undefined) {
+        let folded = 0
         for (const { session, state } of this.liveBillingEntries(store, projectionsService)) {
+          // The title fold below materialises and walks this session's whole
+          // log synchronously on the host's main loop; hand the loop back every
+          // few sessions so the GUI's own round trips still get served.
+          folded += 1
+          if (folded % SCAN_YIELD_SESSIONS === 0) await yieldToEventLoop()
           liveIds.add(session.id)
           lineage.set(session.id, session.header ?? {})
           const born = session.header?.createdAt

@@ -1,9 +1,10 @@
 /**
- * The persistence seams a cold scan reads through. DSH has shipped two
- * persistence runtime families — a service-level `inspect`/`listSnapshots`
- * pair and a handle-based `list`/`open` + `SessionHandle` one — and this is
- * the only place that knows both. Split out of `today-spend.ts` so the scan
- * strategies read one shape.
+ * The persistence seams a cold scan reads through. DSH ships a single
+ * persistence runtime family — the handle-based `list` / `open` +
+ * `SessionHandle` surface (0.1.2-alpha.5+, the only one the plugin's
+ * `^0.1.7-alpha.2` peer targets). This module is the only place that knows
+ * the handle shape. Split out of `today-spend.ts` so the scan strategies read
+ * one shape.
  * @module @rayadesu/dsh-llm-billing/persistence
  */
 
@@ -72,17 +73,6 @@ export interface ScannerPersistedRead {
   readonly seedLength: number
 }
 
-/** ≤ 0.1.1-rc.2 persistence slice: service-level `inspect` / `listSnapshots`. */
-export interface ScannerPersistenceLegacy {
-  listSnapshots(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
-  inspect(id: SessionId): Promise<{
-    meta?: SessionHeaderSlice
-    /** 0.1.2-alpha.4+: the exact inherited cut travels beside, not inside, the header. */
-    inheritedEventCount?: number
-    events: readonly SessionEvent[]
-  }>
-}
-
 /**
  * One handle read result across DSH generations. The handle seam first
  * returned the bare event array; since `9b78f99dec` (2026-09-06, in the
@@ -117,32 +107,25 @@ export interface ScannerPersistenceHandle {
   }>
 }
 
-/** Structural union the scanner reads through, accepting both persistence runtime families. */
-export type ScannerPersistence = ScannerPersistenceLegacy | ScannerPersistenceHandle
-
-function isHandlePersistence(persistence: ScannerPersistence): persistence is ScannerPersistenceHandle {
-  return typeof (persistence as Partial<ScannerPersistenceHandle>).open === 'function'
-}
+/** The persistence service slice the scanner reads through (handle-based). */
+export type ScannerPersistence = ScannerPersistenceHandle
 
 /**
- * List every stored session snapshot across both persistence runtime families:
- * `listSnapshots` (≤ 0.1.1-rc.2) or `list` (0.1.2-alpha.5+).
+ * List every stored session snapshot through the handle-based persistence
+ * service (`list`).
  * @param persistence - the persistence service slice.
  * @returns one snapshot per stored session.
  */
 export function persistenceListSnapshots(
   persistence: ScannerPersistence,
 ): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]> {
-  return isHandlePersistence(persistence)
-    ? persistence.list()
-    : (persistence as ScannerPersistenceLegacy).listSnapshots()
+  return persistence.list()
 }
 
 /**
  * Read one stored session's complete event log and durable inherited boundary
- * across both persistence runtime families: legacy `inspect` (≤ 0.1.1-rc.2)
- * or `open` + handle `read` (0.1.2-alpha.5+; the handle is closed after the
- * read). Both throw when the session does not exist.
+ * through the handle-based persistence service (`open` + handle `read`; the
+ * handle is closed after the read). Throws when the session does not exist.
  * @param persistence - the persistence service slice.
  * @param id - the stored session to read.
  * @returns the session's complete event log plus its inherited-prefix boundary.
@@ -151,16 +134,10 @@ export async function persistenceInspect(
   persistence: ScannerPersistence,
   id: SessionId,
 ): Promise<ScannerPersistedRead> {
-  if (isHandlePersistence(persistence)) {
-    const handle = await persistence.open(id, 'read')
-    try {
-      return { events: handleReadEvents(await handle.read()), seedLength: forkBoundaryOf(handle) }
-    } finally {
-      await handle.close()
-    }
+  const handle = await persistence.open(id, 'read')
+  try {
+    return { events: handleReadEvents(await handle.read()), seedLength: forkBoundaryOf(handle) }
+  } finally {
+    await handle.close()
   }
-  const inspection = await (persistence as ScannerPersistenceLegacy).inspect(id)
-  return { events: inspection.events, seedLength: forkBoundaryOf(inspection) }
 }
-
-/** Structural slices of the optional services the scanner reads through. */

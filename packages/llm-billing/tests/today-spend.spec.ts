@@ -14,9 +14,13 @@ import { billingTodaySpendDefinition, BILLING_UNIT_KEY, type BillingUnitState } 
 import {
   delegatedSpendOf,
   isSubagentSession,
+  SCAN_YIELD_SESSIONS,
   TodaySpendCache,
   TodaySpendScanner,
   topLevelSessionOf,
+  type ScannerPersistedHeader,
+  type ScannerPersistenceHandle,
+  type SessionHeaderSlice,
   type SessionLineage,
   type TodaySpendScannerDeps,
 } from '../src/today-spend.ts'
@@ -50,10 +54,52 @@ function pricedEvent(time: number, seq = 0): SessionEvent {
   } as unknown as SessionEvent
 }
 
-function deps(over: Partial<TodaySpendScannerDeps> = {}): TodaySpendScannerDeps {
+/**
+ * Test-only: the scanner reads persistence exclusively through the handle
+ * family (`list` / `open`) now. The fixtures below were authored against the
+ * older `listSnapshots` / `inspect` surface (DSH ≤ 0.1.1-rc.2), which the
+ * shipping plugin no longer targets; `deps` bridges them onto a handle-shaped
+ * service so the same scanner-behavior coverage exercises the production code
+ * path without rewriting every fixture.
+ */
+interface LegacyPersistence {
+  listSnapshots(): Promise<readonly { header: ScannerPersistedHeader; revision: SessionPersistenceRevision }[]>
+  inspect(id: SessionId): Promise<{ meta?: SessionHeaderSlice; inheritedEventCount?: number; events: readonly SessionEvent[] }>
+}
+
+function isLegacyPersistence(persistence: unknown): persistence is LegacyPersistence {
+  return typeof (persistence as Partial<LegacyPersistence>)?.listSnapshots === 'function'
+}
+
+function legacyToHandle(legacy: LegacyPersistence): ScannerPersistenceHandle {
+  return {
+    list: () => legacy.listSnapshots(),
+    open: async (id: SessionId, _access: 'read') => {
+      const read = await legacy.inspect(id)
+      return {
+        header: read.meta,
+        // Pass through unchanged: when the legacy inspect reported the
+        // boundary as `meta.seedLength` (no `inheritedEventCount`), leaving
+        // this undefined lets `forkBoundaryOf` fall back to `header.seedLength`.
+        inheritedEventCount: read.inheritedEventCount,
+        read: async () => read.events,
+        close: async () => {},
+      }
+    },
+  }
+}
+
+type DepsOver = Omit<Partial<TodaySpendScannerDeps>, 'persistence'> & {
+  persistence?: () => ScannerPersistenceHandle | LegacyPersistence | undefined
+}
+
+function deps({ persistence, ...rest }: DepsOver = {}): TodaySpendScannerDeps {
   return {
     sessions: () => undefined,
-    persistence: () => undefined,
+    persistence: () => {
+      const resolved = persistence?.()
+      return resolved === undefined ? undefined : isLegacyPersistence(resolved) ? legacyToHandle(resolved) : resolved
+    },
     projections: () => undefined,
     projectionCache: () => undefined,
     unit: UNIT,
@@ -61,12 +107,12 @@ function deps(over: Partial<TodaySpendScannerDeps> = {}): TodaySpendScannerDeps 
     logger: { warn: () => {} },
     billing: BILLING,
     catalog: CATALOG,
-    ...over,
+    ...rest,
   }
 }
 
 describe('TodaySpendCache', () => {
-  it('serves the cached value within the TTL window and recomputes after it elapses', async () => {
+  it('serves the cached value within the window, then a stale one at once with the refresh behind it', async () => {
     let now = Date.parse('2026-08-20T04:00:00Z')
     let scans = 0
     const cache = new TodaySpendCache(async () => {
@@ -78,9 +124,30 @@ describe('TodaySpendCache', () => {
     await expect(cache.get()).resolves.toEqual({ total: 1, models: [] })
     expect(scans).toBe(1)
 
+    // Past the window the previous value is served immediately — a reader never
+    // waits on the day's scan — while the refresh runs behind it.
     now += 61_000
+    await expect(cache.get()).resolves.toEqual({ total: 1, models: [] })
+    expect(scans).toBe(2)
+    // The refreshed value is what the next read sees, with no third pass.
     await expect(cache.get()).resolves.toEqual({ total: 2, models: [] })
     expect(scans).toBe(2)
+  })
+
+  it('stamps the window when the scan completes, not when it starts', async () => {
+    // A pass slower than its own TTL used to be born expired, so every read
+    // after it started another pass back-to-back.
+    let now = Date.parse('2026-08-20T04:00:00Z')
+    let scans = 0
+    const cache = new TodaySpendCache(async () => {
+      scans += 1
+      now += 90_000
+      return { total: scans, models: [] }
+    }, 60_000, () => new Date(now))
+
+    await cache.get()
+    await expect(cache.get()).resolves.toEqual({ total: 1, models: [] })
+    expect(scans).toBe(1)
   })
 
   it('invalidates automatically when the Beijing day changes', async () => {
@@ -94,11 +161,13 @@ describe('TodaySpendCache', () => {
     await cache.get()
     // 2026-08-20 16:30Z is already 2026-08-21 in Beijing, inside the TTL window.
     now = Date.parse('2026-08-20T16:30:00Z')
-    await cache.get()
+    // A rollover is never a stale-while-revalidate hit: yesterday's total is not
+    // today's, so the read waits for the new day's scan.
+    await expect(cache.get()).resolves.toEqual({ total: 2, models: [] })
     expect(scans).toBe(2)
   })
 
-  it('force bypasses the time window; the day key still gates', async () => {
+  it('force bypasses the time window and the stale shortcut; the day key still gates', async () => {
     const now = Date.parse('2026-08-20T04:00:00Z')
     let scans = 0
     const cache = new TodaySpendCache(async () => {
@@ -110,6 +179,20 @@ describe('TodaySpendCache', () => {
     await cache.get(true)
     await cache.get(true)
     expect(scans).toBe(3)
+  })
+
+  it('force waits for the fresh value instead of serving the stale one', async () => {
+    let now = Date.parse('2026-08-20T04:00:00Z')
+    let scans = 0
+    const cache = new TodaySpendCache(async () => {
+      scans += 1
+      return { total: scans, models: [] }
+    }, 60_000, () => new Date(now))
+
+    await cache.get()
+    now += 61_000
+    await expect(cache.get(true)).resolves.toEqual({ total: 2, models: [] })
+    expect(scans).toBe(2)
   })
 
   it('coalesces concurrent misses into one scan', async () => {
@@ -1158,5 +1241,25 @@ describe('TodaySpendScanner persistence handle family (0.1.2-alpha.5+)', () => {
     expect(sessions[0]?.total).toBeCloseTo(13.60, 10)
     expect(read).toHaveBeenCalledTimes(1)
     expect(closed).toHaveLength(1)
+  })
+})
+
+describe('scan scheduling', () => {
+  it('hands the host event loop back between session folds', async () => {
+    // The folds are synchronous CPU work on the host's main loop — the same
+    // loop that serves the GUI's own round trips (switch model, new session) —
+    // so a scan must yield. A macrotask queued before the scan therefore runs
+    // before the scan finishes; without a yield the whole scan is one microtask
+    // chain and that callback is still pending when the scan resolves.
+    const sessions = Array.from(
+      { length: SCAN_YIELD_SESSIONS + 1 },
+      (_, index) => ({ id: `live-${index}` as SessionId, events: [pricedEvent(DAY_TIME, index)] }),
+    )
+    const scanner = new TodaySpendScanner(deps({ sessions: () => ({ list: () => sessions }) }))
+    let loopTurned = false
+    setImmediate(() => { loopTurned = true })
+    const spend = await scanner.scan(DAY_KEY)
+    expect(spend.total).toBeGreaterThan(0)
+    expect(loopTurned).toBe(true)
   })
 })
