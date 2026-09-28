@@ -122,6 +122,6 @@ export default defineConfig({
         ],
       },
     },
-    include: ['packages/*/tests/**/*.spec.ts', 'packages/*/tests/**/*.spec.tsx'],
+    include: ['packages/*/tests/**/*.spec.ts', 'packages/*/tests/**/*.spec.tsx', 'tests/**/*.spec.ts'],
   },
 })
