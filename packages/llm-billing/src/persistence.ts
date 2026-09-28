@@ -2,7 +2,7 @@
  * The persistence seams a cold scan reads through. DSH ships a single
  * persistence runtime family — the handle-based `list` / `open` +
  * `SessionHandle` surface (0.1.2-alpha.5+, the only one the plugin's
- * `^0.1.7-alpha.2` peer targets). This module is the only place that knows
+ * `^0.2.0-rc.1` peer targets). This module is the only place that knows
  * the handle shape. Split out of `today-spend.ts` so the scan strategies read
  * one shape.
  * @module @rayadesu/dsh-llm-billing/persistence

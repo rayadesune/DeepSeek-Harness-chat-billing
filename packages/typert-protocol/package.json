@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-typert-protocol",
-  "version": "0.1.7-alpha.2",
-  "description": "Vendored Typert protocol declarations (npm 0.1.7-alpha.2) so the standalone typert generator can resolve Remote/TypertRemoteService from a registered workspace package.",
+  "version": "0.2.0-rc.1",
+  "description": "Vendored Typert protocol declarations (npm 0.2.0-rc.1) so the standalone typert generator can resolve Remote/TypertRemoteService from a registered workspace package.",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
