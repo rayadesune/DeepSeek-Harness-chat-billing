@@ -58,17 +58,26 @@
 
 ## 安装
 
-### 安装（已发布到 npm，一条命令）
+### 从 Web 插件页安装（官方）
 
-三个包已发布到 npm 的 `@rayadesu` scope。一条命令同时安装 bundle 与两个插件包
-（bundle 把两个插件包声明为 peer 依赖，而 profile 默认不自动安装 peer，所以要显式列出）。
+三个包已发布到 npm 的 `@rayadesu` scope。bundle 把两个插件包声明为普通
+`dependencies`，所以**只需一个包名即可装全**：pnpm 会把 bundle 的依赖闭包一并装进
+profile，hoisted 的 `node_modules` 让两个组件行名可解析。
+
+1. 侧栏进入 **插件** → **添加插件**。
+2. 输入 `@rayadesu/dsh-billing`。对话框也接受 GitHub 仓库地址
+   （`https://github.com/rayadesune/DeepSeek-Harness-chat-billing`）或本地目录绝对路径
+   ——两个插件包本身始终从 npm 解析。
+3. 选安装源（默认 npm 源或**中国大陆镜像源**），点**安装**，完成后**立即启用**。
+
+### 用命令行安装
 
 用哪个 `dsh` 命令取决于你的 dsh 安装方式：
 
 - **全局安装** —— 任意目录直接用全局 `dsh`：
 
   ```bash
-  dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+  dsh plugin --profile web add @rayadesu/dsh-billing
   ```
 
 - **源码构建的 dsh**（deepseek-harness 源码目录）—— CLI 只在源码目录里能解析，
@@ -76,7 +85,7 @@
 
   ```bash
   cd deepseek-harness
-  pnpm dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+  pnpm dsh plugin --profile web add @rayadesu/dsh-billing
   ```
 
 ### pnpm 11 发布龄门槛
@@ -91,7 +100,8 @@ dsh profile 通过 pnpm 安装插件，而 pnpm 11 的供应链发布龄门槛�
   minimumReleaseAge: 0
   ```
 
-- 或者在 24 小时窗口内用**显式钉版本**安装（显式钉版本可绕开门槛，把 `0.3.0` 换成你要的版本；
+- 或者在 24 小时窗口内用**显式钉版本**安装（显式钉版本可绕开门槛；三个包名都要钉——两个
+  插件包随 bundle 传递安装，也要各自钉住才能过门槛；把 `0.3.0` 换成你要的版本；
   源码构建的 dsh 用 `pnpm dsh …`，同上）：
 
   ```bash
@@ -116,11 +126,15 @@ dsh profile 通过 pnpm 安装插件，而 pnpm 11 的供应链发布龄门槛�
 
 ```sh
 dsh plugin --profile web list    # 列出 web profile 已安装的插件
-dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
-dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+dsh plugin --profile web add @rayadesu/dsh-billing
+dsh plugin --profile web remove @rayadesu/dsh-billing
 dsh plugin --profile web update  # 把插件更新到当前允许的最新版本
 dsh plugin --profile web update --latest  # 忽略声明的版本区间，把所有插件升到最新发布版本
 ```
+
+`add`/`remove` 只需 bundle 一个包名——两个插件包作为它的依赖随行安装。按旧版三包方式
+安装过的 profile 其 `package.json` 里列了全部三个包，而 pnpm 只能 remove 其中列出的
+依赖：那种 profile 在 `remove` 后把三个包名一并列出即可清掉残留。
 
 `update` 遵循 profile `package.json` 里的版本区间，只在该插件声明的 semver 范围内升级。
 加上 `--latest`（pnpm `update` 的选项）则忽略这些区间，把所有插件直接升到最新发布的版本——

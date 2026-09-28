@@ -1,3 +1,48 @@
+# HANDOFF — 适配官方新安装方式：Web「添加插件」单包名安装（2026-09-24 · 未提交）
+
+* 本轮性质：**适配官方新增的安装方式**，不改运行时代码。上游 deepseek-harness 插件页的
+  「添加插件」对话框接受**单个 spec**（包名 / GitHub 仓库地址 / 本地目录路径 + 安装源选择）：
+  Host 先 `pluginManager.inspect` 要求该包声明 `dsh.bundle.patch`，再 `pnpm add <spec>` 只装这一个包。
+
+* **根因**：本仓库根 bundle 一直把两个插件包声明为 `peerDependencies`，而 DSH profile 模板是
+  `nodeLinker: hoisted` + `autoInstallPeers: false`（官方 `app-boot/src/profile.ts`）——peer 根本不会
+  被装进 profile，所以旧结构下**单包名安装只装得到 bundle、装不到两个组件行**（行名解析不到）。
+  旧文档靠「三个包名一条命令」绕开这一点，对话框一次只能输一个 spec，绕不开。官方多行组合包
+  （如 `voice-input-bundle`）的模式是：**组件包声明为普通 `dependencies`**，hoisted 的 profile
+  `node_modules` 把传递依赖平铺到根，行名即可解析（`resolveBundleDir` 从 profile 锚点能找到）。
+
+* **改动（全部留在工作区，阶段 A 不提交）**：
+  1. 根 `package.json`：`peerDependencies` → `dependencies`（两个包与 `^0.3.16` 区间不变）。
+     lockfile 无需变化：本 workspace `autoInstallPeers: true`，两包本来就在根 importer 的
+     dependencies 里，`pnpm install` Already up to date、diff 为空。
+  2. `cordis.patch.yml`：头部注释改写为新安装说明（单包名 / 对话框 / CLI），命令改单包名。
+  3. `AGENTS.md`：bundle 集成段与常用命令改为单包名，写明 dependencies/hoisted/autoInstallPeers
+     依据，并补 Web 官方安装路径（侧栏 插件 → 添加插件，包名 / Git 地址 / 本地路径，安装源可选大陆镜像）。
+  4. `README.md` / `README.zh.md`：安装章节重写——首选「Web 插件页（官方）」三步（含 GitHub 地址
+     `https://github.com/rayadesune/DeepSeek-Harness-chat-billing`、本地目录路径、安装源选择）；
+     CLI 改单包名（全局与源码构建两种）；发布龄门槛段保留三钉示例并注明**三个包名都要钉**
+     （两个插件包随 bundle 传递安装，不钉会被门槛挡在旧版）；常用命令 add/remove 改单包名，并加
+     旧版三包安装的清理脚注（pnpm 只能 remove `package.json` 里列出的依赖，remove 不存在的包名会
+     报 `ERR_PNPM_CANNOT_REMOVE_MISSING_DEPS`，实测）；`README.i18n.yaml` 两个 blob hash 已重记。
+  5. `.agents/skills/dsh-release/SKILL.md`：阶段 B 版本对齐措辞「根 bundle peerDeps」→
+     「根 bundle 的两个插件包依赖区间」（根已无 peerDeps）。
+
+* **校验（一轮跑全）**：`package.json` JSON 解析 ✓；`cordis.patch.yml` / `pnpm-workspace.yaml` /
+  `README.i18n.yaml` 经 profile 内 `yaml` 解析 ✓；`pnpm install` Already up to date ✓；
+  `pnpm run test` **279/279 全绿（9 files）** ✓；`node scripts/local-install.mjs billing`
+  （face none、无需 build）pack → remove → add 全 ok，新 bundle 已装入 web profile ✓。
+
+* **待用户验证（重启 `dsh web` + 硬刷新后）**：①插件页 bundle 卡片正常、两个组件行照常运行；
+  ②（可选，完整验证单包名装全）`dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
+  之后在「添加插件」只输入本地 tarball（`%DSH_HOME%\local-tarballs\rayadesu-dsh-billing-0.3.16.tgz`）
+  或仓库目录 → 安装 → 立即启用 → 两个组件行应随 bundle 一起装好并运行（npm 上 0.3.16 的两个插件包
+  与本地一致，本轮未动它们）。
+
+* 状态：7 个文件改动未提交（阶段 A）；`.tmp-recover-handoff.mjs`、`.workbuddy/`、`.workbuddy-ai/`
+  为既有未跟踪项，非本轮产物。
+
+---
+
 # HANDOFF — 阶段 A 落地验证：locale/icon 元数据 + 切会话卡顿 B/A 方案 + 两处缺口修复（2026-09-24 · 未提交）
 
 * 本轮性质：**验证 + 补两处小修**，不新增方案。验证对象是工作区里已落地的两批改动

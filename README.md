@@ -58,19 +58,29 @@ Both are reached through the package's `exports` map, so a package that declares
 
 ## Installation
 
-### Install (published to npm)
+### Install from the Web plugin page (official)
 
-The three packages are published to npm under the `@rayadesu` scope. Install the
-bundle plus the two plugin packages in one command — the bundle declares the two
-plugin packages as peer dependencies, which pnpm does not auto-install into the
-profile, so they must be named explicitly.
+The three packages are published to npm under the `@rayadesu` scope. The bundle
+declares the two plugin packages as its regular `dependencies`, so **one package
+name installs everything**: pnpm pulls the bundle's dependency closure into the
+profile, where the hoisted `node_modules` makes the two row names resolvable.
+
+1. In the sidebar open **Plugins** → **Add plugin**.
+2. Enter `@rayadesu/dsh-billing`. The dialog also accepts the GitHub repository
+   address (`https://github.com/rayadesune/DeepSeek-Harness-chat-billing`) or an
+   absolute local directory path — the two plugin packages themselves always
+   come from npm.
+3. Pick an install source (the default npm registry or the **Mainland China
+   mirror**), press **Install**, then **Enable now**.
+
+### Install with the CLI
 
 The `dsh` command you use depends on how dsh is installed:
 
 - **Global install** — use the global `dsh` from anywhere:
 
   ```bash
-  dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+  dsh plugin --profile web add @rayadesu/dsh-billing
   ```
 
 - **Source-built dsh** (a deepseek-harness checkout) — the CLI only resolves from
@@ -79,7 +89,7 @@ The `dsh` command you use depends on how dsh is installed:
 
   ```bash
   cd deepseek-harness
-  pnpm dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+  pnpm dsh plugin --profile web add @rayadesu/dsh-billing
   ```
 
 ### pnpm 11 release-age gate
@@ -96,9 +106,11 @@ latest version right after a publish:
   minimumReleaseAge: 0
   ```
 
-- Or, within the 24-hour window, install with an explicitly pinned version (an
-  explicit pin bypasses the age gate; replace `0.3.0` with the version you want;
-  from a source checkout, use `pnpm dsh …` as above):
+- Or, within the 24-hour window, install with explicitly pinned versions (an
+  explicit pin bypasses the age gate; pin all three names — the bundle's two
+  plugin packages install transitively and need their own pin to pass the gate;
+  replace `0.3.0` with the version you want; from a source checkout, use
+  `pnpm dsh …` as above):
 
   ```bash
   dsh plugin --profile web add @rayadesu/dsh-billing@0.3.0 @rayadesu/dsh-llm-billing@0.3.0 @rayadesu/dsh-client-ui-billing@0.3.0
@@ -122,11 +134,16 @@ deepseek-harness checkout instead — the subcommands are identical.
 
 ```sh
 dsh plugin --profile web list    # list the web profile's installed plugins
-dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
-dsh plugin --profile web remove @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+dsh plugin --profile web add @rayadesu/dsh-billing
+dsh plugin --profile web remove @rayadesu/dsh-billing
 dsh plugin --profile web update  # update plugins to the latest allowed versions
 dsh plugin --profile web update --latest  # ignore declared ranges; upgrade every plugin to its newest published version
 ```
+
+Both commands take the bundle alone — its two plugin packages travel with it as
+dependencies. A profile installed by the older three-package command lists all
+three in its `package.json`, and pnpm only removes names listed there: on such
+a profile, give `remove` all three names to clear the leftovers.
 
 `update` respects the version ranges in the profile's `package.json`, so it
 stays within the semver range each plugin declares. Adding `--latest` (a pnpm

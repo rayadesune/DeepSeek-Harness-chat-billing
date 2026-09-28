@@ -154,7 +154,7 @@ for (const [turn, row] of byTurn) console.log(`turn ${turn}: ${row.requests} req
 
 ## 阶段 B — 发布（用户说「发布」时）
 
-1. **版本对齐**：三包 `package.json` bump 到下一版本号（根 bundle peerDeps 与 ui-billing peer/dev 的 `^0.3.x` 同步改）；`AGENTS.md` 版本行同步；`pnpm install` 刷新 `pnpm-lock.yaml`。这份改动**先留在工作区**，第 3 步作为最后的 `release:` 提交。
+1. **版本对齐**：三包 `package.json` bump 到下一版本号（根 bundle 的两个插件包依赖区间与 ui-billing peer/dev 的 `^0.3.x` 同步改）；`AGENTS.md` 版本行同步；`pnpm install` 刷新 `pnpm-lock.yaml`。这份改动**先留在工作区**，第 3 步作为最后的 `release:` 提交。
 2. `pnpm run test` → `pnpm run build` → `pnpm run verify`（发布前校验，失败禁止发布）。这是本流程里**唯一必须跑全套**的位置，阶段 A 不要提前反复跑。
 3. **按类型分别提交工作区改动**（本阶段核心，**不要 `git add -A` 一把梭**）：
    - 先 `git status --short` + `git diff`（必要时 `git diff <file>`）把改动按**意图**分组，再逐组 `git add <paths>` → `git commit`。
