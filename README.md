@@ -157,7 +157,7 @@ commands.
 
 The two plugin packages declare the DeepSeek Harness packages they build on
 (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-credentials`, `@deepseek-ai/dsh-session`,
-and the client runtime packages) as `peerDependencies` at `^0.1.7-alpha.2`. A dsh
+and the client runtime packages) as `peerDependencies` at `^0.2.0-rc.1`. A dsh
 profile does not auto-install peers, so these are provided by the dsh
 installation itself through the `profiles/node_modules` fallback rather than
 fetched from the registry — no extra packages to install, and no registry token
@@ -173,7 +173,7 @@ are external and load them from the dsh installation at runtime, but this
 standalone workspace resolves them itself, so `ui-billing` declares them as its
 own `devDependencies` for the browser-half specs.
 
-The plugin builds against the 0.1.7-alpha.2 published line and keeps both DSH
+The plugin builds against the 0.2.0-rc.1 published line and keeps both DSH
 runtime families readable: the live `Session` log surface
 (`Session.events` + `header.seedLength` at/before 0.1.1-rc.2,
 `snapshotEvents()` + `inheritedEventCount` since 0.1.2-alpha.4), and the
@@ -230,7 +230,7 @@ it. If a typert manifest ever names a package other than its own
 
 The typert generator recognizes `Remote`/`TypertRemoteService` only from a
 workspace-registered protocol package, so `packages/typert-protocol` vendors
-the published `@deepseek-ai/dsh-typert-protocol@0.1.7-alpha.2` declarations; when
+the published `@deepseek-ai/dsh-typert-protocol@0.2.0-rc.1` declarations; when
 the dsh dependency line moves, refresh it from the installed package.
 
 The generated codecs must carry a `create` factory: the `dsh-typert-loader`
