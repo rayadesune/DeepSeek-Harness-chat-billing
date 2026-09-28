@@ -47,7 +47,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "peerDependencies": {
+  "dependencies": {
     "@rayadesu/dsh-client-ui-billing": "^0.3.16",
     "@rayadesu/dsh-llm-billing": "^0.3.16"
   },
