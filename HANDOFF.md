@@ -1,3 +1,39 @@
+# HANDOFF — DSH 依赖线升级 0.1.7-alpha.2 → 0.2.0-rc.1（阶段 A · 待用户验证）
+
+* **本轮问题**：用户在本地 DSH 构建（`0.2.0-rc.1-4878cda`，即 deepseek-harness 提交
+  `4878cdabd8 release(dsh): 0.2.0-rc.1`）里安装 `@rayadesu/dsh-billing@0.3.17`，
+  Web 插件页报「插件安装失败：与 DSH 0.2.0-rc.1 不兼容」，要求列出的全部是
+  `^0.1.7-alpha.2`。
+
+* **根因**：插件 0.3.17 的 `peerDependencies` 按 npm `0.1.7-alpha.2` 发布线声明；
+  本地构建里 12 个 `@deepseek-ai/dsh-*` 运行时包全部已是 `0.2.0-rc.1`。npm semver
+  对预发布版本要求范围里存在相同 `[major,minor,patch]` 元组的标签，`^0.1.7-alpha.2`
+  （`>=0.1.7-alpha.2 <0.2.0`）不接受 `0.2.0-rc.1` → DSH 安装前的兼容性预检直接拒绝。
+  纯版本声明不匹配，非代码/网络问题。
+
+* **改动（全部留在工作区，阶段 A 不提交）**：
+  1. 三处 `@deepseek-ai/dsh-*` 版本号 `^0.1.7-alpha.2` → `^0.2.0-rc.1`
+     （llm-billing peer+dev、ui-billing peer+dev、根 devDependencies）；
+     `pnpm install` 刷新 lockfile（全线 0.2.0-rc.1）。
+  2. 补 `ui-billing` devDependencies 两个上游漏声明的运行时依赖
+     `@deepseek-ai/dsh-util-code-language`、`@deepseek-ai/dsh-util-workspace-path`
+     （`dsh-client-ui-primitives@0.2.0-rc.1` 的 lib 直接 import，独立 workspace
+     测试需自行解析——AGENTS.md「补漏声明依赖」条目已覆盖此情形）。
+  3. vendored 协议副本 `packages/typert-protocol`：先用规范化对比证明其 `src/*.ts`
+     与 npm `0.1.7-alpha.2` 及 `0.2.0-rc.1` 的 `lib/types` 逐字节等价（唯一差异是
+     副本自带的 `Branded<>` → 本地 `BRAND` unique symbol 自包含 shim），故只刷新
+     package.json 的 version/description 标签到 0.2.0-rc.1，内容不重嵌。
+  4. 文档同步：两份 README（EN/ZH）、两包 README、AGENTS.md（基线行 + vendored
+     标签）、pnpm-workspace.yaml 注释、`persistence.ts` 行内注释；两处
+     `README.i18n.yaml` blob hash 重录。AGENTS.md「自 0.1.7-alpha.2 起 generator
+     产出 create 工厂」为历史陈述，保留。
+
+* **校验**：`pnpm run test` 282/282 全绿（首轮 3 个 client spec 因缺
+  `dsh-util-code-language` 在收集阶段失败，补依赖后复跑通过）→ `pnpm run build`
+  （host+client 通过，typert-compat OK）→ `pnpm run verify` OK。
+
+---
+
 # HANDOFF — 适配官方新安装方式：Web「添加插件」单包名安装（2026-09-28 · 已发布 v0.3.17）
 
 * **发布记录（2026-09-28 · v0.3.17）**：按类型提交 `f706111`（fix(bundle) 组件包改

@@ -145,7 +145,7 @@ dsh plugin --profile web update --latest  # 忽略声明的版本区间，把所
 
 两个插件包把它们依赖的 DeepSeek Harness 包（`@deepseek-ai/cordis`、
 `@deepseek-ai/dsh-credentials`、`@deepseek-ai/dsh-session` 以及客户端运行时包）
-声明为 `peerDependencies`（`^0.1.7-alpha.2`）。dsh profile 默认不自动安装 peer，所以
+声明为 `peerDependencies`（`^0.2.0-rc.1`）。dsh profile 默认不自动安装 peer，所以
 这些由 dsh 安装本身通过 `profiles/node_modules` 回退提供，而不是从 registry 拉取——
 无需额外安装，安装机也不需要 registry token。
 
@@ -156,7 +156,7 @@ dsh plugin --profile web update --latest  # 忽略声明的版本区间，把所
 把这些留作外部依赖、运行时由 dsh 安装提供，但本仓库是独立 workspace、要自己解析，所以
 `ui-billing` 把它们声明为自己的 `devDependencies` 供浏览器半测使用。
 
-插件按 0.1.7-alpha.2 发布线构建，同时兼容读取两代 DSH 运行时：live `Session` 日志面
+插件按 0.2.0-rc.1 发布线构建，同时兼容读取两代 DSH 运行时：live `Session` 日志面
 （0.1.1-rc.2 及以前为 `Session.events` + `header.seedLength`，0.1.2-alpha.4 起为
 `snapshotEvents()` + `inheritedEventCount`），以及持久化服务面（0.1.1-rc.2 及以前为
 `inspect`/`listSnapshots`，0.1.2-alpha.5 的 handle 化改造后为
@@ -205,7 +205,7 @@ host 面会从源码重新生成 `lib/typert.host.js` 与 `lib/typert.remote-cli
 的 name 不一致，`verify` 会在发布前直接失败。
 
 typert 生成器只认工作区内已注册协议包里的 `Remote`/`TypertRemoteService` 声明，所以
-`packages/typert-protocol` 内嵌了 npm 上 `@deepseek-ai/dsh-typert-protocol@0.1.7-alpha.2` 的
+`packages/typert-protocol` 内嵌了 npm 上 `@deepseek-ai/dsh-typert-protocol@0.2.0-rc.1` 的
 声明文件；dsh 依赖线升级时，从安装包重新刷新它。
 
 生成的每个 strict codec 必须带 `create` 工厂：`dsh-typert-loader` 对没有 `create` 的
