@@ -53,8 +53,8 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-invariants": "^0.1.7-alpha.2",
-    "@deepseek-ai/dsh-typert-generator": "^0.1.7-alpha.2",
+    "@deepseek-ai/dsh-invariants": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-typert-generator": "^0.2.0-rc.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.0",
     "eslint": "^10.9.1",
