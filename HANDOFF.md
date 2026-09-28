@@ -1,4 +1,14 @@
-# HANDOFF — 适配官方新安装方式：Web「添加插件」单包名安装（2026-09-24 · 未提交）
+# HANDOFF — 适配官方新安装方式：Web「添加插件」单包名安装（2026-09-24 · 已发布 v0.3.17）
+
+* **发布记录（2026-09-24 · v0.3.17）**：按类型提交 `f706111`（fix(bundle) 组件包改
+  dependencies + 安装契约用例）→ `30489c1`（docs 安装文档改 Web 插件页优先）→ `6283728`
+  （release: v0.3.17，三包版本对齐 0.3.17），全部已推送 main；本次发布同时覆盖 v0.3.16 之后
+  累积的 10 个提交（`d417eef`..`cabb8a4`：切会话分组读取、未计价模型口径、余额重试、
+  插件管理元数据、计价引擎拆分等）。tag `v0.3.17` 已推送；GitHub Release：
+  <https://github.com/rayadesune/DeepSeek-Harness-chat-billing/releases/tag/v0.3.17>；
+  npm 按 llm-billing → ui-billing → dsh-billing 顺序一次发布成功（无 E409），三包
+  `dist-tags.latest` 均为 `0.3.17`。发布前全套校验：test 282/282（10 files，含新增安装契约
+  用例 3 条）→ build（typert-compat OK）→ verify（client 面 0.3.17 版本戳）全绿。
 
 * 本轮性质：**适配官方新增的安装方式**，不改运行时代码。上游 deepseek-harness 插件页的
   「添加插件」对话框接受**单个 spec**（包名 / GitHub 仓库地址 / 本地目录路径 + 安装源选择）：
