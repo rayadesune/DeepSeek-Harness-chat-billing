@@ -18,13 +18,17 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
 ## DSH 集成方式
 
 - **bundle（推荐）**：根 `package.json` 声明 `dsh.bundle.patch`，`cordis.patch.yml`
-  挂载两个插件行。三个包已发布到 npm（`@rayadesu` scope），pnpm 不会把 bundle 的
-  本地依赖装进 profile，所以一条命令同时安装 bundle 与两个包（让行名能从 profile 的
-  node_modules 解析）：
+  挂载两个插件行。三个包已发布到 npm（`@rayadesu` scope）。bundle 把两个插件包声明为
+  普通 `dependencies`（官方组合包同款；profile 初始化为 `nodeLinker: hoisted` +
+  `autoInstallPeers: false`——peer 不会进 profile，组件包必须是 dependencies 才会随
+  bundle 装入并 hoist 到 profile 根、让行名从 node_modules 解析），所以单个包名即可装全：
 
   ```sh
-  dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing
+  dsh plugin --profile web add @rayadesu/dsh-billing
   ```
+
+  Web 官方安装方式用同一个包名：侧栏 插件 → 添加插件 → 输入 `@rayadesu/dsh-billing`
+  （对话框也接受 GitHub 仓库地址或本地目录绝对路径；安装源可选默认源或中国大陆镜像源）。
 - **手动**：把 `cordis.patch.yml` 的 insert 合并进 `$DSH_HOME/profiles/<name>/cordis.patch.yml`，
   并用 `dsh plugin --profile <name> add @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
   安装两个包（行名解析同上）。
@@ -88,7 +92,7 @@ pnpm install   # 安装本仓库依赖（dsh-* 从 registry 解析）
 pnpm run build # host + client 两个编译面（tsc + tsdown + typert 产物）
 pnpm run test  # vitest
 pnpm run verify # 发布前校验
-dsh plugin --profile web add @rayadesu/dsh-billing @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing  # 安装进 DSH
+dsh plugin --profile web add @rayadesu/dsh-billing  # 安装进 DSH（bundle 依赖带齐两个插件包）
 ```
 
 **从零构建顺序是硬约束**：`ui-billing` 的浏览器半面（`tsconfig.client.json`）导入
