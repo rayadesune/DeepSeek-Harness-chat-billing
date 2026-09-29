@@ -1,6 +1,6 @@
 {
   "name": "@rayadesu/dsh-billing",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "DeepSeek Harness billing plugin: account balance and this session's billed spend with a session-header badge.",
   "icon": "./icon.svg",
   "license": "MIT",
@@ -48,8 +48,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@rayadesu/dsh-client-ui-billing": "^0.3.17",
-    "@rayadesu/dsh-llm-billing": "^0.3.17"
+    "@rayadesu/dsh-client-ui-billing": "^0.3.18",
+    "@rayadesu/dsh-llm-billing": "^0.3.18"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",

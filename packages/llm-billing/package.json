@@ -2,7 +2,7 @@
   "name": "@rayadesu/dsh-llm-billing",
   "description": "Standalone DeepSeek account-balance and session-spend provider exposed through the billing Remote",
   "icon": "./icon.svg",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "publishConfig": {
     "access": "public"
   },
