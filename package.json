@@ -18,13 +18,13 @@
     }
   },
   "scripts": {
-    "build": "pnpm run build:host && pnpm run build:client",
+    "build": "pnpm run build:host && pnpm run build:client && node scripts/normalize-lib-paths.mjs",
     "build:host": "tsc -b tsconfig.host.json && tsdown --env.DSH_BUILD_FACE host && node scripts/typert-compat.mjs",
     "build:client": "tsc -b tsconfig.client.json && tsdown --env.DSH_BUILD_FACE client",
     "typecheck": "tsc -b tsconfig.host.json && tsc -b tsconfig.client.json",
     "lint": "eslint .",
     "test": "vitest run",
-    "verify": "node scripts/verify-packages.mjs"
+    "verify": "node scripts/normalize-lib-paths.mjs && node scripts/verify-packages.mjs"
   },
   "exports": {
     "./package.json": "./package.json",
