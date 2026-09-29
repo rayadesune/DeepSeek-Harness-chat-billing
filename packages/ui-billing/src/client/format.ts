@@ -21,11 +21,19 @@ export function primaryLine(balance: DeepSeekBalance): { symbol: string; total: 
 }
 
 /**
- * CNY amount, up to four decimals with trailing zeros trimmed. The balance line's
- * renderer; spend figures go through {@link formatSpendSignificant} instead.
+ * CNY amount, up to four decimals with trailing zeros trimmed. The turn-cost
+ * label's renderer; the balance line reuses the provider's own string, and
+ * other spend figures go through {@link formatSpendSignificant} instead.
+ *
+ * The trailing-zero trim is anchored to the decimal part on purpose: a pattern
+ * that also swallowed an integer `0` (`/\.?0+$/`) turned a whole amount of
+ * zero into a bare `¥`, since every digit of `0.0000` is a trailing zero.
  */
 export function formatSpend(amount: number): string {
-  return `¥${amount.toFixed(4).replace(/\.?0+$/, '')}`
+  const fixed = amount.toFixed(4)
+  const [whole, fraction] = fixed.split('.')
+  const trimmed = fraction === undefined ? '' : fraction.replace(/0+$/, '')
+  return `¥${trimmed === '' ? whole : `${whole}.${trimmed}`}`
 }
 
 /**

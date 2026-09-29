@@ -96,13 +96,27 @@ export interface BalancePanelProps {
   balanceDaySpend: number | null
   todaySpend: DeepSeekTodaySpend | null
   sessionsSpend: DeepSeekTodaySessionsSpend | null
+  /**
+   * Whether the balance read failed. The panel's first row is then the short
+   * actionable `notice.unavailable`; the Remote's verbatim message is NOT
+   * rendered here (it is English transport prose, and the chip's accessible
+   * name already carries it).
+   */
+  unavailable?: boolean | undefined
+  /**
+   * The other empty balance: the API answered and named no spendable balance.
+   * A complete sentence of its own (`notice.none`), not a message to wrap, and
+   * it renders as the same first row — this is the only reason the headline
+   * above it reads `—`.
+   */
+  balanceNote?: string | undefined
   refreshing: boolean
   onRefresh: () => void
   t: PropsLocale<typeof NS>['t']
 }
 
 /** The detail box opened from the badge trigger. */
-export function BalancePanel({ amount, balanceDaySpend, todaySpend, sessionsSpend, refreshing, onRefresh, t }: BalancePanelProps) {
+export function BalancePanel({ amount, balanceDaySpend, todaySpend, sessionsSpend, unavailable, balanceNote, refreshing, onRefresh, t }: BalancePanelProps) {
   // The count is DSH's compact notation plus DSH's own ` tok` unit; the
   // placeholder states stay bare (no ` tok` after a `—`).
   const todayTokens = todaySpend === null
@@ -138,6 +152,20 @@ export function BalancePanel({ amount, balanceDaySpend, todaySpend, sessionsSpen
     : [t('notice.unpriced', { models: todaySpend.unpriced.models.join(', ') })]
   return (
     <div className={css.panel} role="dialog" aria-label={t('panel.aria')}>
+      {/*
+        The failure row is FIRST, above the headline it explains: the headline
+        reads `—`, and the reason it does must precede the figure rather than
+        trail it. It reuses the notice row's own typography and rhythm (the
+        pricing-gap row below is the same family), so the panel grows no new
+        type level for it.
+      */}
+      {(unavailable === true || balanceNote !== undefined) && (
+        <div className={css.dayBucketRow}>
+          <span className={css.costBreakdown}>
+            {unavailable === true ? t('notice.unavailable') : balanceNote}
+          </span>
+        </div>
+      )}
       <div className={css.amountRow}>
         <span className={css.amountLabel}>
           {t('label.amount', { amount })}

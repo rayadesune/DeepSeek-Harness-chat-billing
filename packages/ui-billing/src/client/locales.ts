@@ -61,6 +61,17 @@ export const zh = {
   'notice.unpriced': '未计价用量：{models}（无匹配费率）',
   'stat.untitled': '未命名',
   'state.unavailable': '额度不可用',
+  // The panel's failure row: a SHORT statement of what to do, not the Remote's
+  // transport text. That message is English prose naming HTTP statuses and the
+  // credential seam (`check DEEPSEEK_API_KEY`), which reads as noise in a
+  // 336px panel; the one thing a reader can act on is checking that key, so the
+  // card says exactly that. The verbatim message stays on the chip's own
+  // accessible name and in the host log.
+  'notice.unavailable': '额度不可用，请检查 API key',
+  // The OTHER unavailable: the API answered, so nothing is broken, but it names
+  // no spendable balance (`is_available: false` / no line). It needs no error
+  // text and no alarm tone — merely why the headline above reads `—`.
+  'notice.none': '该 API key 当前没有可用余额',
   'action.refresh': '刷新',
   'info.aria': '花费说明',
   // The hint rides a DSH `HoverCard`, which renders each `\n`-separated line as
@@ -118,6 +129,12 @@ export const en: Record<BillingKey, string> = {
   'notice.unpriced': 'Unpriced usage: {models} (no rate matched)',
   'stat.untitled': 'Untitled',
   'state.unavailable': 'Balance unavailable',
+  // The panel's failure row (see the Chinese dictionary): the short actionable
+  // sentence, not the Remote's own English transport message.
+  'notice.unavailable': 'Balance unavailable — check the API key',
+  // The other unavailable (see the Chinese dictionary): the API answered but
+  // names no spendable balance, so the row only explains the `—` above it.
+  'notice.none': 'No spendable balance on this API key',
   'action.refresh': 'Refresh',
   'info.aria': 'About this spend',
   // Keep the hint short (see the Chinese dictionary note): the card is 300px
