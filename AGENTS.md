@@ -28,7 +28,8 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
   ```
 
   Web 官方安装方式用同一个包名：侧栏 插件 → 添加插件 → 输入 `@rayadesu/dsh-billing`
-  （对话框也接受 GitHub 仓库地址或本地目录绝对路径；安装源可选默认源或中国大陆镜像源）。
+  （安装源可选默认源或中国大陆镜像源）。**对外只承诺这一种**：对话框虽然也收 GitHub 地址、
+  本地目录与 `.tgz` 路径，但多包下前两者装不全，见「约定」里的实测说明。
 - **手动**：把 `cordis.patch.yml` 的 insert 合并进 `$DSH_HOME/profiles/<name>/cordis.patch.yml`，
   并用 `dsh plugin --profile <name> add @rayadesu/dsh-llm-billing @rayadesu/dsh-client-ui-billing`
   安装两个包（行名解析同上）。
@@ -40,10 +41,38 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
   `tsconfig.base*.json`，`@deepseek-ai/*` peer 包从 npm 解析。`pnpm run build`
   依次跑 host/client 两个编译面：`tsc -b` 产出 `lib/types`，tsdown 产出
   `lib/index.js`/`lib/invariant.js`，typert 生成器按 package.json 的 name 重新生成
-  `lib/typert.host.js` 与 `lib/typert.remote-client.*`，client 面重建 `lib/client.js`。
-  `lib/` 仍是 gitignore 的构建产物，不进仓库。
-- **发布前校验**：`pnpm run verify`（每个包 `prepublishOnly` 自动运行）检查
-  `lib/typert.host.js` 的 `TYPERT.package` 必须等于导出它的包名，且 lib 中不得残留
+  `lib/typert.host.js` 与 `lib/typert.remote-client.*`，client 面重建 `lib/client.js`，
+  末尾 `scripts/normalize-lib-paths.mjs` 把 client bundle 里 `\0dsh-css:` 区域注释的
+  绝对路径削成文件名（见下条）。
+- **分发只有 npm；下面几条只解释 dev 验证为什么用 tarball（2026-09-29 实测）**：DSH 的执行模型是
+  `pnpm add <spec>` 之后按 `cordis.patch.yml` 里的**行名**去 profile 的 `node_modules`
+  解析包。pnpm 对 **`link:`（本地目录）与 git/GitHub 依赖不装其嵌套依赖**（最小复现：
+  一个只有 `is-odd` 一个注册表依赖的 bundle，链进消费方后 `is-odd` 同样没被装），
+  于是 bundle 声明的两个组件包永远不会落进 profile：
+  - **npm**：`pnpm add @rayadesu/dsh-billing` → 解出 tarball，pnpm 当**真实安装**处理，
+    组件包随依赖解析一起装 → ✅ 可用；
+  - **tarball**：`pnpm add <pkg.tgz>`（绝对路径）→ 同样是真实安装，解包后照常解析
+    `dependencies` → ✅ 可用，**但三个 tarball 必须一次 `add`**：根 bundle 的组件依赖是
+    registry 区间，单独重装根包会从 npm 取组件包，工作区代码静默不进 profile。
+    这是**阶段 A 的 dev 验证方式**（`node scripts/local-install.mjs all --check <marker>`），
+    不作为对外分发方式；
+  - **本地目录**：`pnpm add <绝对路径>` → `link:`，只有根软链进 `node_modules` → ❌；
+  - **GitHub**：`pnpm add git+…` → 实测同样只得到根包，组件包缺失 → ❌。
+  两种失败形态一致：启动报 `2 entries did not activate llm-billing … failed to import`。
+  本地目录仍可用 CLI 的**三目录一次给全**绕开（`dsh plugin --profile <name> add <仓库根>
+  <packages/llm-billing> <packages/ui-billing>`），但 GUI 只收一个 spec，做不到；
+  GitHub 目前无解（官方文档建议 git 安装靠 `prepare` 构建，但 pnpm 11.7.0 实测不执行
+  git 依赖的 `prepare`，故产物必须入库）。**要这些来源都通必须改 DSH**：让 bundle 能声明
+  「我由哪些包组成，一起装」，或安装后按 patch 的 `name` 逐个解析依赖包。
+- **`lib/` 构建产物进仓库**：三个包的 `lib/` 由 `.gitignore` 白名单放行、随源码一起提交。
+  原因是 **git-Hosted 安装没有构建步骤**——pnpm 对 git-hosted 依赖**不执行 `prepare`**
+  （2026-09-29 实测：连显式在 `prepare` 里跑 pnpm install 也不触发），产物必须已经在
+  仓库里；本地目录安装（`link:`）也直通工作区的 `lib/`。代价是每轮改完源码**必须重跑
+  `pnpm run build` 并提交重新生成的 `lib/`**，否则拿到的是旧产物。
+  `build`/`verify` 末尾的 `scripts/normalize-lib-paths.mjs` 幂等，把构建机绝对路径
+  从产物里去掉，否则每台机器构建出的字节都不同。
+- **发布前校验**：`pnpm run verify`（每个包 `prepublishOnly` 自动运行）先归一化产物路径，
+  再检查 `lib/typert.host.js` 的 `TYPERT.package` 必须等于导出它的包名，且 lib 中不得残留
   其他包名的清单；失败即禁止发布。
 - **依赖以发布形态声明**：`@deepseek-ai/dsh-*` 依赖写 `^0.2.0-rc.1`（对应官方 monorepo 当前发布基线，monorepo 内为 
   `workspace:^`）；本插件的三个包发布到 npm 的
@@ -76,9 +105,10 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
 - **README 双语**：每个 README 遵循 DSH 结构 `README.md`(EN) + `README.zh.md`(ZH) +
   `README.i18n.yaml`（记录两文件 git blob hash，改动后需更新）。
 - **版本对齐**：根 bundle 与两个包统一版本号（当前 0.3.18），`pnpm-lock.yaml` 随依赖变更更新。
-- **提交与发布流程**：见 `.agents/skills/dsh-release/SKILL.md` —— 阶段 A（改代码 → 按档位校验/打包 →
-  本地 pack 安装 → 交用户验证）**不提交**，改动留在工作区；用户说「发布」进入阶段 B 才 bump 版本、
-  **按类型分别提交**、推送、发 npm 与 GitHub Release。
+- **提交与发布流程**：见 `.agents/skills/dsh-release/SKILL.md` —— 阶段 A（改代码 → 按档位校验 →
+  `node scripts/local-install.mjs all --check <marker>` 装进 profile → 交用户验证）**不提交**，
+  改动留在工作区；用户说「发布」进入阶段 B 才 bump 版本、**按类型分别提交**、推送、发 npm 与
+  GitHub Release。
 - **浮动说明卡一律用 `HoverCard`，不要用 `Tooltip`**：两者形态不同 —— `Tooltip` 是「单行短标签」容器
   （`padding: 3px 7px` 的 26px 条带、`pointer-events: none`、`label` 只收 `string`），官方自己那颗信息按钮
   装的是 ~50 字 / 2–3 行；把 4 行说明硬塞进去会渲染成一整块贴边白字方块，版本号跟正文同权重，且球泡用的是
@@ -99,15 +129,16 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
 
 ```sh
 pnpm install   # 安装本仓库依赖（dsh-* 从 registry 解析）
-pnpm run build # host + client 两个编译面（tsc + tsdown + typert 产物）
+pnpm run build # host + client 两个编译面（tsc + tsdown + typert 产物 + 路径归一化；产物 lib/ 随后提交）
 pnpm run test  # vitest
 pnpm run verify # 发布前校验
-dsh plugin --profile web add @rayadesu/dsh-billing  # 安装进 DSH（bundle 依赖带齐两个插件包）
+node scripts/local-install.mjs all --check <marker>  # 阶段 A：build + 三包 pack + 三包一次 add + 核对
+dsh plugin --profile web add @rayadesu/dsh-billing  # 从 npm 装进 DSH（bundle 依赖带齐两个插件包）
 ```
 
 **从零构建顺序是硬约束**：`ui-billing` 的浏览器半面（`tsconfig.client.json`）导入
 `@rayadesu/dsh-llm-billing/remote`，其类型声明是 host 面 tsdown 生成的
-`lib/typert.remote-client.d.ts`（gitignore，不入库）。所以干净 checkout 必须先跑
+`lib/typert.remote-client.d.ts`（构建产物，已随 `lib/` 入库，但干净 checkout 仍要按序重建）。所以干净 checkout 必须先跑
 `pnpm run build:host`（tsc + tsdown 生成 typert 产物）再跑
 `pnpm run typecheck` / `pnpm run build:client`；`pnpm run build` 本身已按
 host → client 顺序封装，CI 亦按此顺序执行。
