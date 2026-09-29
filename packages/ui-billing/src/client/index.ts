@@ -1,4 +1,7 @@
-/** DeepSeek account-balance badge, browser half: one session-header utility entry. */
+/**
+ * DeepSeek account-balance badge, browser half: three session-scoped entries —
+ * the header badge, the per-turn cost label, and the composer spend pill.
+ */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the generated Remote API and ctx.remote merge.
@@ -16,6 +19,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { DeepSeekBalance } from '@rayadesu/dsh-llm-billing/types'
 import { BalanceBadge, type BalanceBadgeInjected } from './BalanceBadge.tsx'
 import { browserBalanceDayStorage, createBalanceDayTracker } from './balanceDay.ts'
+import { SpendCard } from './SpendCard.tsx'
 import { TurnCostAction, type TurnCostActionInjected } from './TurnCostAction.tsx'
 import { createTurnCostStore } from './turnCostStore.ts'
 import { en, NS, zh, type BillingKey } from './locales.ts'
@@ -33,7 +37,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Services required for locale registration, the Remote face, and the header slot. */
+/** Services required for locale registration, the Remote face, and the three slot entries. */
 export const inject = ['slots', 'locale', 'remote']
 
 /** The mounted `billing` namespace surface, selected from the generated Remote map. */
@@ -47,7 +51,8 @@ function unwrap<T>(endpoint: string, result: RemoteResult<T>): T {
 
 /**
  * Client plugin body: mount the `billing` Remote, register the dictionaries,
- * and contribute the header utility badge.
+ * and contribute the header badge, the per-turn cost label, and the composer
+ * spend pill.
  * @param ctx - client root context.
  */
 export async function apply(ctx: ClientContext): Promise<void> {
@@ -64,9 +69,9 @@ export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-billing: dictionaries')
 
   // The injected face is built ONCE so its function identities stay stable:
-  // the badge's fetch effects list these functions as dependencies, so a
-  // per-call rebuild would re-trigger the mount fetch on every render that
-  // re-invokes the slot's injector.
+  // the badge's and the pill's fetch effects list these functions as
+  // dependencies, so a per-call rebuild would re-trigger the mount fetch on
+  // every render that re-invokes the slot's injector.
   // The last settled balance is kept here (per plugin instance) so a badge
   // mount renders the amount immediately instead of waiting for the network;
   // the host-side TTL then serves the revalidation from its own cache.
@@ -134,30 +139,34 @@ export async function apply(ctx: ClientContext): Promise<void> {
     }, TurnCostAction),
   )
 
-  // The spend card owns `SpendCard.tsx` (pill + cost card) and its tests, but
-  // its registration is DISABLED for now: a composer-dock entry can only be a
-  // row of its own, and the composer stacks rows, so the pill could never sit
-  // beside ui-chat's own token/time pills — it rendered as a second centred row
-  // under them. The card comes back when the host offers a real seat for it (a
-  // child slot inside the stats row, or row grouping on the dock's list spec).
-  // Re-enabling therefore takes two edits: an import of `SpendCard` from
-  // './SpendCard.tsx' (dropped here so no module is imported only by dead code)
-  // and this block uncommented as-is.
+  // The spend pill rides ui-conversation's composer dock — the row under the
+  // input box that ui-chat's own time/token pills occupy. `b6726fe79d` turned
+  // that dock from a column stack into one centred flex row
+  // (InputBar.module.css `.dock`: `display:flex; justify-content:center;
+  // gap:12px; padding-top:4px`), so a dock entry is an inline flex item rather
+  // than a row of its own: ui-chat's stats register `order: 0`, this entry
+  // `order: 20`, and InputBar renders ContextMeter after the slot — the row
+  // reads [time/tok] [¥ pill] [ContextMeter], the pill immediately right of the
+  // built-in tokens. (ContextMeter hides itself while a turn runs, so the pill
+  // is not always the row's last item; the dock itself only renders on a
+  // resident composer with a session, so the hero page has no pill at all.)
   //
-  // Kept for that return: the amounts need no Remote call of their own — the
-  // host already prices every session into the client-visible
-  // `billingTodaySpend` projection, and the card sums that value's three
-  // billing buckets. `getSessionSpend` is injected only as the fallback an
-  // assembly without the projection registry reads — the same face, and the
-  // same ladder, the header badge uses.
-  // ctx.slots.inject(
-  //   'conversation.composer.dock',
-  //   () => ctx.slots.register({
-  //     name: 'conversation.composer.dock',
-  //     id: 'billing-spend',
-  //     order: 20,
-  //     locale: NS,
-  //     inject: () => injected,
-  //   }, SpendCard),
-  // )
+  // The amount is the CONVERSATION's: the host already prices every session
+  // into the client-visible `billingTodaySpend` projection, and the card sums
+  // that value's three billing buckets plus the subagent subtotal it reads
+  // through `getDelegatedSpend` — the pill is the ONLY surface that shows the
+  // conversation's own amount (the header badge's second line and its panel are
+  // account-level: they report today's figures). `getSessionSpend` stays
+  // injected as the fallback an assembly without the projection registry reads:
+  // the same face, and the same ladder, the badge walks.
+  ctx.slots.inject(
+    'conversation.composer.dock',
+    () => ctx.slots.register({
+      name: 'conversation.composer.dock',
+      id: 'billing-spend',
+      order: 20,
+      locale: NS,
+      inject: () => injected,
+    }, SpendCard),
+  )
 }

@@ -1,17 +1,20 @@
 // @vitest-environment jsdom
 /**
  * The composer spend card: the three-bucket sum that feeds it, the pill it
- * renders under the input box, and the card it opens. The card is asserted
- * against the same row wording DSH's own token-usage dialog uses, because the
- * two cards are meant to read as one family.
+ * renders in the composer's stat row, and the card it opens. The card is
+ * asserted against the same row wording DSH's own token-usage dialog uses,
+ * because the two cards are meant to read as one family. The amount itself is
+ * asserted as the CONVERSATION's — this session's own spend plus the delegated
+ * subagent subtotal, merged exactly as the header badge merges them.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { DeepSeekSessionSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
+import type { DeepSeekDelegatedSpend, DeepSeekSessionSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SpendCard, type SpendCardProps } from '../src/client/SpendCard.tsx'
 import { hasBilledSpend, spendBucketsOf } from '../src/client/spendBuckets.ts'
+import { TURN_SETTLE_DEBOUNCE_MS } from '../src/client/useBillingData.ts'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -49,15 +52,27 @@ interface Projection {
   session: DeepSeekTodaySpend
 }
 
-/** Render props: a projection value plus the Remote fallback the card may use. */
+/** An empty delegated subtotal: merging it leaves the session's own amount as it is. */
+const NO_DELEGATED: DeepSeekDelegatedSpend = { total: 0, models: [], isSubagent: false, crossedDay: false }
+
+/** The two runtime seats a case may want to drive instead of stubbing. */
+interface Seats {
+  getDelegatedSpend?: (sessionId: SessionId, force?: boolean) => Promise<DeepSeekDelegatedSpend>
+  useSession?: (selector: (snapshot: { running: boolean }) => boolean) => boolean
+}
+
+/** Render props: a projection value plus the Remote face and the session seat. */
 function props(
   projected: Projection | undefined,
   getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend> = async () => spend([row()]),
+  seats: Seats = {},
 ): SpendCardProps {
   return {
     sessionId: 'session-1',
     useProjection: () => projected,
+    useSession: seats.useSession ?? (selector => selector({ running: false })),
     getSessionSpend,
+    getDelegatedSpend: seats.getDelegatedSpend ?? (async () => NO_DELEGATED),
     t,
   } as unknown as SpendCardProps
 }
@@ -127,6 +142,87 @@ describe('SpendCard', () => {
   it('shows no row at all for a session that priced nothing', () => {
     const { container } = render(<SpendCard {...props(projection(spend([])))} />)
     expect(container.innerHTML).toBe('')
+  })
+
+  it('adds the delegated subagent subtotal to the pill and the card', async () => {
+    // The conversation amount is this session's own spend PLUS the sessions it
+    // delegated — the same merge the header badge's second line makes, so the
+    // pill and the badge cannot disagree.
+    const delegated = spend([row({
+      model: 'mimo-v2.5',
+      displayName: 'MiMo-V2.5',
+      cost: 0.35,
+      cacheMissInputCost: 0.3,
+      cacheHitInputCost: 0.03,
+      outputCost: 0.02,
+    })])
+    render(<SpendCard {...props(projection(spend([row()])), undefined, { getDelegatedSpend: async () => delegated })} />)
+    const pill = await screen.findByRole('button', { name: '本轮对话花费：¥0.39' })
+    fireEvent.click(pill)
+    const dialog = screen.getByRole('dialog', { name: '花费金额' })
+    expect(dialog.textContent).toContain('¥0.39')
+    // The bucket rows are the merged ones: own (0.02 / 0.01 / 0.01) plus
+    // delegated (0.30 / 0.03 / 0.02), so they still add up to the heading.
+    const values = [...dialog.querySelectorAll('dd')].map(node => node.textContent)
+    expect(values).toEqual(['¥0.32', '¥0.04', '¥0.03'])
+  })
+
+  it('shows the session\'s own amount until the delegated subtotal lands, then updates it', async () => {
+    let settle: ((value: DeepSeekDelegatedSpend) => void) | undefined
+    const pending = new Promise<DeepSeekDelegatedSpend>((resolve) => { settle = resolve })
+    render(<SpendCard {...props(projection(spend([row()])), undefined, { getDelegatedSpend: () => pending })} />)
+    // An unsettled subtotal reads as absent, not as zero: the own amount shows.
+    expect(screen.getByRole('button', { name: '本轮对话花费：¥0.04' })).toBeDefined()
+    await act(async () => { settle!(spend([row({ cost: 0.35, cacheMissInputCost: 0.3, cacheHitInputCost: 0.03, outputCost: 0.02 })])) })
+    expect(await screen.findByRole('button', { name: '本轮对话花费：¥0.39' })).toBeDefined()
+  })
+
+  it('shows the row when the session priced nothing itself but delegated a priced subagent', async () => {
+    // The hidden rule runs on the MERGED amount: testing the session's own rows
+    // would hide a conversation whose money was all burned by its subagents.
+    render(<SpendCard {...props(projection(spend([])), undefined, { getDelegatedSpend: async () => spend([row()]) })} />)
+    expect(await screen.findByRole('button', { name: '本轮对话花费：¥0.04' })).toBeDefined()
+  })
+
+  it('renders nothing when the session\'s own spend is unknown, even with a delegated subtotal', async () => {
+    // `own === null` is "unknown", not "zero": with no own amount to attach a
+    // subtotal to, the entry stays hidden (the badge's own ladder does the same).
+    const getSessionSpend = vi.fn(async (): Promise<DeepSeekSessionSpend> => { throw new Error('boom') })
+    const { container } = render(
+      <SpendCard {...props(undefined, getSessionSpend, { getDelegatedSpend: async () => spend([row()]) })} />,
+    )
+    await waitFor(() => { expect(getSessionSpend).toHaveBeenCalled() })
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('forces the delegated subtotal when a turn settles, and re-reads the fallback plainly', async () => {
+    vi.useFakeTimers()
+    try {
+      const getSessionSpend = vi.fn(async () => spend([row()]))
+      const getDelegatedSpend = vi.fn(async () => NO_DELEGATED)
+      let running = true
+      const useSession = (selector: (snapshot: { running: boolean }) => boolean): boolean => selector({ running })
+      const seats = { getDelegatedSpend, useSession }
+      const view = render(<SpendCard {...props(undefined, getSessionSpend, seats)} />)
+      await act(async () => { await Promise.resolve() })
+      // The mount read is plain (the host serves what it holds).
+      expect(getDelegatedSpend).toHaveBeenCalledTimes(1)
+      expect(getDelegatedSpend).toHaveBeenLastCalledWith('session-1')
+      // The turn settles: the edge arms the debounce, so nothing reads yet.
+      running = false
+      view.rerender(<SpendCard {...props(undefined, getSessionSpend, seats)} />)
+      expect(getDelegatedSpend).toHaveBeenCalledTimes(1)
+      await act(async () => { await vi.advanceTimersByTimeAsync(TURN_SETTLE_DEBOUNCE_MS) })
+      // The settle read FORCES: the turn just priced its own usage, so a cached
+      // answer would be the pre-turn figure.
+      expect(getDelegatedSpend).toHaveBeenLastCalledWith('session-1', true)
+      expect(getDelegatedSpend).toHaveBeenCalledTimes(2)
+      // No projection is served here, so the fallback state is the live source
+      // and is re-read in the same beat (plainly, as the badge's settle read is).
+      expect(getSessionSpend).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('opens the card with the heading, the total, and the three bucket rows', () => {

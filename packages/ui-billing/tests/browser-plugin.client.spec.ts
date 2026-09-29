@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * ui-billing plugin halves: the browser entry's dictionary and header-slot
- * registrations against the real SlotRegistry (with fiber teardown proving
- * removal — HMR safety), the inert node entry, and the invariant companion's
- * ownership reservation.
+ * ui-billing plugin halves: the browser entry's dictionary and its three
+ * session-scoped slot registrations against the real SlotRegistry (with fiber
+ * teardown proving removal — HMR safety), the inert node entry, and the
+ * invariant companion's ownership reservation.
  */
 import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
@@ -21,6 +21,7 @@ import '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { BALANCE_DAY_STORAGE_KEY } from '../src/client/balanceDay.ts'
 import { BalanceBadge, type BalanceBadgeInjected } from '../src/client/BalanceBadge.tsx'
+import { SpendCard, type SpendCardInjected } from '../src/client/SpendCard.tsx'
 import { TurnCostAction, type TurnCostActionInjected } from '../src/client/TurnCostAction.tsx'
 import { apply as applyNode } from '../src/index.ts'
 import * as BillingInvariant from '../src/invariant.ts'
@@ -132,7 +133,14 @@ function actionsEntryIds(ctx: Context): (string | undefined)[] {
     .map(entry => entry.options.id)
 }
 
-/** Boot the browser half over a real slot tree that declares both lists. */
+/** Slot ledger reader: entry ids currently registered in the composer dock row. */
+function dockEntryIds(ctx: Context): (string | undefined)[] {
+  return ctx.slots
+    .entries('conversation.composer.dock')
+    .map(entry => entry.options.id)
+}
+
+/** Boot the browser half over a real slot tree that declares every list it fills. */
 async function bench(): Promise<{
   ctx: Context
   fiber: ReturnType<Context['plugin']>
@@ -150,6 +158,7 @@ async function bench(): Promise<{
     children: {
       'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
       'conversation.chat.assistant-actions': { kind: 'list', scope: 'session' },
+      'conversation.composer.dock': { kind: 'list', scope: 'session' },
     },
   } as never, () => null)
   ctx.provide('sessions', {})
@@ -325,12 +334,25 @@ describe('ui-billing browser half', () => {
     expect(actionsEntryIds(ctx)).not.toContain('billing-turn-cost')
   })
 
-  // The composer spend card has its own suite (spend-card.client.spec.tsx). Its
-  // dock registration is deliberately disabled for now — a dock entry can only
-  // be a row of its own, which could never sit beside ui-chat's own pills — so
-  // there is no entry here to assert until the host offers a real seat for it.
-  // When the registration in src/client/index.ts is re-enabled, restore the
-  // dock declaration in `bench()` and the two ledger assertions with it.
+  // The composer spend pill registers into ui-conversation's dock row — the
+  // same row ui-chat's own time/token pills occupy, which `b6726fe79d` turned
+  // into a centred flex row so a list entry can sit beside them. Its own
+  // rendering suite lives in spend-card.client.spec.tsx.
+  it('registers the composer spend pill in the dock row, and teardown removes it', async () => {
+    const { ctx, fiber } = await bench()
+    expect(dockEntryIds(ctx)).toContain('billing-spend')
+    const entry = ctx.slots.entries('conversation.composer.dock')[0]!
+    expect(entry.component).toBe(SpendCard)
+    expect(entry.options.order).toBe(20)
+    expect(entry.locale).toBe(NS)
+    // The shared face carries the Remote fallback and the subagent subtotal, so
+    // the pill reads the same conversation amount the header badge does.
+    const injected = (entry.inject as unknown as () => SpendCardInjected)()
+    expect(typeof injected.getSessionSpend).toBe('function')
+    expect(typeof injected.getDelegatedSpend).toBe('function')
+    await fiber.dispose()
+    expect(dockEntryIds(ctx)).not.toContain('billing-spend')
+  })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
     const { ctx, fiber } = await bench()

@@ -1,31 +1,33 @@
-/* Composer spend row: one money-bag pill under the input box, opening a card
-   whose skin reproduces DSH's token-usage dialog (ui-chat's
-   stat-dialog.module.css) token for token — menu surface, r12,
-   elevation-prominent, 16px padding, title row with a 0.5px rule, and a
-   right-aligned tabular detail grid. The pill mirrors the same host's stat
-   pills (StatsPills.module.css) so the new row reads as a sibling of the
-   built-in token row rather than a foreign element. */
+/* Composer spend pill: the billing mark (the package's ring and sparkle) plus
+   the ¥ amount, in the composer's stat row, opening this conversation's
+   billed-cost card. The card reproduces DSH's
+   token-usage dialog skin (ui-chat's stat-dialog.module.css) token for token —
+   menu surface, r12, elevation-prominent, 16px padding, a title row with a
+   0.5px rule, and a right-aligned tabular detail grid.
 
-/* The dock is a list slot rendered inside the composer's column stack, so this
-   row carries the stat row's own metrics: the centred content width, the side
-   clearance, and the 4px top pad. `data-composer-stats` rides along so the
-   composer's bottom clearance stays at the drawn B8 rhythm whether this row or
-   the built-in token row is the one that renders. */
+   The pill's own metrics are copied from that dialog's sibling, ui-chat's
+   StatsPills.module.css (the built-in time/token pills of the same row), so the
+   two read as one family: the 12px font formula, tabular figures, tertiary
+   tone, 14px glyph, `padding: 1px 8px`, `border-radius: 24px`, `gap: 6px`, and
+   the same hover fill. */
+
+/* A dock entry is an inline flex item of the composer's stat row
+   (InputBar.module.css `.dock`: `display: flex; justify-content: center;
+   gap: 12px; padding-top: 4px`), so this wrapper must contribute NO box of its
+   own. `display: contents` leaves the row's own gap and centring in charge of
+   placement while the font metrics below still inherit down to the pill — and
+   `data-spend-card` stays queryable on the element. The full-width row metrics
+   this used to carry (centred content width, side clearance, 4px top pad)
+   belonged to the era when the composer stacked dock rows in a column; kept,
+   they would fill the row and push ContextMeter out of the visible line. */
 .root {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  max-width: var(--dsh-chat-content-width);
-  width: 100%;
-  margin: 0 auto;
-  box-sizing: border-box;
-  padding: 4px calc(var(--dsh-composer-side-clearance) + 16px) 0px;
-  font-size: var(--dsh-content-font-size-secondary, 13px);
+  display: contents;
+  font-size: calc(var(--dsh-content-font-size-secondary, 13px) - 1px);
   line-height: calc(20px + var(--dsh-content-font-delta-secondary, 0px));
 }
 
 /* Dialog anchor: shrink-wraps the pill so the placement clamp measures the
-   pill instead of the full-width row. */
+   pill instead of the row. */
 .anchor {
   display: inline-flex;
   min-width: 0;
@@ -67,6 +69,18 @@
   text-overflow: ellipsis;
 }
 
+/* Narrow viewport: the amount folds away and the glyph alone carries the
+   entry, so the stat row still fits beside the built-in pills. The built-in
+   composer pill (StatsPills) has no such rule, but the sibling per-message
+   usage pill does (ui-chat's TurnUsagePanel.module.css: `@media
+   (width<=480px)` hides its label and centres its trigger), and this pill's
+   amount is the widest text in the row. */
+@media (width <= 480px) {
+  .label {
+    display: none;
+  }
+}
+
 /* Portaled card: fixed in the viewport, left/top supplied inline by the
    anchored-position clamp, so it keeps its 12px viewport margin instead of
    hanging off the trigger and clipping at the window edge. z 1100 layers it
@@ -97,7 +111,7 @@
 }
 
 /* Heading row: the section name left, its headline amount right, both at the
-   primary weight, with the money bag seated left of the name. */
+   primary weight, with the billing mark seated left of the name. */
 .title {
   display: flex;
   justify-content: space-between;

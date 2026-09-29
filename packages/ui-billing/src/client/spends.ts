@@ -2,7 +2,7 @@
  * Additive merge of a conversation's two spend halves: the session's OWN billed
  * spend (live, from the pushed `billingTodaySpend` projection or the
  * `billing/getSessionSpend` fallback) and the delegated-subagent subtotal
- * (`billing/getDelegatedSpend`). The panel shows one amount for the whole
+ * (`billing/getDelegatedSpend`). The composer spend pill shows one amount for the whole
  * conversation, so the two must be summed before rendering — and the per-model
  * rows must be summed the same way, or the breakdown would no longer add up to
  * the amount above it.
