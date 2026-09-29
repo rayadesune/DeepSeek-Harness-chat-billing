@@ -4,7 +4,10 @@
  * `今日花费`). Composition root: the data lifecycle lives in
  * {@link useBillingData}, and the trigger / detail panel are pure views. The
  * badge renders null until the first balance fetch settles, and a refresh keeps
- * the last values visible rather than blanking them.
+ * the last values visible rather than blanking them. A failed first fetch keeps
+ * the badge pressable: the trigger reads the localized unavailable word and the
+ * panel it opens carries both the Remote's own error message and the refresh
+ * action, so a rejected key is readable and retryable from one place.
  *
  * The conversation's own spend is NOT shown here: it lives on the composer
  * spend pill (`SpendCard`), the one surface that reads the host-pushed
@@ -13,7 +16,6 @@
  */
 import type { DeepSeekBalance, DeepSeekDelegatedSpend, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { IconRefreshOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { formatSpendSignificant, primaryLine } from './format.ts'
@@ -102,19 +104,13 @@ export function BalanceBadge({ getBalance, getCachedBalance, getBalanceDaySpend,
     toggleOpen,
   } = useBillingData({ getBalance, getCachedBalance, getBalanceDaySpend, getSessionSpend, getTodaySpend, getTodaySessionsSpend, getDelegatedSpend, sessionId, useSession, useProjection })
 
-  if (balance === null) {
-    if (error === null) return null
-    return (
-      <Tooltip label={error} delayMs={500}>
-        <button type="button" className={css.trigger} onClick={refresh} aria-label={t('action.refresh')}>
-          <span className={css.unavailable}>{t('state.unavailable')}</span>
-          <IconRefreshOutlineRegular size={14} className={css.inlineIcon} />
-        </button>
-      </Tooltip>
-    )
-  }
-
-  const line = primaryLine(balance)
+  // The amount, the chip's spend line, and both failure shapes are decided
+  // BEFORE the render branches: a settled balance without a line, a rejected
+  // fetch, and a healthy balance then differ only in what they show, not in how
+  // the panel is reached. Today's spend is account-level and does not depend on
+  // the balance read, so it stays visible — chip line and panel row alike —
+  // whenever the balance itself cannot be reported.
+  const line = balance === null ? undefined : primaryLine(balance)
   const amount = line === undefined ? '—' : `${line.symbol}${line.total}`
   // The panel's own label, so the chip and the box agree word for word — the
   // same `todaySpend` state feeds both, so they cannot disagree either. Today
@@ -124,6 +120,47 @@ export function BalanceBadge({ getBalance, getCachedBalance, getBalanceDaySpend,
   const spendLine = todaySpend !== null && todaySpend.models.length > 0
     ? t('label.todaySpend', { amount: formatSpendSignificant(todaySpend.total) })
     : undefined
+  // Two distinct shapes, and the panel says which: a rejected read is a FAILURE
+  // with a message worth reading in full and its own chip word, while a
+  // reachable API that simply reports no spendable balance has no failure to
+  // name and keeps the ordinary `剩余金额：—` label. Both reach the same card,
+  // and both keep the `—` headline the provider's own empty line produces.
+  const failure = error ?? undefined
+  const noBalanceNote = balance !== null && failure === undefined && (!balance.isAvailable || line === undefined)
+    ? t('notice.none')
+    : undefined
+
+  if (balance === null || failure !== undefined || noBalanceNote !== undefined) {
+    // Nothing renders before the first fetch settles without a failure to show.
+    if (balance === null && failure === undefined) return null
+    return (
+      <div ref={rootRef} className={css.root}>
+        <BalanceTrigger
+          amount={amount}
+          spendLine={spendLine}
+          error={failure}
+          open={open}
+          onToggle={toggleOpen}
+          t={t}
+        />
+        {open
+          ? (
+            <BalancePanel
+              amount={amount}
+              unavailable={failure !== undefined}
+              balanceNote={noBalanceNote}
+              balanceDaySpend={null}
+              todaySpend={todaySpend}
+              sessionsSpend={sessionsSpend}
+              refreshing={refreshing}
+              onRefresh={refresh}
+              t={t}
+            />
+          )
+          : null}
+      </div>
+    )
+  }
 
   return (
     <div ref={rootRef} className={css.root}>

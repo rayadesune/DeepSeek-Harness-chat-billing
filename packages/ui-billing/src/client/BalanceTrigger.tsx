@@ -16,6 +16,16 @@ export interface BalanceTriggerProps {
   amount: string
   /** Secondary today-spend line; absent while today prices no usage. */
   spendLine: string | undefined
+  /**
+   * The settled balance failure, when there is one. It REPLACES the amount line
+   * with the localized unavailable word — the chip can only say the balance is
+   * unavailable, never a figure it does not have. Carried rather than dropped:
+   * it becomes the trigger's accessible name, while the panel this same press
+   * opens shows the message in full. A balance the provider reports without a
+   * line has no failure to name (`undefined` here) and keeps the ordinary
+   * `trigger.balance` label with its `—` amount.
+   */
+  error?: string | undefined
   /** Whether the detail panel is open (chevron + aria-expanded). */
   open: boolean
   /** Toggle the panel. */
@@ -23,18 +33,27 @@ export interface BalanceTriggerProps {
   t: PropsLocale<typeof NS>['t']
 }
 
-/** The badge button: balance line, spend line, and the open-state chevron. */
-export function BalanceTrigger({ amount, spendLine, open, onToggle, t }: BalanceTriggerProps) {
+/**
+ * The badge button: balance line, spend line, and the open-state chevron. With
+ * an `error` the primary line is the localized unavailable word instead of an
+ * amount, the spend line drops (nothing account-level is known without a
+ * balance fetch), and the accessible name is the error itself — the chip stays
+ * the same button either way, so a failed fetch opens the same panel rather
+ * than offering nothing to press.
+ */
+export function BalanceTrigger({ amount, spendLine, error, open, onToggle, t }: BalanceTriggerProps) {
   return (
     <button
       type="button"
       className={css.trigger}
       aria-expanded={open}
-      aria-label={t('badge.aria', { amount })}
+      aria-label={error === undefined ? t('badge.aria', { amount }) : error}
       onClick={onToggle}
     >
       <span className={css.triggerLines}>
-        <span className={css.linePrimary}>{t('trigger.balance', { amount })}</span>
+        <span className={error === undefined ? css.linePrimary : css.unavailable}>
+          {error === undefined ? t('trigger.balance', { amount }) : t('state.unavailable')}
+        </span>
         {spendLine !== undefined && <span className={css.lineSecondary}>{spendLine}</span>}
       </span>
       <IconChevronDownOutlineRegular size={14} className={open ? css.chevronOpen : undefined} />

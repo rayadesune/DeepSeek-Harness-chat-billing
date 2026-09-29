@@ -259,6 +259,17 @@ describe('BalanceBadge', () => {
     expect(formatSpend(0.5068)).toBe('¥0.5068')
   })
 
+  it('keeps a whole amount of zero intact in the four-decimal renderer', () => {
+    // The trim is anchored to the decimal part: a pattern that also swallowed an
+    // integer `0` rendered `0` as a bare `¥`, because every digit of `0.0000` is
+    // a trailing zero. Zero is a figure, not an empty state.
+    expect(formatSpend(0)).toBe('¥0')
+    expect(formatSpend(0.5)).toBe('¥0.5')
+    expect(formatSpend(12.5)).toBe('¥12.5')
+    expect(formatSpend(123.4567)).toBe('¥123.4567')
+    expect(formatSpend(1.0000)).toBe('¥1')
+  })
+
   it('shows the day row and its detail lines with the three-digit amounts', async () => {
     // The numbers a real day reported: 2.3M + 328M + 986K tokens costing
     // ¥0.5068 + ¥6.9414 + ¥2.1324 = ¥9.5806.
@@ -577,6 +588,76 @@ describe('BalanceBadge', () => {
   it('renders the unavailable word when the fetch rejects', async () => {
     render(<BalanceBadge {...props(async () => { throw new Error('no key') })} />)
     expect(await screen.findByText(zh['state.unavailable'])).toBeDefined()
+  })
+
+  it('opens the panel from the unavailable chip, carrying the error and the refresh action', async () => {
+    const getBalance = vi.fn()
+      .mockRejectedValueOnce(new Error('no key'))
+      .mockResolvedValueOnce(balance())
+    render(<BalanceBadge {...props(getBalance)} />)
+    // The chip's accessible name IS the failure, so the one control on screen
+    // says what went wrong rather than just that something did.
+    fireEvent.click(await screen.findByRole('button', { name: 'no key' }))
+    // The card opens with the headline the panel owns (`—`, the total being
+    // unknown) and the Remote's own message in full.
+    expect(panel().getByText('API 剩余金额：—')).toBeDefined()
+    // The row is the short actionable sentence, NOT the Remote's own message:
+    // that text stays on the chip's accessible name (asserted above) and in the
+    // host log, and would read as transport noise inside the card.
+    expect(panel().getByText(zh['notice.unavailable'])).toBeDefined()
+    expect(panel().queryByText('no key')).toBeNull()
+    // The refresh action lives in the panel, so a reader who opened the card
+    // retries from there; a plain read does not force.
+    fireEvent.click(panel().getByRole('button', { name: zh['action.refresh'] }))
+    await waitFor(() => { expect(getBalance).toHaveBeenCalledTimes(2) })
+    expect(getBalance.mock.calls[1]?.[0]).toBe(true)
+    // The recovered amount replaces the chip and the card's headline.
+    await waitFor(() => { expect(panel().getByText('API 剩余金额：¥110.00')).toBeDefined() })
+    expect(screen.queryByText(zh['state.unavailable'])).toBeNull()
+  })
+
+  it('keeps the two unavailable rows short, localized, and free of transport text', () => {
+    // One wording, two surfaces: the row's prefix is the chip's own word. Both
+    // rows stay short — no placeholders, since the Remote's English message is
+    // deliberately not rendered.
+    expect(zh['notice.unavailable']).toContain(zh['state.unavailable'])
+    expect(en['notice.unavailable']).toContain(en['state.unavailable'])
+    for (const text of [zh['notice.unavailable'], en['notice.unavailable'], zh['notice.none'], en['notice.none']]) {
+      expect(text).not.toContain('{')
+      expect(text.length).toBeLessThanOrEqual(40)
+    }
+  })
+
+  it('opens the panel with the day\'s spend for an API key that reports no balance', async () => {
+    // The API answered (no failure): it simply names no spendable balance. The
+    // chip keeps the ordinary label with a `—` amount — nothing "failed" — and
+    // the card still reports the account-level day, which is read from the
+    // session logs and owes the balance read nothing.
+    render(<BalanceBadge {...props(async () => balance({ isAvailable: false, lines: [] }))} />)
+    const trigger = await screen.findByRole('button', { name: 'DeepSeek 额度：—' })
+    expect(screen.getByText('剩余金额：—')).toBeDefined()
+    // Today's spend is independent of the balance and stays on the chip.
+    expect(screen.getByText('今日花费：¥0.31')).toBeDefined()
+    fireEvent.click(trigger)
+    expect(panel().getByText('API 剩余金额：—')).toBeDefined()
+    expect(panel().getByText(zh['notice.none'])).toBeDefined()
+    expect(panel().getByText('今日花费：¥0.31')).toBeDefined()
+    expect(panel().getByText('今日 Token：232K tok')).toBeDefined()
+    // No failure wording: nothing was rejected.
+    expect(screen.queryByText(zh['state.unavailable'])).toBeNull()
+  })
+
+  it('keeps the chip\'s spend line when the balance read is rejected', async () => {
+    // The failure branch is not spend-blind: the day's figure is account-level,
+    // so a rejected balance still shows what today cost on the chip and in the
+    // card.
+    render(<BalanceBadge {...props(async () => { throw new Error('no key') })} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'no key' }))
+    // Chip and panel both repeat the same account-level line, exactly as they
+    // do for a healthy balance.
+    expect(screen.getAllByText('今日花费：¥0.31')).toHaveLength(2)
+    expect(panel().getByText('今日花费：¥0.31')).toBeDefined()
+    expect(panel().getByText('API 剩余金额：—')).toBeDefined()
   })
 
   it('keeps the last value visible while a refresh is in flight, then updates it', async () => {
