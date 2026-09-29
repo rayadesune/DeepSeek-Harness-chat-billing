@@ -12,7 +12,7 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 - **Detail panel** — the remaining amount with today's consumption measured from the balance series after it (see *How session spend is computed*); today's billed token count next to today's all-session spend (`今日 Token` / `今日花费`, one row; the count is DSH's compact notation with its own unit — `12.2K tok`, followed by the day's cache-hit share as a bare, unparenthesized percentage, rendered by DSH's own hit-rate rule: an integer percent that grows decimals only as far as a partial hit needs to stay below 100, and none at all when the day billed no prompt-side input); directly under that row, today's two bucket detail lines — tokens on top, costs below, each on its own with its natural ` · ` spacing (no column alignment between them), in the per-model breakdown line's typography but on the third section's row spacing (the today session-spend ranking's tight 6px rhythm); every spend amount renders at **three significant digits** (`¥9.58`) but never finer than four decimals — an amount below ¥0.0001 reads `¥0` — while the balance line alone keeps four decimals; and a manual refresh action and a spend disclaimer on the `?` button (one line of estimate scope, then a line stating that a conversation's amount includes the subagent sessions it delegated, and the running plugin version as the last line, e.g. `v0.3.13`). The panel ends with a **today session-spend ranking**: sessions sorted by today's spend, highest first — one row per conversation, since each subagent session's spend is merged into the row of the session that delegated it (names come from the log's Chinese titles and follow renames automatically; at most the top 10 rows, with a "…N more sessions" hint).
 - **Turn cost amount** — each completed turn's closing message shows a plain static `¥X` at the **end** of the actions row, after the clock: non-interactive (no icon, no "cost" word, no card), its typography replicates the clock text (13px secondary tier, tertiary tone, nowrap), and it is **always visible** (not hover-revealed like the clock text — the row's own hover reveal shows both together); turns without DeepSeek usage (zero cost) or failed loads stay hidden.
 - **Composer spend pill** — the composer's own stat row (the one DSH's time/token pills sit in) carries one more entry: this plugin's ring-and-sparkle mark plus this conversation's billed spend, at the same three-significant-digit precision as the badge, opening a cost card whose three rows are the spend's three billing buckets (uncached input / cached input / output) under DSH's own token-card wording. Its amount is the **conversation's** — this session plus the subagent sessions it delegated, merged by the same rule the host's own sums use; it is the ONLY surface that shows the conversation's own spend (the badge's second line and its panel report the day), so a session that priced nothing anywhere shows no pill, while one that priced nothing itself but delegated a priced subagent still shows.
-- **Failures and empty states** — a session or day without priced usage shows "no usage recorded" instead of a fabricated figure; a missing key, rejected credential, or transport error renders a muted "Balance unavailable" whose tooltip carries the Remote's own error message.
+- **Failures and empty states** — a session or day without priced usage shows "no usage recorded" instead of a fabricated figure; a missing key, rejected credential, or transport error renders a muted "Balance unavailable" chip, and an API key the API reports without any spendable balance renders the ordinary chip with a `—` amount. Both open the detail panel, whose first row explains the `—` in one short localized sentence (check the API key, or that the key holds no balance — the Remote's verbatim English message is not rendered) and which keeps the refresh action; today's spend is read from the session logs, so it stays on the chip and in the panel either way.
 
 ## Data update mechanics
 
@@ -67,10 +67,13 @@ name installs everything**: pnpm pulls the bundle's dependency closure into the
 profile, where the hoisted `node_modules` makes the two row names resolvable.
 
 1. In the sidebar open **Plugins** → **Add plugin**.
-2. Enter `@rayadesu/dsh-billing`. The dialog also accepts the GitHub repository
-   address (`https://github.com/rayadesune/DeepSeek-Harness-chat-billing`) or an
-   absolute local directory path — the two plugin packages themselves always
-   come from npm.
+2. Enter `@rayadesu/dsh-billing`. The npm registry is the supported install
+   source: the bundle arrives as a real package and pnpm resolves its two
+   `dependencies` alongside it. The dialog also accepts a GitHub repository
+   address or a local directory path, but a bundle installed that way does not
+   bring the two plugin packages — pnpm installs no dependencies of a linked or
+   git-hosted package, so the profile keeps the bundle alone and startup reports
+   `2 entries did not activate llm-billing … failed to import`.
 3. Pick an install source (the default npm registry or the **Mainland China
    mirror**), press **Install**, then **Enable now**.
 
