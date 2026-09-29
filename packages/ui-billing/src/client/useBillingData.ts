@@ -65,7 +65,10 @@ export interface BillingData {
    * The WHOLE conversation's billed spend: this session's own spend (live, from
    * the pushed projection or the `getSessionSpend` fallback) plus the subagent
    * sessions it delegated (the last `getDelegatedSpend` read), so the amount a
-   * user reads is the conversation's, not just its own log's.
+   * user reads is the conversation's, not just its own log's. No longer
+   * rendered here — the badge's line and its panel are account-level, and the
+   * conversation's amount is the composer pill's — but the reads producing it
+   * stay (see the hook's note below).
    */
   spend: DeepSeekSessionSpend | null
   todaySpend: DeepSeekTodaySpend | null
@@ -73,10 +76,10 @@ export interface BillingData {
   /** Whether the current session is itself a delegated subagent child. */
   isSubagent: boolean
   /**
-   * Whether the current session started on an EARLIER Beijing day — the only
-   * case in which the panel's parenthesized today share is meaningful.
-   * `false` until the delegated read settles (an unproven crossing stays
-   * hidden) and for every session created today.
+   * Whether the current session started on an EARLIER Beijing day. `false`
+   * until the delegated read settles and for every session created today. It
+   * decided the panel's today share, which went away with the session row; it
+   * rides along with the rest of the session-level group.
    */
   crossedDay: boolean
   /** Balance fetch failure while no value is present yet. */
@@ -100,6 +103,10 @@ export interface BillingData {
  *
  * - **Session level** (`getSessionSpend`, `getDelegatedSpend`) — re-read on
  *   mount, on a session switch, on a manual refresh, and when a turn settles.
+ *   Nothing the badge renders reads their result any more (its second line and
+ *   its panel are account-level; the conversation's own amount is the composer
+ *   pill's), but the group stays: it is one cached host pass, and dropping it
+ *   would also take the session switch's spinner with it.
  * - **Account level** (`getBalance`, `getTodaySpend`, plus the ranking while
  *   the panel is open) — re-read on mount, on a manual refresh, and when a turn
  *   settles, never on a session switch: neither answer depends on which session

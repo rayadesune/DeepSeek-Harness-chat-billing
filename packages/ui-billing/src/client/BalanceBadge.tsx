@@ -1,10 +1,15 @@
 /**
- * Session-header billing badge: balance plus the current conversation's billed
+ * Session-header billing badge: the remaining balance plus TODAY's billed
  * spend, both carrying the detail panel's own labels (`API 剩余金额` /
- * `本会话花费`). Composition root: the data lifecycle lives in
+ * `今日花费`). Composition root: the data lifecycle lives in
  * {@link useBillingData}, and the trigger / detail panel are pure views. The
  * badge renders null until the first balance fetch settles, and a refresh keeps
  * the last values visible rather than blanking them.
+ *
+ * The conversation's own spend is NOT shown here: it lives on the composer
+ * spend pill (`SpendCard`), the one surface that reads the host-pushed
+ * projection. The badge's second line is account-level, so it moves on the
+ * reads today's figure has — mount, refresh, a settled turn, and a panel open.
  */
 import type { DeepSeekBalance, DeepSeekDelegatedSpend, DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -48,8 +53,9 @@ export interface BalanceBadgeInjected {
   getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
   /**
    * Read the subagent part of one conversation's billed spend: every subagent
-   * session that session delegated, transitively, across every day. The badge
-   * adds it to the live own-session value, so the amount it shows is the whole
+   * session that session delegated, transitively, across every day. The
+   * composer spend pill is the surface that shows it — it adds this subtotal to
+   * the live own-session value, so the amount reads as the whole
    * conversation's. `force` behaves as in {@link getTodaySpend}.
    */
   getDelegatedSpend: (sessionId: SessionId, force?: boolean) => Promise<DeepSeekDelegatedSpend>
@@ -76,8 +82,8 @@ export type BalanceBadgeProps =
 
 /**
  * Render the billing badge in the session-header utilities row: the trigger
- * shows the remaining balance and this conversation's billed spend, and opens
- * the detail panel (amount, per-model spend breakdown, today's spend, ranking,
+ * shows the remaining balance and today's billed spend, and opens the detail
+ * panel (amount, today's tokens and spend with their bucket lines, ranking,
  * refresh, disclaimer).
  * @param props - Remote face, locale, and the standard session-header runtime share.
  * @returns the badge, or null until the first balance fetch settles.
@@ -86,11 +92,8 @@ export function BalanceBadge({ getBalance, getCachedBalance, getBalanceDaySpend,
   const {
     balance,
     balanceDaySpend,
-    spend,
     todaySpend,
     sessionsSpend,
-    isSubagent,
-    crossedDay,
     error,
     refreshing,
     open,
@@ -113,9 +116,13 @@ export function BalanceBadge({ getBalance, getCachedBalance, getBalanceDaySpend,
 
   const line = primaryLine(balance)
   const amount = line === undefined ? '—' : `${line.symbol}${line.total}`
-  // The panel's own label, so the chip and the box agree word for word.
-  const spendLine = spend !== null && spend.models.length > 0
-    ? t('label.sessionSpend', { amount: formatSpendSignificant(spend.total) })
+  // The panel's own label, so the chip and the box agree word for word — the
+  // same `todaySpend` state feeds both, so they cannot disagree either. Today
+  // is account-level: the line hides only while the day priced nothing, so a
+  // conversation that spent nothing today still reports the day's other
+  // sessions.
+  const spendLine = todaySpend !== null && todaySpend.models.length > 0
+    ? t('label.todaySpend', { amount: formatSpendSignificant(todaySpend.total) })
     : undefined
 
   return (
@@ -126,12 +133,8 @@ export function BalanceBadge({ getBalance, getCachedBalance, getBalanceDaySpend,
           <BalancePanel
             amount={amount}
             balanceDaySpend={balanceDaySpend}
-            sessionId={sessionId}
-            spend={spend}
             todaySpend={todaySpend}
             sessionsSpend={sessionsSpend}
-            isSubagent={isSubagent}
-            crossedDay={crossedDay}
             refreshing={refreshing}
             onRefresh={refresh}
             t={t}

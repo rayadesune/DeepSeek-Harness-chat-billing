@@ -1,9 +1,9 @@
 /**
- * Session-header billing trigger: the balance plus the conversation-spend
- * line. Pure view over the data hook's values — no state, no effects. The
- * balance line uses the trigger's own `trigger.balance` (the panel headline
- * without its "API" prefix, since the chip is narrow); the spend line arrives
- * precomputed from the parent carrying the PANEL's `label.sessionSpend`.
+ * Session-header billing trigger: the balance plus today's spend line. Pure
+ * view over the data hook's values — no state, no effects. The balance line
+ * uses the trigger's own `trigger.balance` (the panel headline without its
+ * "API" prefix, since the chip is narrow); the spend line arrives precomputed
+ * from the parent carrying the PANEL's `label.todaySpend`.
  */
 import { IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -14,7 +14,7 @@ import css from './BalanceBadge.module.css'
 export interface BalanceTriggerProps {
   /** Primary line amount, e.g. `¥123.45`; `—` when the provider reports none. */
   amount: string
-  /** Secondary conversation-spend line; absent when the session has no priced usage. */
+  /** Secondary today-spend line; absent while today prices no usage. */
   spendLine: string | undefined
   /** Whether the detail panel is open (chevron + aria-expanded). */
   open: boolean

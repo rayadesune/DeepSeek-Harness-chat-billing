@@ -3,21 +3,20 @@
  * consumption measured from the balance series (see balanceDay.ts), today's
  * billed token count (the day's cache-hit share following it) and today's
  * spend across every session with the three TODAY
- * BUCKET modules under them (one two-line module per billing bucket: its token
- * count, then its cost, styled exactly like the per-model blocks further down),
- * this session's CONVERSATION spend (its own billed work plus the subagent
- * sessions it delegated, with its share of today beside it only when the two
- * disagree) and its cache-hit / cache-miss-input / output cost breakdown per
- * model, the ranking of today's sessions (one row per conversation — the host
- * has already merged each subagent session's spend into the session that
- * delegated it), a refresh action, and the spend disclaimer. Pure view — no
- * state, no effects; refreshing keeps the last values visible rather than
- * blanking them.
+ * BUCKET modules under them (two lines: the buckets' token counts, then their
+ * costs), the pricing-gap notice that names the wire models
+ * today's fold could not price, the ranking of today's sessions (one row per
+ * conversation — the host has already merged each subagent session's spend into
+ * the session that delegated it), a refresh action, and the spend disclaimer.
+ * Pure view — no state, no effects; refreshing keeps the last values visible
+ * rather than blanking them.
+ *
+ * The CONVERSATION's own spend is deliberately absent: it belongs to the
+ * composer spend pill, so every figure here is account-level — the day's, not
+ * this session's.
  */
-import { Fragment } from 'react'
-import type { DeepSeekSessionSpend, DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { IconQuestionOutlineRegular, IconRefreshOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { DeepSeekTodaySessionsSpend, DeepSeekTodaySpend } from '@rayadesu/dsh-llm-billing/types'
+import { HoverCard, IconQuestionOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { formatSpendSignificant, formatTokens, rowTokens } from './format.ts'
 import { spendBucketsOf, cacheHitPercentOf, tokenBucketsOf } from './spendBuckets.ts'
@@ -33,8 +32,8 @@ export const SESSION_RANKING_LIMIT = 10
 /**
  * Today's two bucket detail lines, rendered under the 今日 Token / 今日花费 row:
  * the three buckets' token counts, then their costs — DSH's own bucket wording
- * and row order in both lines, so they read like the per-model breakdown line
- * further down and keep its own row rhythm. Each line stands on its own (no
+ * and row order in both lines, in the panel's own breakdown typography and row
+ * rhythm (the pricing-gap notice reuses it). Each line stands on its own (no
  * column alignment between them): the middots keep the natural " · " spacing of
  * every other breakdown line in the panel.
  *
@@ -65,6 +64,26 @@ function todayBucketLines(
   }
 }
 
+/**
+ * The hint card's body: every line of `info.hint` as its own row, then the
+ * version below them at the metadata weight instead of the prose's.
+ *
+ * The two levels are restated rather than referenced — the panel defines them
+ * as custom properties on `.panel`, and the card is portaled to
+ * `document.body`, outside that subtree, so nothing inherits from it. Their
+ * values match the panel's own second and first levels exactly, which keeps
+ * this notice in the same type family as everything beside it.
+ */
+function HintCard({ t }: { t: PropsLocale<typeof NS>['t'] }) {
+  const lines = t('info.hint', { version: PLUGIN_VERSION }).split('\n')
+  return (
+    <div className={css.hint}>
+      {lines.slice(0, -1).map(line => <div key={line} className={css.hintLine}>{line}</div>)}
+      <div className={css.hintVersion}>{lines[lines.length - 1]}</div>
+    </div>
+  )
+}
+
 /** Panel props: precomputed amount plus the same spend values the badge holds. */
 export interface BalancePanelProps {
   /** Primary balance line, e.g. `¥123.45`; `—` when the provider reports none. */
@@ -75,54 +94,15 @@ export interface BalancePanelProps {
    * sample for the amount's currency, which renders no rider at all.
    */
   balanceDaySpend: number | null
-  /** The session this panel belongs to: the row looked up in today's ranking. */
-  sessionId: SessionId
-  /** The WHOLE conversation's billed spend (this session plus the subagents it delegated). */
-  spend: DeepSeekSessionSpend | null
   todaySpend: DeepSeekTodaySpend | null
   sessionsSpend: DeepSeekTodaySessionsSpend | null
-  /** Whether this session is itself a delegated subagent child (so it has no ranking row of its own). */
-  isSubagent: boolean
-  /** Whether this session started on an earlier Beijing day (the only time a today share is shown). */
-  crossedDay: boolean
   refreshing: boolean
   onRefresh: () => void
   t: PropsLocale<typeof NS>['t']
 }
 
 /** The detail box opened from the badge trigger. */
-export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todaySpend, sessionsSpend, isSubagent, crossedDay, refreshing, onRefresh, t }: BalancePanelProps) {
-  // This session's share of today rides the same all-session ranking read the
-  // section below renders, so both numbers come from one host-side "today":
-  // `undefined` while that read has not settled, and a confirmed `0` when it
-  // settled without a row — the ranking lists only sessions that priced
-  // something today.
-  //
-  // It reads the row's `total`, which counts the same thing as the amount on
-  // the session line: the whole conversation (this session plus every subagent
-  // session it delegated).
-  //
-  // WHETHER to show it is decided by the session's CREATION DAY, not by
-  // comparing the two amounts: the session amount is live (the pushed
-  // projection moves as the turn streams) while the ranking row is served from a
-  // 60-second cache, so mid-turn the two routinely differ by a few cents — a
-  // comparison would flash a parenthesis for a conversation that started today.
-  // Only a session that started on an earlier Beijing day has a share worth
-  // showing, and then it shows even when it billed nothing today (a confirmed
-  // ¥0). A session that is ITSELF a delegated child shows none: its spend rides
-  // the row of the top-level session that delegated it.
-  const row = sessionsSpend === null ? undefined : sessionsSpend.sessions.find(entry => entry.sessionId === sessionId)
-  const sessionToday = spend !== null && !isSubagent && crossedDay && sessionsSpend !== null
-    ? row?.total ?? 0
-    : null
-  const sessionAmount = spend === null
-    ? '—'
-    : spend.models.length === 0
-      // The same two empties as the today row: nothing was measured, or usage
-      // was measured and no rate row matched. Both rows must say the same thing
-      // about the same session.
-      ? spend.unpriced === undefined ? t('stat.none') : t('stat.unpricedOnly')
-      : formatSpendSignificant(spend.total)
+export function BalancePanel({ amount, balanceDaySpend, todaySpend, sessionsSpend, refreshing, onRefresh, t }: BalancePanelProps) {
   // The count is DSH's compact notation plus DSH's own ` tok` unit; the
   // placeholder states stay bare (no ` tok` after a `—`).
   const todayTokens = todaySpend === null
@@ -141,7 +121,7 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
       ? todaySpend.unpriced === undefined ? t('stat.none') : t('stat.unpricedOnly')
       : formatSpendSignificant(todaySpend.total)
   // The day's cache-hit share rides the token figure bare — no parentheses, in
-  // the same level-one style as the session row's today amount (see the
+  // the same level-one style as the amount rider (see the
   // stylesheet's three type levels) — using DSH's own hit-rate rule (format.ts)
   // over the day's prompt-side buckets, so the number matches what the official
   // token surfaces would print. It shares the placeholder states' own condition:
@@ -156,11 +136,6 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
   const todayNotices = todaySpend === null || todaySpend.unpriced === undefined
     ? []
     : [t('notice.unpriced', { models: todaySpend.unpriced.models.join(', ') })]
-  // A lone priced model renders no name row at all: in a session that only ever
-  // billed one model the name says nothing new, and its amount IS the 本会话花费
-  // figure on the row above. Its bucket line below still carries the whole split,
-  // so nothing is lost; two or more models get a named row each.
-  const modelCount = spend === null ? 0 : spend.models.length
   return (
     <div className={css.panel} role="dialog" aria-label={t('panel.aria')}>
       <div className={css.amountRow}>
@@ -168,9 +143,9 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
           {t('label.amount', { amount })}
           {/*
             Today's consumption from the balance series itself, riding the
-            amount exactly the way the other two riders follow theirs: a bare
-            amount in level-one type, no wording and no parentheses (the info
-            hint names it). It renders only once today holds a sample for this
+            amount the way the day's cache-hit share rides the token figure: a
+            bare amount in level-one type, no wording and no parentheses (the
+            info hint names it). It renders only once today holds a sample for this
             currency — a figure nothing measured stays away rather than reading
             as ¥0.
           */}
@@ -184,20 +159,38 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
         </span>
         <span className={css.amountActions}>
           {/*
-            `side="bottom"`: the DSH bubble's viewport fit only corrects the
-            vertical axis for the bottom/top sides, so the (short) hint flips
-            above the anchor instead of being clipped when it does not fit
-            below — the right side would leave a tall bubble cut off.
+            The hint is a HOVER CARD, not a tooltip, because it is a notice
+            rather than a label: DSH's `Tooltip` is built for one short line —
+            `padding: 3px 7px`, `pointer-events: none`, and a `string` label
+            that admits no second type size — so a four-line notice dropped
+            into it renders as an edge-to-edge slab whose build stamp reads at
+            the same weight as the caliber above it. `HoverCard` takes JSX,
+            keeps the pointer on the card so a notice this long can actually be
+            read and selected, and portals its card to `document.body` on its
+            own — which is also what escapes this panel's `backdrop-filter`
+            (the trap that stranded the old bubble off-screen; see AGENTS.md).
 
-            The label is a plain string (the primitive takes no JSX), so the
-            version rides the hint text itself as its own last line
-            (`\nv{version}`, with no blank line before it).
+            `inline` is the variant this row needs: it stays in the line box
+            (the others are `display: block`) and it answers the keyboard —
+            focus-visible opens it and Escape closes it — while its placement
+            clamps into the viewport. `compact` would lay the card to the RIGHT
+            of the anchor, off-screen for a button parked this close to the
+            corner, and `preview` wants a measured width anchor, which would
+            mean handing this purely-presentational view a ref.
+
+            The lines stay one locale string (`\n`-separated) so the four-line
+            contract stays visible in the dictionaries; HintCard splits it.
           */}
-          <Tooltip label={t('info.hint', { version: PLUGIN_VERSION })} side="bottom" delayMs={200} maxWidth={300}>
-            <button type="button" className={css.infoButton} aria-label={t('info.aria')}>
-              <IconQuestionOutlineRegular size={14} className={css.inlineIcon} />
-            </button>
-          </Tooltip>
+          <HoverCard
+            openDelayMs={200}
+            inline
+            anchor={(
+              <button type="button" className={css.infoButton} aria-label={t('info.aria')}>
+                <IconQuestionOutlineRegular size={14} className={css.inlineIcon} />
+              </button>
+            )}
+            content={<HintCard t={t} />}
+          />
           <button
             type="button"
             className={css.refreshButton}
@@ -225,7 +218,7 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
       {/*
         Today's two detail lines, right under the figures they explain: the
         three buckets' tokens, then their costs — each line on its own, in the
-        per-model cost row's typography and spacing.
+        panel's breakdown typography and spacing.
       */}
       {todaySpend !== null && todaySpend.models.length > 0 && (
         <>
@@ -241,39 +234,6 @@ export function BalancePanel({ amount, balanceDaySpend, sessionId, spend, todayS
         <div className={css.dayBucketRow} key={notice}>
           <span className={css.costBreakdown}>{notice}</span>
         </div>
-      ))}
-      <div className={css.spendRow}>
-        <span className={css.amountLabel}>
-          {t('label.sessionSpend', { amount: sessionAmount })}
-          {sessionToday !== null
-            ? (
-              <span className={css.sessionToday}>
-                {t('label.sessionSpend.today', { amount: formatSpendSignificant(sessionToday) })}
-              </span>
-            )
-            : null}
-        </span>
-      </div>
-      {spend?.models.map(model => (
-        <Fragment key={model.model}>
-          {modelCount > 1 && (
-            <div className={css.modelRow}>
-              <span className={css.modelName}>{model.displayName}</span>
-              <span className={css.tasks}>{formatSpendSignificant(model.cost)}</span>
-            </div>
-          )}
-          <div className={css.costRow}>
-            <span className={css.costBreakdown}>
-              {/* DSH's own bucket wording and row order (ui-chat's token
-                  dialog): uncached input, cached input, output. */}
-              {t('label.cost.input', { amount: formatSpendSignificant(model.cacheMissInputCost) })}
-              {' · '}
-              {t('label.cost.cacheRead', { amount: formatSpendSignificant(model.cacheHitInputCost) })}
-              {' · '}
-              {t('label.cost.output', { amount: formatSpendSignificant(model.outputCost) })}
-            </span>
-          </div>
-        </Fragment>
       ))}
       {sessionsSpend !== null && sessionsSpend.sessions.length > 0 && (
         <div className={css.ranking}>
