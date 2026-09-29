@@ -6,9 +6,9 @@ export const NS = 'billing'
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   // The trigger's two lines: the balance line drops the panel's "API" prefix
-  // (the chip is narrow), while the spend line keeps the panel's own label —
-  // `label.sessionSpend` — so the amount a user reads on the chip and in the
-  // box is worded identically.
+  // (the chip is narrow), while the spend line IS the panel's own today label —
+  // `label.todaySpend` — so the amount a user reads on the chip and in the box
+  // is worded identically (both render the same `todaySpend` state).
   'trigger.balance': '剩余金额：{amount}',
   'label.amount': 'API 剩余金额：{amount}',
   // Today's consumption measured from the balance series itself (the
@@ -17,20 +17,12 @@ export const zh = {
   // the amount only, one leading space, no wording and no parentheses (the info
   // hint names it). Hidden — not `¥0` — until today holds a balance sample.
   'label.amount.todaySpend': ' {amount}',
-  'label.sessionSpend': '本会话花费：{amount}',
-  // This session's share of today, riding the session row itself: the amount only
-  // (the row already names the session), no parentheses — the rider's leading
-  // space and its level-one tone are what separate it from the row's own figure.
-  // Rendered ONLY when the conversation did not start today: the creation day
-  // decides (a session that started today billed exactly its own total today, so
-  // the extra number would just repeat the one beside it).
-  'label.sessionSpend.today': ' {amount}',
   'label.todaySpend': '今日花费：{amount}',
   'label.todayTokens': '今日 Token：{count}',
-  // The day's cache-hit share, riding the 今日 Token figure the way the today
-  // amount rides 本会话花费: bare percentage, no wording and no parentheses of its
-  // own (level-one tone + the leading space set it apart). The number arrives
-  // already formatted by DSH's own hit-rate rule (see format.ts).
+  // The day's cache-hit share, riding the 今日 Token figure the way today's
+  // consumption rides the amount: bare percentage, no wording and no parentheses
+  // of its own (level-one tone + the leading space set it apart). The number
+  // arrives already formatted by DSH's own hit-rate rule (see format.ts).
   'label.todayTokens.hit': ' {percent}%',
   // DSH's own token unit (its `unit.tokens` / `message.turnUsage.count` wording,
   // identical in both dictionaries): the compact count plus ` tok`. The
@@ -71,16 +63,17 @@ export const zh = {
   'state.unavailable': '额度不可用',
   'action.refresh': '刷新',
   'info.aria': '花费说明',
-  // The hint rides a DSH `Tooltip` (white-space: pre-line, so a `\n` starts a
-  // new line): its bubble has no height clamp, so a long label is clipped at the
-  // viewport edge, and the bubble cannot be hovered. Keep this SHORT — the full
-  // rate schedule lives in the package READMEs. The lines follow the panel top
+  // The hint rides a DSH `HoverCard`, which renders each `\n`-separated line as
+  // its own row: the card is 300px wide, floats over the transcript and does not
+  // scroll, so a long notice grows a slab that hides the conversation behind it.
+  // Keep this SHORT — the full rate schedule lives in the package READMEs. The lines follow the panel top
   // to bottom: the pricing estimate, the amount rider (today's consumption from
-  // the balance series itself, with the caliber that produces it), what the
-  // session amounts cover (this session plus the subagent sessions it
-  // delegated), then the session rider; the version stays the last line, flush
-  // with the bubble's left edge, with no blank line before it.
-  'info.hint': '估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nAPI 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。\n金额含本会话委派的子代理会话。\n本会话花费后的数字为本会话今日花费。\nv{version}',
+  // the balance series itself, with the caliber that produces it), and what a
+  // conversation's amount covers (its own spend plus the subagent sessions it
+  // delegated — the ranking rows and the composer pill both merge them); the
+  // version stays the last line, flush with the bubble's left edge, with no
+  // blank line before it.
+  'info.hint': '估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nAPI 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。\n会话花费含其委派的子代理会话。\nv{version}',
   'badge.aria': 'DeepSeek 额度：{amount}',
   'panel.aria': 'DeepSeek 额度详情',
   'label.sessionRanking': '今日会话花费',
@@ -90,16 +83,13 @@ export const zh = {
 /** English dictionary, key-identical to the Chinese source of truth. */
 export const en: Record<BillingKey, string> = {
   // As in the Chinese dictionary: the trigger's balance line is the panel's
-  // label without the "API" prefix, and its spend line matches the panel's.
+  // label without the "API" prefix, and its spend line IS the panel's today
+  // label (both render the same account-level figure).
   'trigger.balance': 'Balance: {amount}',
   'label.amount': 'API balance: {amount}',
   // Amount only, as in the Chinese dictionary: the API-balance rider is the
   // day's consumption from the balance series itself, named by the info hint.
   'label.amount.todaySpend': ' {amount}',
-  'label.sessionSpend': 'This session: {amount}',
-  // Amount only, as in the Chinese dictionary; rendered only when the session's
-  // total and its share of today disagree (a day-crossing session).
-  'label.sessionSpend.today': ' {amount}',
   'label.todaySpend': 'Today spend: {amount}',
   'label.todayTokens': 'Today tokens: {count}',
   // As in the Chinese dictionary: the day's cache-hit share rides the token
@@ -130,11 +120,11 @@ export const en: Record<BillingKey, string> = {
   'state.unavailable': 'Balance unavailable',
   'action.refresh': 'Refresh',
   'info.aria': 'About this spend',
-  // Keep the hint short (see the Chinese dictionary note): the Tooltip bubble
-  // clamps neither height nor hover. The lines mirror the Chinese dictionary —
-  // the estimate, the amount rider and the caliber behind it, what the session
-  // amounts cover, the session rider — with the version as the last line.
-  'info.hint': 'Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).\nThe figure after the API balance is today\'s consumption: the day\'s first queried balance minus the current one, plus today\'s top-ups (identified in ¥10 steps).\nThe amounts include the subagent sessions this session delegated.\nThe figure after this session\'s amount is its spend today.\nv{version}',
+  // Keep the hint short (see the Chinese dictionary note): the card is 300px
+  // wide and never scrolls. The lines mirror the Chinese dictionary —
+  // the estimate, the amount rider and the caliber behind it, and what a
+  // conversation's amount covers — with the version as the last line.
+  'info.hint': 'Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).\nThe figure after the API balance is today\'s consumption: the day\'s first queried balance minus the current one, plus today\'s top-ups (identified in ¥10 steps).\nA conversation\'s spend includes the subagent sessions it delegated.\nv{version}',
   'badge.aria': 'DeepSeek balance {amount}',
   'panel.aria': 'DeepSeek balance details',
   'label.sessionRanking': 'Today session spend',
