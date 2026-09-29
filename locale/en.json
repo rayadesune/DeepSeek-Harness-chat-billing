@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Billing",
-    "description": "DeepSeek account balance and session spend badges for the harness."
+    "description": "View balance, spend (per message, per conversation), and session spend rankings."
   }
 }

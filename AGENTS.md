@@ -75,10 +75,20 @@ cordis.patch.yml         DSH profile bundle 补丁层：挂载 llm-billing + ui-
 - **密钥不进仓库**：`DEEPSEEK_API_KEY` 等一律由用户环境或凭据 seam 提供，仓库不含真实值。
 - **README 双语**：每个 README 遵循 DSH 结构 `README.md`(EN) + `README.zh.md`(ZH) +
   `README.i18n.yaml`（记录两文件 git blob hash，改动后需更新）。
-- **版本对齐**：根 bundle 与两个包统一版本号（当前 0.3.17），`pnpm-lock.yaml` 随依赖变更更新。
+- **版本对齐**：根 bundle 与两个包统一版本号（当前 0.3.18），`pnpm-lock.yaml` 随依赖变更更新。
 - **提交与发布流程**：见 `.agents/skills/dsh-release/SKILL.md` —— 阶段 A（改代码 → 按档位校验/打包 →
   本地 pack 安装 → 交用户验证）**不提交**，改动留在工作区；用户说「发布」进入阶段 B 才 bump 版本、
   **按类型分别提交**、推送、发 npm 与 GitHub Release。
+- **浮动说明卡一律用 `HoverCard`，不要用 `Tooltip`**：两者形态不同 —— `Tooltip` 是「单行短标签」容器
+  （`padding: 3px 7px` 的 26px 条带、`pointer-events: none`、`label` 只收 `string`），官方自己那颗信息按钮
+  装的是 ~50 字 / 2–3 行；把 4 行说明硬塞进去会渲染成一整块贴边白字方块，版本号跟正文同权重，且球泡用的是
+  13px 纯白 `--dsw-static-neutral-bluish-00`，比面板里任何一行都重。**超过两行的说明就是 `HoverCard` 的活**：
+  `content` 收 JSX（可做 secondary/tertiary 分层）、指针能停留可选中（长文本才读得了）、并且**自带 portal**。
+  选 `inline` 变体（`display: inline`，进得了行盒；支持 focus-visible 打开 + Esc 关闭；placement 会夹进视口）——
+  `compact` 把卡片放在锚点**右侧**，贴右上角的按钮必然溢出屏幕，且它的定位分支根本没有水平边界检查；
+  `preview` 需要 `widthAnchorRef` 提供的宽度锚，得让纯展示组件持 ref。
+- **面板的 CSS 变量到不了 portaled 卡片**：`.panel` 上定义的 `--billing-type-*` 自定义属性进
+  `document.body` 上的悬浮层就失效了，卡片要用到同款层级必须把值重抄一遍并在注释里写清两边要手动对齐。
 - **成本纪律（省 token）**：一轮的开销 ≈ 请求数 × 当时上下文，所以按改动定档做事——文案/样式/注释这类
   微调只跑受影响用例、只重打并重装改动的那个包；工具输出只留尾巴（`Select-Object -Last/First N`、
   `git diff -U0`）；全套 `test`/`build`/`verify` 一轮只跑一次；同一批微调的文档与 hash 攒到定稿后一次补。
