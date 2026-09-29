@@ -16,8 +16,9 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: this package is a read-only projection of one Remote
- * snapshot onto one header slot entry. It emits no cordis events, owns no
- * cross-plugin mutable state, and its single slot registration proves disposal
+ * snapshot onto three session-scoped slot entries (the header badge, the
+ * per-turn cost label, and the composer spend pill). It emits no cordis events,
+ * owns no cross-plugin mutable state, and its slot registrations prove disposal
  * through the HMR-safety spec.
  */
 const install: InvariantInstaller = () => {}
