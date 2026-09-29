@@ -1,6 +1,20 @@
 node_modules/
-lib/
-*.tsbuildinfo
 dist/
 .DS_Store
 .playwright-mcp/
+
+# Built artifacts under lib/ are COMMITTED on purpose, so a GitHub install and
+# a local-clone install both get runnable code without a build step (pnpm runs
+# no `prepare` for a git-hosted dependency). Rebuild them with `pnpm run
+# build`, which also normalizes build-machine paths out of the client bundle
+# (see scripts/normalize-lib-paths.mjs); commit the regenerated files with the
+# source change that produced them.
+#
+# The rule is an allowlist rather than `lib/` plus negations: once a directory
+# is excluded Git stops descending into it, so a later `!packages/x/lib/`
+# could never bring its contents back.
+lib/
+!packages/llm-billing/lib/
+!packages/ui-billing/lib/
+!packages/typert-protocol/lib/
+*.tsbuildinfo
