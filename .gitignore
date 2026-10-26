@@ -2,6 +2,8 @@ node_modules/
 dist/
 .DS_Store
 .playwright-mcp/
+.workbuddy/
+.workbuddy-ai/
 
 # Built artifacts under lib/ are COMMITTED on purpose, so a GitHub install and
 # a local-clone install both get runnable code without a build step (pnpm runs
