@@ -98,3 +98,7 @@
 - **额度带 TTL 缓存** —— 一份 `/user/balance` 快照最多复用 15 秒，单次请求 5 秒超时；`force`（手动刷新）绕过 TTL。
 - **投影计价跟随官方费率版本** —— 投影折叠按样本时刻解析费率版本，官方调价因此无需重折；手工改 `billing.models` 则只影响变更后折叠的事件，直到状态版本或进程重置（事件路径回退会重算整个日志）。
 - **冷缓存行可能滞后于日志** —— 冷会话若缓存行覆盖查询日，会重读日志以求精确；若缓存行自身的日期不是查询日则直接采信、不读日志，因此进程在最后一次检查点之后、最后一条事件之前崩溃的会话，其尾部可能暂时少算，直到该会话被重新读取。
+
+## 许可证
+
+[MIT](LICENSE) —— 本包是 [WilliamLIiii/DeepSeek-Harness-billing-plugin](https://github.com/WilliamLIiii/DeepSeek-Harness-billing-plugin) 的持续维护 fork；Copyright (c) 2026 WilliamLIiii、Copyright (c) 2026 rayadesu。

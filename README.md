@@ -314,6 +314,10 @@ Both packages ship sane defaults; everything below is optional.
 - **Balance is up to 15s stale between polls** — the host reuses one snapshot for up to 15 seconds and each request aborts after 5 seconds; spending from another client moves the shown value at the next poll (5 minutes while the page is visible, none while it is hidden), at a manual refresh, or at a browser reload.
 - **Estimate, not a promise** — the session spend prices tokens at official rates; the provider's actual billing prevails.
 
+## Acknowledgements
+
+This repository is a maintained fork of [WilliamLIiii/DeepSeek-Harness-billing-plugin](https://github.com/WilliamLIiii/DeepSeek-Harness-billing-plugin), originally created by WilliamLIiii. The original work is used under the MIT License; this fork has since been renamed, restructured, and extended (session/today spend, delegated-subtotal roll-up, session ranking). `packages/typert-protocol` additionally vendors type declarations from [`@deepseek-ai/dsh-typert-protocol`](https://www.npmjs.com/package/@deepseek-ai/dsh-typert-protocol) (Copyright (c) 2026 DeepSeek, MIT).
+
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — Copyright (c) 2026 WilliamLIiii, Copyright (c) 2026 rayadesu.

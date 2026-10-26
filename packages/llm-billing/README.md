@@ -98,3 +98,7 @@ None; its only provider call is a credential-authenticated `/user/balance` read,
 - **Balance is TTL-cached** — one `/user/balance` snapshot is reused for up to 15 seconds and each request aborts after 5 seconds; `force` (the manual refresh) bypasses the TTL.
 - **Projection pricing follows the published revisions** — the projection fold resolves the rate revision per sample timestamp, so published re-pricing needs no refold; a hand-edited `billing.models` change prices only events folded after the change until the state version or the process is reset (the events fallback re-prices the full log).
 - **A cached cold row may trail its log** — a cold session whose cached row covers the queried day is re-read from the log for exactness; a row whose own day is not the queried day is trusted without a read, so a session that crashed between its last checkpoint and its last event can under-report that tail until it is next read.
+
+## License
+
+[MIT](LICENSE) — a maintained fork of [WilliamLIiii/DeepSeek-Harness-billing-plugin](https://github.com/WilliamLIiii/DeepSeek-Harness-billing-plugin); Copyright (c) 2026 WilliamLIiii, Copyright (c) 2026 rayadesu.

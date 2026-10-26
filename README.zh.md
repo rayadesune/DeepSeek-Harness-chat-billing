@@ -279,6 +279,10 @@ npm publish   # @rayadesu/dsh-billing bundle（仓库根）
 - **额度在两次轮询之间最多旧 15 秒** —— 主机端最多复用 15 秒内的同一份快照，单次请求 5 秒超时；账户在其他客户端产生消耗时，界面值会在下一次轮询（页面可见时 5 分钟一次，隐藏时没有轮询）、手动刷新或刷新浏览器时变化。
 - **是估算，不是承诺** —— 会话花费按官方单价对 token 计价；实际计费以服务商为准。
 
+## 致谢
+
+本仓库是 [WilliamLIiii/DeepSeek-Harness-billing-plugin](https://github.com/WilliamLIiii/DeepSeek-Harness-billing-plugin) 的持续维护 fork，原作者为 WilliamLIiii；原作以 MIT 许可证使用，本 fork 在此之上更名、重构并扩展（会话／今日花费、子代理小计汇总、会话排行）。`packages/typert-protocol` 另内嵌了 [`@deepseek-ai/dsh-typert-protocol`](https://www.npmjs.com/package/@deepseek-ai/dsh-typert-protocol) 的类型声明（Copyright (c) 2026 DeepSeek，MIT）。
+
 ## 许可证
 
-[MIT](LICENSE)
+[MIT](LICENSE) —— Copyright (c) 2026 WilliamLIiii、Copyright (c) 2026 rayadesu。
