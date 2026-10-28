@@ -78,6 +78,7 @@ const _rayadesu_dsh_llm_billing_billing_getTodaySessionsSpend_result$schema = ()
   'title': z.union([z.literal(null), z.string()]),
   'total': z.number(),
   'ownTotal': z.number(),
+  'cli': z.boolean().optional(),
 })),
 }))
 let _rayadesu_dsh_llm_billing_billing_getTodaySpend_parameter_0$schema$value

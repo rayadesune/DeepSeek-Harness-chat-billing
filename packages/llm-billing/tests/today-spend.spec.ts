@@ -13,6 +13,7 @@ import { computeTodaySpend, resolveBilling } from '../src/billing.ts'
 import { billingTodaySpendDefinition, BILLING_UNIT_KEY, type BillingUnitState } from '../src/projection.ts'
 import {
   delegatedSpendOf,
+  isCliSession,
   isSubagentSession,
   SCAN_YIELD_SESSIONS,
   TodaySpendCache,
@@ -967,6 +968,80 @@ describe('subagent lineage', () => {
     ])
     // b is a's delegated child; the cycle back to a adds nothing twice.
     expect(delegatedSpendOf('a' as SessionId, ownSpend, lineage).total).toBe(2)
+  })
+})
+
+describe('CLI one-shot marker', () => {
+  it('marks a top-level header without agentPreset and nothing else', () => {
+    // The GUI stamps agentPreset on every session it creates; the `dsh
+    // <prompt>` path never does — that absence IS the marker.
+    expect(isCliSession({})).toBe(true)
+    expect(isCliSession({ agentPreset: 'standard' })).toBe(false)
+    // An unknown header is never marked: a badge must not guess.
+    expect(isCliSession(undefined)).toBe(false)
+    // A subagent child is attributed to its parent row, never marked itself.
+    expect(isCliSession({ origin: 'subagent', delegationDepth: 1 })).toBe(false)
+  })
+
+  it('stamps the flag on ranking rows from the top-level session\'s own header', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          // A GUI session (preset stamped) delegating a subagent — the merged
+          // row stays unmarked: the child's header never badges its parent.
+          { id: 'gui' as SessionId, events: [titleEvent('GUI 会话', 0), pricedEvent(DAY_TIME, 1)], header: { agentPreset: 'standard' } },
+          {
+            id: 'child-of-gui' as SessionId,
+            events: [pricedEvent(DAY_TIME, 0)],
+            header: { parentSession: 'gui' as SessionId, origin: 'subagent' as const, delegationDepth: 1 },
+          },
+          // A CLI one-shot run (header present, no preset stamped): its row
+          // carries the marker.
+          { id: 'cli' as SessionId, events: [titleEvent('CLI 会话', 0), pricedEvent(DAY_TIME, 1)], header: {} },
+        ],
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions.find(row => row.sessionId === 'gui')?.cli).toBe(false)
+    expect(sessions.find(row => row.sessionId === 'cli')?.cli).toBe(true)
+  })
+
+  it('marks a CLI run\'s merged row when its subagents priced the day', async () => {
+    const scanner = new TodaySpendScanner(deps({
+      sessions: () => ({
+        list: () => [
+          // The CLI parent priced nothing today; its own header (still read
+          // from the lineage map) marks the row the children merge into.
+          { id: 'cli' as SessionId, events: [titleEvent('CLI 父会话', 0)], header: {} },
+          {
+            id: 'child' as SessionId,
+            events: [pricedEvent(DAY_TIME, 0)],
+            header: { parentSession: 'cli' as SessionId, origin: 'subagent' as const, delegationDepth: 1 },
+          },
+        ],
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.sessionId).toBe('cli')
+    expect(sessions[0]?.cli).toBe(true)
+  })
+
+  it('leaves a session whose header was never read unmarked', async () => {
+    // The cold path answers from the projection cache without touching the
+    // log; a row built that way still knows its header (the persistence list
+    // supplies it), so only a genuinely absent header reads as unmarked.
+    expect(isCliSession(undefined)).toBe(false)
+    const scanner = new TodaySpendScanner(deps({
+      persistence: () => ({
+        listSnapshots: async () => [
+          { header: { id: 'cold-cli' as SessionId } as ScannerPersistedHeader, revision: SessionPersistenceRevision('r-a') },
+        ],
+        inspect: async () => ({ meta: {}, events: [pricedEvent(DAY_TIME, 0)] }),
+      }),
+    }))
+    const { sessions } = await scanner.scanSessions(DAY_KEY)
+    expect(sessions[0]?.cli).toBe(true)
   })
 })
 

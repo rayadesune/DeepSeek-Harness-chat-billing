@@ -31,7 +31,7 @@ import { delegatedSpendOf, isSubagentSession, liveSessionEvents, persistenceInsp
 export { DeepSeekBalanceGateway, fetchDeepSeekBalance, parseDeepSeekBalance } from "./balance.js";
 export { addEventContribution, applyBillingEvent, beijingDayKey, BillingFolder, computeSessionSpend, computeSessionTurnSpends, computeTodaySpend, computeTurnSpend, DEFAULT_MODEL_PRICING, DEFAULT_PEAK_HOURS, emptyBillingFoldState, emptyTodaySpend, FLASH_SERIES_RATE_CHANGE_AT, forkBoundaryOf, isPeak, isSeededSession, mergeTodaySpend, negateSpend, priceEvent, priceUsage, resolveBilling, SessionTurnSpendFolder, SpendAccumulator, subtractSpend, V4_PRO_ROUTE_SWITCH_AT, } from "./billing.js";
 export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit, foldOwnBilling } from "./projection.js";
-export { delegatedSpendOf, foldSessionTitle, isSubagentSession, liveSessionEvents, persistenceInspect, persistenceListSnapshots, rollUpSubagentSpend, TodaySpendCache, TodaySpendScanner, topLevelSessionOf, } from "./today-spend.js";
+export { delegatedSpendOf, foldSessionTitle, isCliSession, isSubagentSession, liveSessionEvents, persistenceInspect, persistenceListSnapshots, rollUpSubagentSpend, TodaySpendCache, TodaySpendScanner, topLevelSessionOf, } from "./today-spend.js";
 export const name = 'llm-billing';
 const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY';
 const BASE_URL_ENV = 'DEEPSEEK_BASE_URL';

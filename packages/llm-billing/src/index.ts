@@ -93,6 +93,7 @@ export type { BillingUnitFold, BillingUnitState } from './projection.ts'
 export {
   delegatedSpendOf,
   foldSessionTitle,
+  isCliSession,
   isSubagentSession,
   liveSessionEvents,
   persistenceInspect,

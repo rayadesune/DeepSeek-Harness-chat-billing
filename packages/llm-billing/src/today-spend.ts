@@ -458,7 +458,7 @@ export class TodaySpendScanner {
    */
   private async collectTodayEvents(
     dayKey: string,
-    onSession: (id: SessionId, fold: BillingFoldState, title: string | null, lineage: SessionHeaderSlice) => void,
+    onSession: (id: SessionId, fold: BillingFoldState, title: string | null, lineage: SessionHeaderSlice | undefined) => void,
   ): Promise<boolean> {
     const { sessions, persistence, maxEvents, logger, billing, catalog } = this.deps
     const liveIds = new Set<SessionId>()
@@ -477,7 +477,7 @@ export class TodaySpendScanner {
       id: SessionId,
       events: readonly SessionEvent[],
       seedLength: number,
-      lineage: SessionHeaderSlice,
+      lineage: SessionHeaderSlice | undefined,
     ): { fold: BillingFoldState; title: string | null } => {
       const folder = new BillingFolder(billing, catalog, seedLength)
       for (const event of events) {
@@ -509,7 +509,10 @@ export class TodaySpendScanner {
           folded += 1
           if (folded % SCAN_YIELD_SESSIONS === 0) await yieldToEventLoop()
           liveIds.add(session.id)
-          collect(session.id, liveSessionEvents(session), forkBoundaryOf(session), session.header ?? {})
+          // The header rides through as-is: an absent header stays `undefined`
+          // so the CLI marker (which reads `agentPreset` absence) can never
+          // fire on a session whose header this scan never saw.
+          collect(session.id, liveSessionEvents(session), forkBoundaryOf(session), session.header)
           if (truncated) break
         }
       }
@@ -576,7 +579,9 @@ export class TodaySpendScanner {
           folded += 1
           if (folded % SCAN_YIELD_SESSIONS === 0) await yieldToEventLoop()
           liveIds.add(session.id)
-          lineage.set(session.id, session.header ?? {})
+          // As on the events path: an absent header stays out of the lineage
+          // map, so an unknown session can never be marked as a CLI run.
+          if (session.header !== undefined) lineage.set(session.id, session.header)
           const born = session.header?.createdAt
           if (born !== undefined) createdAt.set(session.id, born)
           // The eager cell carries no title; fold it from the live log for
@@ -643,12 +648,14 @@ export class TodaySpendScanner {
     const ownSpend = new Map<SessionId, DeepSeekTodaySpend>()
     const createdAt = new Map<SessionId, number>()
     await this.collectTodayEvents(dayKey, (id, fold, title, sessionLineage) => {
-      lineage.set(id, sessionLineage)
+      // An absent header stays out of the map (see collectTodayEvents): an
+      // unknown session is never attributed a subagent parent or a CLI marker.
+      if (sessionLineage !== undefined) lineage.set(id, sessionLineage)
       // Titles cover every session the pass accounted for (not only today's
       // payers), so a parent that delegated without pricing anything itself is
       // titled even when its own row comes from the roll-up.
       titles.set(id, title)
-      const born = sessionLineage.createdAt
+      const born = sessionLineage?.createdAt
       if (born !== undefined) createdAt.set(id, born)
       // The whole-session total is the conversation read's material even when
       // the session priced nothing on the queried day.

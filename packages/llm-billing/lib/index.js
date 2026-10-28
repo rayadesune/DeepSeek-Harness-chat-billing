@@ -1588,6 +1588,23 @@ function foldSessionTitle(events) {
 	return null;
 }
 /**
+* Whether one session's durable header marks it as a CLI/headless one-shot
+* run: the GUI stamps `agentPreset` on every session it creates, while the
+* `dsh <prompt>` path never does. Only a PRESENT header without the field
+* counts — an unknown header (`undefined`) is never marked, so an unreadable
+* session cannot grow a wrong badge. The marker is DISPLAY-ONLY (a title
+* suffix in the ranking); a log predating the field would read as CLI, which
+* the archive sampled here never produced (every GUI session, v2 through v4,
+* carries the stamp).
+* @param header - the session's lineage slice; `undefined` is never CLI.
+* @returns true when the session was created outside the GUI by a one-shot run.
+*/
+function isCliSession(header) {
+	if (header === void 0) return false;
+	if (isSubagentSession(header)) return false;
+	return header.agentPreset === void 0;
+}
+/**
 * Whether one session's durable header marks it as a subagent child. Either
 * marker is enough: `origin` is DSH's navigation classification and
 * `delegationDepth` is its persisted recursion budget, so a header carrying
@@ -1632,7 +1649,10 @@ function topLevelSessionOf(id, lineage) {
 * ancestor's `total`; the ancestor's `ownTotal` keeps its own spend only. A
 * top-level session whose own day was empty but whose subagents priced
 * something still gets a row (with `ownTotal` 0), carrying the title the scan
-* resolved for it in `titles`.
+* resolved for it in `titles`. Each output row carries `cli` — whether the
+* TOP-LEVEL session behind the row was a CLI one-shot run (see
+* {@link isCliSession}) — so a ranking entry with no session-list counterpart
+* is labelled as such.
 * @param rows - one row per session that priced something today (own spends).
 * @param lineage - lineage of every session this scan saw, by id.
 * @param titles - resolved display titles by session id; a session absent from
@@ -1643,13 +1663,18 @@ function rollUpSubagentSpend(rows, lineage, titles = /* @__PURE__ */ new Map()) 
 	const merged = /* @__PURE__ */ new Map();
 	for (const row of rows) {
 		const target = topLevelSessionOf(row.sessionId, lineage);
+		const cli = isCliSession(lineage.get(target));
 		const carried = merged.get(target);
 		if (carried === void 0) {
-			merged.set(target, target === row.sessionId ? row : {
+			merged.set(target, target === row.sessionId ? {
+				...row,
+				cli
+			} : {
 				sessionId: target,
 				title: titles.get(target) ?? null,
 				total: row.total,
-				ownTotal: 0
+				ownTotal: 0,
+				cli
 			});
 			continue;
 		}
@@ -2212,7 +2237,7 @@ var TodaySpendScanner = class {
 					folded += 1;
 					if (folded % 8 === 0) await yieldToEventLoop();
 					liveIds.add(session.id);
-					collect(session.id, liveSessionEvents(session), forkBoundaryOf(session), session.header ?? {});
+					collect(session.id, liveSessionEvents(session), forkBoundaryOf(session), session.header);
 					if (truncated) break;
 				}
 			}
@@ -2272,7 +2297,7 @@ var TodaySpendScanner = class {
 					folded += 1;
 					if (folded % 8 === 0) await yieldToEventLoop();
 					liveIds.add(session.id);
-					lineage.set(session.id, session.header ?? {});
+					if (session.header !== void 0) lineage.set(session.id, session.header);
 					const born = session.header?.createdAt;
 					if (born !== void 0) createdAt.set(session.id, born);
 					const title = foldSessionTitle(liveSessionEvents(session));
@@ -2341,9 +2366,9 @@ var TodaySpendScanner = class {
 		const ownSpend = /* @__PURE__ */ new Map();
 		const createdAt = /* @__PURE__ */ new Map();
 		await this.collectTodayEvents(dayKey, (id, fold, title, sessionLineage) => {
-			lineage.set(id, sessionLineage);
+			if (sessionLineage !== void 0) lineage.set(id, sessionLineage);
 			titles.set(id, title);
-			const born = sessionLineage.createdAt;
+			const born = sessionLineage?.createdAt;
 			if (born !== void 0) createdAt.set(id, born);
 			ownSpend.set(id, fold.session);
 			if (fold.dayKey !== dayKey) return;
@@ -2751,4 +2776,4 @@ function apply(ctx, config) {
 	});
 }
 //#endregion
-export { BALANCE_CACHE_MS, BALANCE_TIMEOUT_MS, BILLING_UNIT_KEY, BillingFolder, Config, DEFAULT_MODEL_PRICING, DEFAULT_PEAK_HOURS, DeepSeekBalanceGateway, FLASH_SERIES_RATE_CHANGE_AT, PUBLIC_BASE_URL, SESSION_SPEND_CACHE_LIMIT, SESSION_TURN_SPEND_CACHE_LIMIT, SessionTurnSpendFolder, SpendAccumulator, TODAY_SPEND_CACHE_MS, TODAY_SPEND_MAX_EVENTS, TodaySpendCache, TodaySpendScanner, V4_PRO_ROUTE_SWITCH_AT, addEventContribution, apply, applyBillingEvent, beijingDayKey, billingTodaySpendDefinition, computeSessionSpend, computeSessionTurnSpends, computeTodaySpend, computeTurnSpend, delegatedSpendOf, emptyBillingFoldState, emptyTodaySpend, fetchDeepSeekBalance, foldBillingUnit, foldOwnBilling, foldSessionTitle, forkBoundaryOf, isPeak, isSeededSession, isSubagentSession, liveSessionEvents, mergeTodaySpend, name, negateSpend, parseDeepSeekBalance, persistenceInspect, persistenceListSnapshots, priceEvent, priceUsage, resolveBilling, rollUpSubagentSpend, subtractSpend, topLevelSessionOf };
+export { BALANCE_CACHE_MS, BALANCE_TIMEOUT_MS, BILLING_UNIT_KEY, BillingFolder, Config, DEFAULT_MODEL_PRICING, DEFAULT_PEAK_HOURS, DeepSeekBalanceGateway, FLASH_SERIES_RATE_CHANGE_AT, PUBLIC_BASE_URL, SESSION_SPEND_CACHE_LIMIT, SESSION_TURN_SPEND_CACHE_LIMIT, SessionTurnSpendFolder, SpendAccumulator, TODAY_SPEND_CACHE_MS, TODAY_SPEND_MAX_EVENTS, TodaySpendCache, TodaySpendScanner, V4_PRO_ROUTE_SWITCH_AT, addEventContribution, apply, applyBillingEvent, beijingDayKey, billingTodaySpendDefinition, computeSessionSpend, computeSessionTurnSpends, computeTodaySpend, computeTurnSpend, delegatedSpendOf, emptyBillingFoldState, emptyTodaySpend, fetchDeepSeekBalance, foldBillingUnit, foldOwnBilling, foldSessionTitle, forkBoundaryOf, isCliSession, isPeak, isSeededSession, isSubagentSession, liveSessionEvents, mergeTodaySpend, name, negateSpend, parseDeepSeekBalance, persistenceInspect, persistenceListSnapshots, priceEvent, priceUsage, resolveBilling, rollUpSubagentSpend, subtractSpend, topLevelSessionOf };

@@ -29,7 +29,7 @@ export type { BillingConfig, BillingConfigModel, BillingEventContribution, Billi
 export type * from './types.ts';
 export { BILLING_UNIT_KEY, billingTodaySpendDefinition, foldBillingUnit, foldOwnBilling } from './projection.ts';
 export type { BillingUnitFold, BillingUnitState } from './projection.ts';
-export { delegatedSpendOf, foldSessionTitle, isSubagentSession, liveSessionEvents, persistenceInspect, persistenceListSnapshots, rollUpSubagentSpend, TodaySpendCache, TodaySpendScanner, topLevelSessionOf, } from './today-spend.ts';
+export { delegatedSpendOf, foldSessionTitle, isCliSession, isSubagentSession, liveSessionEvents, persistenceInspect, persistenceListSnapshots, rollUpSubagentSpend, TodaySpendCache, TodaySpendScanner, topLevelSessionOf, } from './today-spend.ts';
 export type { ColdResolution, ScannerPersistedHeader, ScannerPersistence, ScannerPersistenceHandle, ScannerPersistedRead, ScannerSession, SessionHeaderSlice, SessionLineage, TodaySpendScannerDeps, } from './today-spend.ts';
 export declare const name = "llm-billing";
 /** Public API default; deployments may point elsewhere via $DEEPSEEK_BASE_URL. */

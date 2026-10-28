@@ -23,7 +23,29 @@ export interface SessionLineage {
     readonly origin?: 'subagent';
     /** Delegation depth: absent (zero) at the top level, parent depth + 1 for a subagent child. */
     readonly delegationDepth?: number;
+    /**
+     * The agent preset stamped on sessions the GUI creates (`standard` in
+     * practice). A CLI/headless one-shot run (`dsh <prompt>`) creates its
+     * session through a path that never stamps a preset, so an ABSENT value on a
+     * top-level session marks it as spawned outside the GUI. Read structurally
+     * off the durable header, so both runtime families serve it and a
+     * projection-cache-served row (which never re-reads events) still carries it.
+     */
+    readonly agentPreset?: string;
 }
+/**
+ * Whether one session's durable header marks it as a CLI/headless one-shot
+ * run: the GUI stamps `agentPreset` on every session it creates, while the
+ * `dsh <prompt>` path never does. Only a PRESENT header without the field
+ * counts — an unknown header (`undefined`) is never marked, so an unreadable
+ * session cannot grow a wrong badge. The marker is DISPLAY-ONLY (a title
+ * suffix in the ranking); a log predating the field would read as CLI, which
+ * the archive sampled here never produced (every GUI session, v2 through v4,
+ * carries the stamp).
+ * @param header - the session's lineage slice; `undefined` is never CLI.
+ * @returns true when the session was created outside the GUI by a one-shot run.
+ */
+export declare function isCliSession(header: SessionLineage | undefined): boolean;
 /**
  * Whether one session's durable header marks it as a subagent child. Either
  * marker is enough: `origin` is DSH's navigation classification and
@@ -55,7 +77,10 @@ export declare function topLevelSessionOf(id: SessionId, lineage: ReadonlyMap<Se
  * ancestor's `total`; the ancestor's `ownTotal` keeps its own spend only. A
  * top-level session whose own day was empty but whose subagents priced
  * something still gets a row (with `ownTotal` 0), carrying the title the scan
- * resolved for it in `titles`.
+ * resolved for it in `titles`. Each output row carries `cli` — whether the
+ * TOP-LEVEL session behind the row was a CLI one-shot run (see
+ * {@link isCliSession}) — so a ranking entry with no session-list counterpart
+ * is labelled as such.
  * @param rows - one row per session that priced something today (own spends).
  * @param lineage - lineage of every session this scan saw, by id.
  * @param titles - resolved display titles by session id; a session absent from

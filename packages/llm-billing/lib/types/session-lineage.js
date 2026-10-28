@@ -19,6 +19,25 @@ export function foldSessionTitle(events) {
     return null;
 }
 /**
+ * Whether one session's durable header marks it as a CLI/headless one-shot
+ * run: the GUI stamps `agentPreset` on every session it creates, while the
+ * `dsh <prompt>` path never does. Only a PRESENT header without the field
+ * counts — an unknown header (`undefined`) is never marked, so an unreadable
+ * session cannot grow a wrong badge. The marker is DISPLAY-ONLY (a title
+ * suffix in the ranking); a log predating the field would read as CLI, which
+ * the archive sampled here never produced (every GUI session, v2 through v4,
+ * carries the stamp).
+ * @param header - the session's lineage slice; `undefined` is never CLI.
+ * @returns true when the session was created outside the GUI by a one-shot run.
+ */
+export function isCliSession(header) {
+    if (header === undefined)
+        return false;
+    if (isSubagentSession(header))
+        return false;
+    return header.agentPreset === undefined;
+}
+/**
  * Whether one session's durable header marks it as a subagent child. Either
  * marker is enough: `origin` is DSH's navigation classification and
  * `delegationDepth` is its persisted recursion budget, so a header carrying
@@ -68,7 +87,10 @@ export function topLevelSessionOf(id, lineage) {
  * ancestor's `total`; the ancestor's `ownTotal` keeps its own spend only. A
  * top-level session whose own day was empty but whose subagents priced
  * something still gets a row (with `ownTotal` 0), carrying the title the scan
- * resolved for it in `titles`.
+ * resolved for it in `titles`. Each output row carries `cli` — whether the
+ * TOP-LEVEL session behind the row was a CLI one-shot run (see
+ * {@link isCliSession}) — so a ranking entry with no session-list counterpart
+ * is labelled as such.
  * @param rows - one row per session that priced something today (own spends).
  * @param lineage - lineage of every session this scan saw, by id.
  * @param titles - resolved display titles by session id; a session absent from
@@ -79,13 +101,16 @@ export function rollUpSubagentSpend(rows, lineage, titles = new Map()) {
     const merged = new Map();
     for (const row of rows) {
         const target = topLevelSessionOf(row.sessionId, lineage);
+        // The row speaks for the TOP-LEVEL session, so the CLI marker reads that
+        // session's own header — a subagent child's header never badges its parent.
+        const cli = isCliSession(lineage.get(target));
         const carried = merged.get(target);
         if (carried === undefined) {
             // A row's own session keeps its own total as `ownTotal`; a row created
             // for an ancestor that priced nothing today carries zero there.
             merged.set(target, target === row.sessionId
-                ? row
-                : { sessionId: target, title: titles.get(target) ?? null, total: row.total, ownTotal: 0 });
+                ? { ...row, cli }
+                : { sessionId: target, title: titles.get(target) ?? null, total: row.total, ownTotal: 0, cli });
             continue;
         }
         merged.set(target, { ...carried, total: carried.total + row.total });

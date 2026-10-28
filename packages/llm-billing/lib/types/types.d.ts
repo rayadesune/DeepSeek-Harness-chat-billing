@@ -125,6 +125,15 @@ export interface DeepSeekTodaySessionSpend {
      * is the conversation's day, this is the session's own share of it.
      */
     ownTotal: number;
+    /**
+     * Whether the session was spawned outside the GUI — a CLI/headless one-shot
+     * run (`dsh <prompt>`), whose durable header carries no `agentPreset` while
+     * every session the GUI creates stamps one. Such a row has no counterpart in
+     * the session list, so the panel marks its title (`… (CLI)`) to make a
+     * ranking entry the user cannot otherwise locate explainable. `undefined`
+     * (older wire) reads as false: no marker.
+     */
+    cli?: boolean;
 }
 /**
  * Today's per-session billed spend. One row per top-level session that priced
