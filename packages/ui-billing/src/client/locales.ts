@@ -41,7 +41,11 @@ export const zh = {
   // The composer spend card: one row per billing bucket, under a heading that
   // names the amount. The three row labels deliberately repeat DSH's token-card
   // wording (`未缓存输入` / `缓存读取` / `输出`), so the cost card and the token
-  // card read as one family even though only DeepSeek/MiMo usage is priced.
+  // card read as one family even though only DeepSeek/MiMo usage is priced. A
+  // leading row is the delegated-subagent subtotal, when there is one — placed
+  // before the three own buckets so the delegation cost reads first — and the
+  // card's rows then still add up to the heading, with the subagent amount
+  // broken out instead of folded into the three buckets.
   'card.title': '花费金额',
   'card.aria': '本轮对话花费：{amount}',
   // The bare bucket names, in DSH's wording and row order (ui-chat's token
@@ -50,6 +54,19 @@ export const zh = {
   'label.bucket.input': '未缓存输入',
   'label.bucket.cacheRead': '缓存读取',
   'label.bucket.output': '输出',
+  // The composer pill's subagent rider and the card's leading row label: the
+  // spend of every subagent session this conversation delegated, listed AFTER
+  // the main amount with the same ` · ` dot separation the official composer
+  // pill uses between a token count and its cache-hit share. The label keeps a
+  // space before the amount (`子会话 ￥…`), the way the official rider reads
+  // (`缓存命中 98%`), and the rider is hidden — like that one — when there is
+  // nothing to report.
+  'label.subagent': '子会话 {amount}',
+  'label.bucket.subagent': '子会话',
+  // The ranking's marker for a session spawned outside the GUI (a CLI one-shot
+  // run): a parenthetical appended to the title, so a ranking entry the
+  // session list does not carry is explainable at a glance.
+  'mark.cli': '（CLI）',
   'stat.none': '暂无消耗记录',
   // The OTHER kind of empty: usage was measured but matched no pricing row at
   // all, so nothing could be billed. It looks identical to `stat.none` in a raw
@@ -80,11 +97,11 @@ export const zh = {
   // Keep this SHORT — the full rate schedule lives in the package READMEs. The lines follow the panel top
   // to bottom: the pricing estimate, the amount rider (today's consumption from
   // the balance series itself, with the caliber that produces it), and what a
-  // conversation's amount covers (its own spend plus the subagent sessions it
-  // delegated — the ranking rows and the composer pill both merge them); the
-  // version stays the last line, flush with the bubble's left edge, with no
+  // conversation's amount covers (its own spend; the subagent sessions it
+  // delegated are listed after it with a ` · ` rider, and the ranking rows merge
+  // them); the version stays the last line, flush with the bubble's left edge, with no
   // blank line before it.
-  'info.hint': '估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nAPI 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。\n会话花费含其委派的子代理会话。\nv{version}',
+  'info.hint': '估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nAPI 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。\n会话花费为主会话自身；子代理会话在后单列，今日排行合并计入。\nv{version}',
   'badge.aria': 'DeepSeek 额度：{amount}',
   'panel.aria': 'DeepSeek 额度详情',
   'label.sessionRanking': '今日会话花费',
@@ -114,7 +131,9 @@ export const en: Record<BillingKey, string> = {
   'label.cost.cacheRead': 'Cached input {amount}',
   'label.cost.output': 'Output {amount}',
   // Same key set as the Chinese dictionary; the row labels mirror DSH's
-  // token-card wording (Uncached input / Cached input / Output).
+  // token-card wording (Uncached input / Cached input / Output). A leading row
+  // is the delegated-subagent subtotal, when there is one (see the Chinese
+  // dictionary note).
   'card.title': 'Spend',
   'card.aria': 'This conversation’s spend: {amount}',
   // As in the Chinese dictionary: the bare bucket names, shared by the panel's
@@ -122,6 +141,14 @@ export const en: Record<BillingKey, string> = {
   'label.bucket.input': 'Uncached input',
   'label.bucket.cacheRead': 'Cached input',
   'label.bucket.output': 'Output',
+  // As in the Chinese dictionary: the pill's subagent rider (the same ` · `
+  // dot separation the official composer pill uses) and the card's leading row
+  // label, hidden while the conversation delegated nothing priced.
+  'label.subagent': 'Subagents {amount}',
+  'label.bucket.subagent': 'Subagents',
+  // As in the Chinese dictionary: the ranking's marker for a CLI-spawned
+  // session, appended parenthetically to the title.
+  'mark.cli': ' (CLI)',
   'stat.none': 'No usage recorded',
   // The other kind of empty (see the Chinese dictionary): usage measured, but
   // no rate row matched it, so nothing could be billed.
@@ -141,7 +168,7 @@ export const en: Record<BillingKey, string> = {
   // wide and never scrolls. The lines mirror the Chinese dictionary —
   // the estimate, the amount rider and the caliber behind it, and what a
   // conversation's amount covers — with the version as the last line.
-  'info.hint': 'Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).\nThe figure after the API balance is today\'s consumption: the day\'s first queried balance minus the current one, plus today\'s top-ups (identified in ¥10 steps).\nA conversation\'s spend includes the subagent sessions it delegated.\nv{version}',
+  'info.hint': 'Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).\nThe figure after the API balance is today\'s consumption: the day\'s first queried balance minus the current one, plus today\'s top-ups (identified in ¥10 steps).\nA conversation\'s amount is its own spend; its subagents are listed after it, while the today ranking merges them in.\nv{version}',
   'badge.aria': 'DeepSeek balance {amount}',
   'panel.aria': 'DeepSeek balance details',
   'label.sessionRanking': 'Today session spend',

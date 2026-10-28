@@ -18,6 +18,9 @@ export declare const zh: {
     readonly 'label.bucket.input': "未缓存输入";
     readonly 'label.bucket.cacheRead': "缓存读取";
     readonly 'label.bucket.output': "输出";
+    readonly 'label.subagent': "子会话 {amount}";
+    readonly 'label.bucket.subagent': "子会话";
+    readonly 'mark.cli': "（CLI）";
     readonly 'stat.none': "暂无消耗记录";
     readonly 'stat.unpricedOnly': "有消耗，但未匹配到费率";
     readonly 'notice.unpriced': "未计价用量：{models}（无匹配费率）";
@@ -27,7 +30,7 @@ export declare const zh: {
     readonly 'notice.none': "该 API key 当前没有可用余额";
     readonly 'action.refresh': "刷新";
     readonly 'info.aria': "花费说明";
-    readonly 'info.hint': "估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nAPI 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。\n会话花费含其委派的子代理会话。\nv{version}";
+    readonly 'info.hint': "估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nAPI 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。\n会话花费为主会话自身；子代理会话在后单列，今日排行合并计入。\nv{version}";
     readonly 'badge.aria': "DeepSeek 额度：{amount}";
     readonly 'panel.aria': "DeepSeek 额度详情";
     readonly 'label.sessionRanking': "今日会话花费";

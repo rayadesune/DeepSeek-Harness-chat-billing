@@ -56,9 +56,9 @@ export interface BalanceBadgeInjected {
   /**
    * Read the subagent part of one conversation's billed spend: every subagent
    * session that session delegated, transitively, across every day. The
-   * composer spend pill is the surface that shows it — it adds this subtotal to
-   * the live own-session value, so the amount reads as the whole
-   * conversation's. `force` behaves as in {@link getTodaySpend}.
+   * composer spend pill is the surface that shows it — as a ` · ` rider after
+   * the main session amount and as the cost card's fourth row, next to rather
+   * than merged into that amount. `force` behaves as in {@link getTodaySpend}.
    */
   getDelegatedSpend: (sessionId: SessionId, force?: boolean) => Promise<DeepSeekDelegatedSpend>
   /**

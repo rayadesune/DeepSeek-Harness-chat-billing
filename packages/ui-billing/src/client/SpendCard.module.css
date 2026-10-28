@@ -69,6 +69,16 @@
   text-overflow: ellipsis;
 }
 
+/* The middot between the main amount and the subagent rider, copied from
+   ui-chat's StatsPills `.sep` (the same span its `11.2M tok · 缓存命中 97%`
+   pill uses): the official separator colour, and a 6px inset on each side so
+   the two segments breathe like the neighbouring official pills. A bare text
+   ` · ` inherits the amount's tone and sits too tight. */
+.sep {
+  margin: 0 6px;
+  color: var(--dsw-alias-separator-primary);
+}
+
 /* Narrow viewport: the amount folds away and the glyph alone carries the
    entry, so the stat row still fits beside the built-in pills. The built-in
    composer pill (StatsPills) has no such rule, but the sibling per-message

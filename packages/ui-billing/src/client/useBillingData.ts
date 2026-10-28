@@ -64,11 +64,10 @@ export interface BillingData {
   /**
    * The WHOLE conversation's billed spend: this session's own spend (live, from
    * the pushed projection or the `getSessionSpend` fallback) plus the subagent
-   * sessions it delegated (the last `getDelegatedSpend` read), so the amount a
-   * user reads is the conversation's, not just its own log's. No longer
-   * rendered here — the badge's line and its panel are account-level, and the
-   * conversation's amount is the composer pill's — but the reads producing it
-   * stay (see the hook's note below).
+   * sessions it delegated (the last `getDelegatedSpend` read), summed. No
+   * surface renders this merged figure any more — the composer pill reports the
+   * main session amount with the subagent subtotal as a separate rider — but
+   * the reads producing it stay (see the hook's note below).
    */
   spend: DeepSeekSessionSpend | null
   todaySpend: DeepSeekTodaySpend | null

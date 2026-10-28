@@ -7,12 +7,19 @@
  * spend's three billing buckets where that card shows its token buckets:
  * uncached input, cache read, output.
  *
+ * The pill's main amount is the MAIN session's spend — the same caliber the
+ * official composer pill counts tokens in — with the subagent sessions this
+ * conversation delegated broken out after it as a ` · ` rider (the official
+ * pill's own cache-hit rider format) and as the card's fourth row. Nothing
+ * merges the two halves into one figure any more: the total the card heads
+ * with is the sum of its four rows, and a pill with no subagent spend renders
+ * exactly as it did before the rider existed.
+ *
  * The amounts ride the host-pushed `billingTodaySpend` projection, so the pill
  * is live with zero Remote calls; `billing/getSessionSpend` is the fallback for
  * an assembly whose projection registry is absent (the same ladder the header
- * badge walks in `useBillingData`), and `billing/getDelegatedSpend` adds the
- * subagent sessions this conversation delegated — the same own+delegated merge
- * that badge's second line makes, so the pill and the badge never disagree.
+ * badge walks in `useBillingData`), and `billing/getDelegatedSpend` reads the
+ * subagent subtotal the rider and the fourth row report.
  * @module @rayadesu/dsh-client-ui-billing/SpendCard
  */
 
@@ -29,10 +36,17 @@ import { formatSpendSignificant } from './format.ts'
 import { BillingMarkIcon } from './icons.tsx'
 import { NS } from './locales.ts'
 import { spendBucketsOf } from './spendBuckets.ts'
-import { sumSpends } from './spends.ts'
 import { TURN_SETTLE_DEBOUNCE_MS } from './useBillingData.ts'
 import { MEASURE_STYLE, useCardDialog } from './useCardDialog.ts'
 import css from './SpendCard.module.css'
+
+/**
+ * The middot that separates the pill's two segments. It renders inside a
+ * `sep`-classed span (see the JSX and `SpendCard.module.css`) so it carries
+ * ui-chat's official separator colour and 6px inset rather than sitting tight
+ * against the amounts as a bare text run would.
+ */
+const DOT_SEPARATOR = '·'
 
 /** Injected face: this conversation's priced spend and its subagent subtotal. */
 export interface SpendCardInjected {
@@ -40,9 +54,10 @@ export interface SpendCardInjected {
   getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>
   /**
    * Read the subagent part of one conversation's billed spend: every subagent
-   * session it delegated, transitively, across every day. The same face the
-   * header badge reads, so both surfaces count the conversation the same way.
-   * `force` bypasses the host-side cache — the turn-settled read passes it.
+   * session it delegated, transitively, across every day. The pill's ` ·`
+   * rider and the card's fourth row report it, next to — never merged into —
+   * the main session amount. `force` bypasses the host-side cache — the
+   * turn-settled read passes it.
    */
   getDelegatedSpend: (sessionId: SessionId, force?: boolean) => Promise<DeepSeekDelegatedSpend>
 }
@@ -73,10 +88,10 @@ function Row({ label, value }: { label: string; value: string }) {
  *
  * The pill is an inline flex item of DSH's composer stat row, so it sits beside
  * the built-in time/token pills (see SpendCard.module.css); its glyph, tone,
- * typography, and hover fill are copied from those pills. The amount is this
- * conversation's billed spend — this session's own spend plus the subagent
- * sessions it delegated — and a session that priced nothing anywhere renders no
- * entry at all.
+ * typography, and hover fill are copied from those pills. The main amount is
+ * this session's own billed spend, with the subagent sessions it delegated
+ * riding after it as a ` · 子会话 ￥…` segment — and a session that priced
+ * nothing itself and delegated nothing priced renders no entry at all.
  * @param props - the session identity, the runtime hooks, the Remote face, and the locale seat.
  * @returns the pill plus its portaled card, or null when there is nothing to show.
  */
@@ -168,22 +183,36 @@ export function SpendCard({ sessionId, useSession, useProjection, getSessionSpen
   // snapshot when present, because it is already current for this session and
   // costs no round trip.
   const own = projected === undefined ? fallback : projected.session
-  // What the pill and the card show is the CONVERSATION: the own part above
-  // plus the subagent sessions it delegated, merged exactly as the badge merges
-  // them (`useBillingData`). An own amount of `null` stays null even with a
-  // subtotal in hand — there is no own spend to attach one to — and an absent
-  // subtotal leaves the own amount as it is.
-  const spend = own === null ? null : delegated === null ? own : sumSpends(own, delegated)
+  // The pill's main amount is the MAIN session's spend only — the same caliber
+  // the official composer pill counts tokens in (a session's own usage, no
+  // delegation rolled in). The subagent sessions this conversation delegated
+  // are the RIDER after it (` · 子会话 ￥…`), the same ` · `-separated second
+  // segment the official pill uses for its cache-hit share, and the card's
+  // fourth row — never folded into the main figure or the three buckets.
+  const delegatedTotal = delegated?.total ?? 0
+  const ownPriced = own !== null && own.models.length > 0
   // Hooks stay above the early return: a session that later prices something
   // must not mount a different hook sequence than one that never did.
-  const buckets = useMemo(() => (spend === null ? null : spendBucketsOf(spend)), [spend])
-  // No priced row means nothing was billed here (no DeepSeek/MiMo usage, or the
-  // Remote failed): no pill, no card. The test is on the MERGED amount, so a
-  // session that priced nothing itself but delegated a subagent that did still
-  // shows. A model row that priced to zero still shows, so "priced ¥0" never
-  // reads as "not priced yet".
-  if (buckets === null || spend === null || spend.models.length === 0) return null
-  const totalText = formatSpendSignificant(buckets.total)
+  const buckets = useMemo(() => (own === null ? null : spendBucketsOf(own)), [own])
+  // No priced row anywhere means nothing was billed here (no DeepSeek/MiMo
+  // usage, or the Remote failed): no pill, no card. A model row that priced to
+  // zero still shows, so "priced ¥0" never reads as "not priced yet".
+  if (buckets === null || own === null || (!ownPriced && delegatedTotal <= 0)) return null
+  const ownText = ownPriced ? formatSpendSignificant(buckets.total) : undefined
+  // The rider carries its `label.subagent` prefix (`子会话`) so the pill's
+  // visible text and its aria-label describe the same two segments — a bare
+  // amount in the aria would drop the word that names what the figure is.
+  const subAmount = delegatedTotal > 0 ? formatSpendSignificant(delegatedTotal) : undefined
+  const delegatedText = subAmount === undefined ? undefined : t('label.subagent', { amount: subAmount })
+  // The two segments are joined by the official pill's own separator: a
+  // middot inside a `sep` span (`ui-chat`'s `StatsPills.module.css`), which
+  // colours it with `--dsw-alias-separator-primary` and insets it
+  // `margin: 0 6px`. A bare ` · ` text run sits too tight and inherits the
+  // amount's tone, so the pill would not match its official neighbours.
+  const aria = [ownText, delegatedText]
+    .filter(value => value !== undefined)
+    .join(` ${DOT_SEPARATOR} `)
+  const heading = formatSpendSignificant(buckets.total + delegatedTotal)
   return (
     <div className={css.root} data-spend-card>
       <span ref={rootRef} className={css.anchor}>
@@ -192,11 +221,23 @@ export function SpendCard({ sessionId, useSession, useProjection, getSessionSpen
           className={css.pill}
           aria-haspopup="dialog"
           aria-expanded={open}
-          aria-label={t('card.aria', { amount: totalText })}
+          aria-label={t('card.aria', { amount: aria })}
           onClick={() => { setOpen(!open) }}
         >
           <BillingMarkIcon size={14} />
-          <span className={css.label}>{totalText}</span>
+          <span className={css.label}>
+            {ownText}
+            {delegatedText !== undefined && (
+              <>
+                <span className={css.sep} aria-hidden>{DOT_SEPARATOR}</span>
+                {/* `delegatedText` already carries the `label.subagent` prefix
+                    (the pill and its aria-label share that one string), so it
+                    renders verbatim — wrapping it in `t()` again doubled the
+                    `子会话` word. */}
+                {delegatedText}
+              </>
+            )}
+          </span>
         </button>
         {open && createPortal(
           <div
@@ -211,10 +252,18 @@ export function SpendCard({ sessionId, useSession, useProjection, getSessionSpen
                 <BillingMarkIcon size={14} />
                 {t('card.title')}
               </span>
-              <span className={css.titleValue}>{totalText}</span>
+              <span className={css.titleValue}>{heading}</span>
             </div>
             <div className={css.titleRule} aria-hidden />
             <dl className={css.details} data-spend-buckets>
+              {/*
+                The subagent subtotal leads, so a reader sees the delegation
+                cost before this session's own three buckets; the four rows
+                still sum to the total the card heads with.
+              */}
+              {subAmount !== undefined && (
+                <Row label={t('label.bucket.subagent')} value={subAmount} />
+              )}
               <Row label={t('label.bucket.input')} value={formatSpendSignificant(buckets.uncachedInput)} />
               <Row label={t('label.bucket.cacheRead')} value={formatSpendSignificant(buckets.cacheRead)} />
               <Row label={t('label.bucket.output')} value={formatSpendSignificant(buckets.output)} />

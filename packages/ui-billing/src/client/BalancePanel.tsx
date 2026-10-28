@@ -270,8 +270,13 @@ export function BalancePanel({ amount, balanceDaySpend, todaySpend, sessionsSpen
             <div key={row.sessionId} className={css.rankingRow}>
               <span className={css.rankingIndex}>{index + 1}</span>
               <span className={css.rankingDot} aria-hidden>{' · '}</span>
+              {/*
+                A CLI one-shot run has no session-list counterpart, so its
+                title carries a parenthetical marker — otherwise a ranking
+                entry the user cannot locate anywhere reads as a bug.
+              */}
               <span className={css.rankingName} title={row.title ?? undefined}>
-                {row.title ?? t('stat.untitled')}
+                {row.title ?? t('stat.untitled')}{row.cli === true ? t('mark.cli') : ''}
               </span>
               <span className={css.rankingAmount}>{formatSpendSignificant(row.total)}</span>
             </div>

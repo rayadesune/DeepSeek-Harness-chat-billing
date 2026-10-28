@@ -5343,7 +5343,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"sessionId": intersection(string(), unknown()),
 			"title": union([literal(null), string()]),
 			"total": number(),
-			"ownTotal": number()
+			"ownTotal": number(),
+			"cli": boolean().optional()
 		})) });
 		let _rayadesu_dsh_llm_billing_billing_getTodaySpend_parameter_0$schema$value;
 		const _rayadesu_dsh_llm_billing_billing_getTodaySpend_parameter_0$schema = () => _rayadesu_dsh_llm_billing_billing_getTodaySpend_parameter_0$schema$value ??= union([
@@ -5858,10 +5859,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* @module @rayadesu/dsh-client-ui-billing/version
 		*/
 		/** The installed plugin version, e.g. `0.3.10`; `dev` when nothing stamped one. */
-		const PLUGIN_VERSION = "1.0.0";
+		const PLUGIN_VERSION = "1.1.0";
 		//#endregion
 		//#region \0dsh-css:BalanceBadge.module.css.mjs
-		const css$2 = ".F7tDLW_root{position:relative}.F7tDLW_trigger{background:var(--dsw-alias-fill-l2);min-height:32px;color:var(--dsw-alias-label-secondary);cursor:pointer;border:0;border-radius:8px;align-items:center;gap:4px;padding:4px 8px;display:inline-flex}.F7tDLW_trigger:hover,.F7tDLW_trigger:focus-visible{color:var(--dsw-alias-label-primary)}.F7tDLW_trigger svg{transition:transform .12s}.F7tDLW_chevronOpen{transform:rotate(180deg)}.F7tDLW_triggerLines{text-align:left;flex-direction:column;align-items:flex-start;gap:0;display:flex}.F7tDLW_linePrimary{font-variant-numeric:tabular-nums;font-size:12px;line-height:16px}.F7tDLW_lineSecondary{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:11px;line-height:15px}.F7tDLW_unavailable{color:var(--dsw-alias-label-tertiary)}.F7tDLW_inlineIcon{color:var(--dsw-alias-label-tertiary);flex:none}.F7tDLW_spinning{color:var(--dsw-alias-label-tertiary);flex:none;animation:.8s linear infinite F7tDLW_spin}@keyframes F7tDLW_spin{to{transform:rotate(360deg)}}.F7tDLW_panel{--billing-type-1-size:11px;--billing-type-1-line:16px;--billing-type-1-tone:var(--dsw-alias-label-tertiary);--billing-type-2-size:12px;--billing-type-2-line:18px;--billing-type-2-tone:var(--dsw-alias-label-secondary);--billing-type-3-size:13px;--billing-type-3-line:18px;--billing-type-3-tone:var(--dsw-alias-label-primary);z-index:100;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-menu);width:336px;max-width:min(360px,100vw - 32px);backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-shadow-lv3);border-radius:12px;flex-direction:column;gap:2px;padding:6px;display:flex;position:absolute;top:calc(100% + 6px);right:0}.F7tDLW_amountRow{border-radius:8px;justify-content:space-between;align-items:center;gap:8px;padding:6px 8px;display:flex}.F7tDLW_amountLabel{color:var(--billing-type-3-tone);font-size:var(--billing-type-3-size);line-height:var(--billing-type-3-line);font-variant-numeric:tabular-nums}.F7tDLW_amountRow>.F7tDLW_amountLabel{font-size:15px;line-height:22px}.F7tDLW_todayHit,.F7tDLW_amountToday{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;margin-left:5px}.F7tDLW_spendRow{border-top:1px solid var(--dsw-alias-border-l2);border-radius:0;justify-content:space-between;align-items:center;gap:8px;padding:8px 8px 6px;display:flex}.F7tDLW_dayBucketRow{align-items:center;padding:2px 8px;display:flex}.F7tDLW_dayBucketRow:last-child{padding-bottom:6px}.F7tDLW_costBreakdown{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums}.F7tDLW_amountActions{align-items:center;gap:2px;display:inline-flex}.F7tDLW_infoButton,.F7tDLW_refreshButton{width:24px;height:24px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:0;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}.F7tDLW_infoButton:hover,.F7tDLW_infoButton:focus-visible,.F7tDLW_refreshButton:hover,.F7tDLW_refreshButton:focus-visible{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-fill-l2)}.F7tDLW_hint{flex-direction:column;gap:6px;display:flex}.F7tDLW_hintLine{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}.F7tDLW_hintVersion{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px}.F7tDLW_ranking{border-top:1px solid var(--dsw-alias-border-l2);flex-direction:column;gap:0;margin-top:5px;padding-top:2px;display:flex}.F7tDLW_rankingTitle{color:var(--billing-type-2-tone);font-size:var(--billing-type-2-size);line-height:var(--billing-type-2-line);padding:6px 8px 2px}.F7tDLW_rankingRow{border-radius:8px;align-items:baseline;gap:0;min-width:0;padding:3px 8px;display:flex}.F7tDLW_rankingRow:hover{background:var(--dsw-alias-fill-l2)}.F7tDLW_rankingIndex{width:16px;color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;text-align:right;flex:none}.F7tDLW_rankingDot{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;white-space:pre;flex:none}.F7tDLW_rankingName{min-width:0;color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}.F7tDLW_rankingAmount{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;flex:none;margin-left:8px}.F7tDLW_rankingMore{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);padding:2px 8px 4px}";
+		const css$2 = "._4_Wqcq_root{position:relative}._4_Wqcq_trigger{background:var(--dsw-alias-fill-l2);min-height:32px;color:var(--dsw-alias-label-secondary);cursor:pointer;border:0;border-radius:8px;align-items:center;gap:4px;padding:4px 8px;display:inline-flex}._4_Wqcq_trigger:hover,._4_Wqcq_trigger:focus-visible{color:var(--dsw-alias-label-primary)}._4_Wqcq_trigger svg{transition:transform .12s}._4_Wqcq_chevronOpen{transform:rotate(180deg)}._4_Wqcq_triggerLines{text-align:left;flex-direction:column;align-items:flex-start;gap:0;display:flex}._4_Wqcq_linePrimary{font-variant-numeric:tabular-nums;font-size:12px;line-height:16px}._4_Wqcq_lineSecondary{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:11px;line-height:15px}._4_Wqcq_unavailable{color:var(--dsw-alias-label-tertiary)}._4_Wqcq_inlineIcon{color:var(--dsw-alias-label-tertiary);flex:none}._4_Wqcq_spinning{color:var(--dsw-alias-label-tertiary);flex:none;animation:.8s linear infinite _4_Wqcq_spin}@keyframes _4_Wqcq_spin{to{transform:rotate(360deg)}}._4_Wqcq_panel{--billing-type-1-size:11px;--billing-type-1-line:16px;--billing-type-1-tone:var(--dsw-alias-label-tertiary);--billing-type-2-size:12px;--billing-type-2-line:18px;--billing-type-2-tone:var(--dsw-alias-label-secondary);--billing-type-3-size:13px;--billing-type-3-line:18px;--billing-type-3-tone:var(--dsw-alias-label-primary);z-index:100;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-menu);width:336px;max-width:min(360px,100vw - 32px);backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-shadow-lv3);border-radius:12px;flex-direction:column;gap:2px;padding:6px;display:flex;position:absolute;top:calc(100% + 6px);right:0}._4_Wqcq_amountRow{border-radius:8px;justify-content:space-between;align-items:center;gap:8px;padding:6px 8px;display:flex}._4_Wqcq_amountLabel{color:var(--billing-type-3-tone);font-size:var(--billing-type-3-size);line-height:var(--billing-type-3-line);font-variant-numeric:tabular-nums}._4_Wqcq_amountRow>._4_Wqcq_amountLabel{font-size:15px;line-height:22px}._4_Wqcq_todayHit,._4_Wqcq_amountToday{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;margin-left:5px}._4_Wqcq_spendRow{border-top:1px solid var(--dsw-alias-border-l2);border-radius:0;justify-content:space-between;align-items:center;gap:8px;padding:8px 8px 6px;display:flex}._4_Wqcq_dayBucketRow{align-items:center;padding:2px 8px;display:flex}._4_Wqcq_dayBucketRow:last-child{padding-bottom:6px}._4_Wqcq_costBreakdown{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums}._4_Wqcq_amountActions{align-items:center;gap:2px;display:inline-flex}._4_Wqcq_infoButton,._4_Wqcq_refreshButton{width:24px;height:24px;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:0 0;border:0;border-radius:6px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}._4_Wqcq_infoButton:hover,._4_Wqcq_infoButton:focus-visible,._4_Wqcq_refreshButton:hover,._4_Wqcq_refreshButton:focus-visible{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-fill-l2)}._4_Wqcq_hint{flex-direction:column;gap:6px;display:flex}._4_Wqcq_hintLine{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}._4_Wqcq_hintVersion{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;font-size:11px;line-height:16px}._4_Wqcq_ranking{border-top:1px solid var(--dsw-alias-border-l2);flex-direction:column;gap:0;margin-top:5px;padding-top:2px;display:flex}._4_Wqcq_rankingTitle{color:var(--billing-type-2-tone);font-size:var(--billing-type-2-size);line-height:var(--billing-type-2-line);padding:6px 8px 2px}._4_Wqcq_rankingRow{border-radius:8px;align-items:baseline;gap:0;min-width:0;padding:3px 8px;display:flex}._4_Wqcq_rankingRow:hover{background:var(--dsw-alias-fill-l2)}._4_Wqcq_rankingIndex{width:16px;color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;text-align:right;flex:none}._4_Wqcq_rankingDot{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;white-space:pre;flex:none}._4_Wqcq_rankingName{min-width:0;color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;text-overflow:ellipsis;white-space:nowrap;flex:1;overflow:hidden}._4_Wqcq_rankingAmount{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);font-variant-numeric:tabular-nums;flex:none;margin-left:8px}._4_Wqcq_rankingMore{color:var(--billing-type-1-tone);font-size:var(--billing-type-1-size);line-height:var(--billing-type-1-line);padding:2px 8px 4px}";
 		const tagId$2 = "@rayadesu/dsh-client-ui-billing/BalanceBadge.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$2) + "]") === null) {
 			const tag = document.createElement("style");
@@ -5871,38 +5872,38 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(tag);
 		}
 		var BalanceBadge_module_css_default = {
-			"amountActions": "F7tDLW_amountActions",
-			"amountLabel": "F7tDLW_amountLabel",
-			"amountRow": "F7tDLW_amountRow",
-			"amountToday": "F7tDLW_amountToday",
-			"chevronOpen": "F7tDLW_chevronOpen",
-			"costBreakdown": "F7tDLW_costBreakdown",
-			"dayBucketRow": "F7tDLW_dayBucketRow",
-			"hint": "F7tDLW_hint",
-			"hintLine": "F7tDLW_hintLine",
-			"hintVersion": "F7tDLW_hintVersion",
-			"infoButton": "F7tDLW_infoButton",
-			"inlineIcon": "F7tDLW_inlineIcon",
-			"linePrimary": "F7tDLW_linePrimary",
-			"lineSecondary": "F7tDLW_lineSecondary",
-			"panel": "F7tDLW_panel",
-			"ranking": "F7tDLW_ranking",
-			"rankingAmount": "F7tDLW_rankingAmount",
-			"rankingDot": "F7tDLW_rankingDot",
-			"rankingIndex": "F7tDLW_rankingIndex",
-			"rankingMore": "F7tDLW_rankingMore",
-			"rankingName": "F7tDLW_rankingName",
-			"rankingRow": "F7tDLW_rankingRow",
-			"rankingTitle": "F7tDLW_rankingTitle",
-			"refreshButton": "F7tDLW_refreshButton",
-			"root": "F7tDLW_root",
-			"spendRow": "F7tDLW_spendRow",
-			"spin": "F7tDLW_spin",
-			"spinning": "F7tDLW_spinning",
-			"todayHit": "F7tDLW_todayHit",
-			"trigger": "F7tDLW_trigger",
-			"triggerLines": "F7tDLW_triggerLines",
-			"unavailable": "F7tDLW_unavailable"
+			"amountActions": "_4_Wqcq_amountActions",
+			"amountLabel": "_4_Wqcq_amountLabel",
+			"amountRow": "_4_Wqcq_amountRow",
+			"amountToday": "_4_Wqcq_amountToday",
+			"chevronOpen": "_4_Wqcq_chevronOpen",
+			"costBreakdown": "_4_Wqcq_costBreakdown",
+			"dayBucketRow": "_4_Wqcq_dayBucketRow",
+			"hint": "_4_Wqcq_hint",
+			"hintLine": "_4_Wqcq_hintLine",
+			"hintVersion": "_4_Wqcq_hintVersion",
+			"infoButton": "_4_Wqcq_infoButton",
+			"inlineIcon": "_4_Wqcq_inlineIcon",
+			"linePrimary": "_4_Wqcq_linePrimary",
+			"lineSecondary": "_4_Wqcq_lineSecondary",
+			"panel": "_4_Wqcq_panel",
+			"ranking": "_4_Wqcq_ranking",
+			"rankingAmount": "_4_Wqcq_rankingAmount",
+			"rankingDot": "_4_Wqcq_rankingDot",
+			"rankingIndex": "_4_Wqcq_rankingIndex",
+			"rankingMore": "_4_Wqcq_rankingMore",
+			"rankingName": "_4_Wqcq_rankingName",
+			"rankingRow": "_4_Wqcq_rankingRow",
+			"rankingTitle": "_4_Wqcq_rankingTitle",
+			"refreshButton": "_4_Wqcq_refreshButton",
+			"root": "_4_Wqcq_root",
+			"spendRow": "_4_Wqcq_spendRow",
+			"spin": "_4_Wqcq_spin",
+			"spinning": "_4_Wqcq_spinning",
+			"todayHit": "_4_Wqcq_todayHit",
+			"trigger": "_4_Wqcq_trigger",
+			"triggerLines": "_4_Wqcq_triggerLines",
+			"unavailable": "_4_Wqcq_unavailable"
 		};
 		/**
 		* Today's two bucket detail lines, rendered under the 今日 Token / 今日花费 row:
@@ -6064,10 +6065,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 										"aria-hidden": true,
 										children: " · "
 									}),
-									(0, react_jsx_runtime.jsx)("span", {
+									(0, react_jsx_runtime.jsxs)("span", {
 										className: BalanceBadge_module_css_default.rankingName,
 										title: row.title ?? void 0,
-										children: row.title ?? t("stat.untitled")
+										children: [row.title ?? t("stat.untitled"), row.cli === true ? t("mark.cli") : ""]
 									}),
 									(0, react_jsx_runtime.jsx)("span", {
 										className: BalanceBadge_module_css_default.rankingAmount,
@@ -6786,7 +6787,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}
 		//#endregion
 		//#region \0dsh-css:SpendCard.module.css.mjs
-		const css$1 = ".yWqTaa_root{font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));display:contents}.yWqTaa_anchor{min-width:0;display:inline-flex}.yWqTaa_pill{box-sizing:border-box;max-width:100%;color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;white-space:nowrap;cursor:pointer;background:0 0;border:none;border-radius:24px;align-items:center;gap:6px;padding:1px 8px;display:inline-flex}.yWqTaa_pill:hover,.yWqTaa_pill[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}.yWqTaa_pill svg{flex:none;width:14px;height:14px}.yWqTaa_label{text-overflow:ellipsis;min-width:0;overflow:hidden}@media (width<=480px){.yWqTaa_label{display:none}}.yWqTaa_panel{z-index:1100;box-sizing:border-box;background:var(--dsw-specific-menu);width:max-content;min-width:min(300px,100vw - 24px);max-width:min(440px,100vw - 24px);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-secondary);cursor:default;border:0;border-radius:12px;padding:16px;font-size:12px;line-height:18px;position:fixed}.yWqTaa_title{color:var(--dsw-alias-label-primary);justify-content:space-between;gap:16px;margin-bottom:8px;font-weight:500;display:flex}.yWqTaa_titleLabel{align-items:center;gap:6px;min-width:0;display:inline-flex}.yWqTaa_titleLabel svg{flex:none;width:14px;height:14px}.yWqTaa_titleValue{font-variant-numeric:tabular-nums}.yWqTaa_titleRule{border-top:.5px solid var(--dsw-alias-border-l2);margin-bottom:10px}.yWqTaa_details{color:var(--dsw-alias-label-tertiary);grid-template-columns:minmax(76px,auto) minmax(0,1fr);gap:6px 16px;margin:0;display:grid}.yWqTaa_details dt,.yWqTaa_details dd{min-width:0;margin:0}.yWqTaa_details dd{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;text-align:right}";
+		const css$1 = "._5y0B1q_root{font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));display:contents}._5y0B1q_anchor{min-width:0;display:inline-flex}._5y0B1q_pill{box-sizing:border-box;max-width:100%;color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;white-space:nowrap;cursor:pointer;background:0 0;border:none;border-radius:24px;align-items:center;gap:6px;padding:1px 8px;display:inline-flex}._5y0B1q_pill:hover,._5y0B1q_pill[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}._5y0B1q_pill svg{flex:none;width:14px;height:14px}._5y0B1q_label{text-overflow:ellipsis;min-width:0;overflow:hidden}._5y0B1q_sep{color:var(--dsw-alias-separator-primary);margin:0 6px}@media (width<=480px){._5y0B1q_label{display:none}}._5y0B1q_panel{z-index:1100;box-sizing:border-box;background:var(--dsw-specific-menu);width:max-content;min-width:min(300px,100vw - 24px);max-width:min(440px,100vw - 24px);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-secondary);cursor:default;border:0;border-radius:12px;padding:16px;font-size:12px;line-height:18px;position:fixed}._5y0B1q_title{color:var(--dsw-alias-label-primary);justify-content:space-between;gap:16px;margin-bottom:8px;font-weight:500;display:flex}._5y0B1q_titleLabel{align-items:center;gap:6px;min-width:0;display:inline-flex}._5y0B1q_titleLabel svg{flex:none;width:14px;height:14px}._5y0B1q_titleValue{font-variant-numeric:tabular-nums}._5y0B1q_titleRule{border-top:.5px solid var(--dsw-alias-border-l2);margin-bottom:10px}._5y0B1q_details{color:var(--dsw-alias-label-tertiary);grid-template-columns:minmax(76px,auto) minmax(0,1fr);gap:6px 16px;margin:0;display:grid}._5y0B1q_details dt,._5y0B1q_details dd{min-width:0;margin:0}._5y0B1q_details dd{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;text-align:right}";
 		const tagId$1 = "@rayadesu/dsh-client-ui-billing/SpendCard.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$1) + "]") === null) {
 			const tag = document.createElement("style");
@@ -6796,16 +6797,17 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			document.head.appendChild(tag);
 		}
 		var SpendCard_module_css_default = {
-			"anchor": "yWqTaa_anchor",
-			"details": "yWqTaa_details",
-			"label": "yWqTaa_label",
-			"panel": "yWqTaa_panel",
-			"pill": "yWqTaa_pill",
-			"root": "yWqTaa_root",
-			"title": "yWqTaa_title",
-			"titleLabel": "yWqTaa_titleLabel",
-			"titleRule": "yWqTaa_titleRule",
-			"titleValue": "yWqTaa_titleValue"
+			"anchor": "_5y0B1q_anchor",
+			"details": "_5y0B1q_details",
+			"label": "_5y0B1q_label",
+			"panel": "_5y0B1q_panel",
+			"pill": "_5y0B1q_pill",
+			"root": "_5y0B1q_root",
+			"sep": "_5y0B1q_sep",
+			"title": "_5y0B1q_title",
+			"titleLabel": "_5y0B1q_titleLabel",
+			"titleRule": "_5y0B1q_titleRule",
+			"titleValue": "_5y0B1q_titleValue"
 		};
 		//#endregion
 		//#region lib/types/client/SpendCard.js
@@ -6818,14 +6820,28 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* spend's three billing buckets where that card shows its token buckets:
 		* uncached input, cache read, output.
 		*
+		* The pill's main amount is the MAIN session's spend — the same caliber the
+		* official composer pill counts tokens in — with the subagent sessions this
+		* conversation delegated broken out after it as a ` · ` rider (the official
+		* pill's own cache-hit rider format) and as the card's fourth row. Nothing
+		* merges the two halves into one figure any more: the total the card heads
+		* with is the sum of its four rows, and a pill with no subagent spend renders
+		* exactly as it did before the rider existed.
+		*
 		* The amounts ride the host-pushed `billingTodaySpend` projection, so the pill
 		* is live with zero Remote calls; `billing/getSessionSpend` is the fallback for
 		* an assembly whose projection registry is absent (the same ladder the header
-		* badge walks in `useBillingData`), and `billing/getDelegatedSpend` adds the
-		* subagent sessions this conversation delegated — the same own+delegated merge
-		* that badge's second line makes, so the pill and the badge never disagree.
+		* badge walks in `useBillingData`), and `billing/getDelegatedSpend` reads the
+		* subagent subtotal the rider and the fourth row report.
 		* @module @rayadesu/dsh-client-ui-billing/SpendCard
 		*/
+		/**
+		* The middot that separates the pill's two segments. It renders inside a
+		* `sep`-classed span (see the JSX and `SpendCard.module.css`) so it carries
+		* ui-chat's official separator colour and 6px inset rather than sitting tight
+		* against the amounts as a bare text run would.
+		*/
+		const DOT_SEPARATOR = "·";
 		/** One row of the card's detail grid (a dt/dd pair of the same dl). */
 		function Row({ label, value }) {
 			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)("dt", { children: label }), (0, react_jsx_runtime.jsx)("dd", { children: value })] });
@@ -6835,10 +6851,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		*
 		* The pill is an inline flex item of DSH's composer stat row, so it sits beside
 		* the built-in time/token pills (see SpendCard.module.css); its glyph, tone,
-		* typography, and hover fill are copied from those pills. The amount is this
-		* conversation's billed spend — this session's own spend plus the subagent
-		* sessions it delegated — and a session that priced nothing anywhere renders no
-		* entry at all.
+		* typography, and hover fill are copied from those pills. The main amount is
+		* this session's own billed spend, with the subagent sessions it delegated
+		* riding after it as a ` · 子会话 ￥…` segment — and a session that priced
+		* nothing itself and delegated nothing priced renders no entry at all.
 		* @param props - the session identity, the runtime hooks, the Remote face, and the locale seat.
 		* @returns the pill plus its portaled card, or null when there is nothing to show.
 		*/
@@ -6900,10 +6916,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				running
 			]);
 			const own = projected === void 0 ? fallback : projected.session;
-			const spend = own === null ? null : delegated === null ? own : sumSpends(own, delegated);
-			const buckets = (0, react.useMemo)(() => spend === null ? null : spendBucketsOf(spend), [spend]);
-			if (buckets === null || spend === null || spend.models.length === 0) return null;
-			const totalText = formatSpendSignificant(buckets.total);
+			const delegatedTotal = delegated?.total ?? 0;
+			const ownPriced = own !== null && own.models.length > 0;
+			const buckets = (0, react.useMemo)(() => own === null ? null : spendBucketsOf(own), [own]);
+			if (buckets === null || own === null || !ownPriced && delegatedTotal <= 0) return null;
+			const ownText = ownPriced ? formatSpendSignificant(buckets.total) : void 0;
+			const subAmount = delegatedTotal > 0 ? formatSpendSignificant(delegatedTotal) : void 0;
+			const delegatedText = subAmount === void 0 ? void 0 : t("label.subagent", { amount: subAmount });
+			const aria = [ownText, delegatedText].filter((value) => value !== void 0).join(` ${DOT_SEPARATOR} `);
+			const heading = formatSpendSignificant(buckets.total + delegatedTotal);
 			return (0, react_jsx_runtime.jsx)("div", {
 				className: SpendCard_module_css_default.root,
 				"data-spend-card": true,
@@ -6915,13 +6936,17 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						className: SpendCard_module_css_default.pill,
 						"aria-haspopup": "dialog",
 						"aria-expanded": open,
-						"aria-label": t("card.aria", { amount: totalText }),
+						"aria-label": t("card.aria", { amount: aria }),
 						onClick: () => {
 							setOpen(!open);
 						},
-						children: [(0, react_jsx_runtime.jsx)(BillingMarkIcon, { size: 14 }), (0, react_jsx_runtime.jsx)("span", {
+						children: [(0, react_jsx_runtime.jsx)(BillingMarkIcon, { size: 14 }), (0, react_jsx_runtime.jsxs)("span", {
 							className: SpendCard_module_css_default.label,
-							children: totalText
+							children: [ownText, delegatedText !== void 0 && (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)("span", {
+								className: SpendCard_module_css_default.sep,
+								"aria-hidden": true,
+								children: DOT_SEPARATOR
+							}), delegatedText] })]
 						})]
 					}), open && (0, react_dom.createPortal)((0, react_jsx_runtime.jsxs)("div", {
 						ref: panelRef,
@@ -6937,7 +6962,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 									children: [(0, react_jsx_runtime.jsx)(BillingMarkIcon, { size: 14 }), t("card.title")]
 								}), (0, react_jsx_runtime.jsx)("span", {
 									className: SpendCard_module_css_default.titleValue,
-									children: totalText
+									children: heading
 								})]
 							}),
 							(0, react_jsx_runtime.jsx)("div", {
@@ -6948,6 +6973,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 								className: SpendCard_module_css_default.details,
 								"data-spend-buckets": true,
 								children: [
+									subAmount !== void 0 && (0, react_jsx_runtime.jsx)(Row, {
+										label: t("label.bucket.subagent"),
+										value: subAmount
+									}),
 									(0, react_jsx_runtime.jsx)(Row, {
 										label: t("label.bucket.input"),
 										value: formatSpendSignificant(buckets.uncachedInput)
@@ -6969,7 +6998,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}
 		//#endregion
 		//#region \0dsh-css:TurnCostAction.module.css.mjs
-		const css = "._8yL56a_cost{font-size:var(--dsh-content-font-size-secondary,13px);line-height:calc(24px + var(--dsh-content-font-delta,0px));color:var(--dsw-alias-label-tertiary);white-space:nowrap;order:1;margin-left:8px}";
+		const css = ".l2XZIa_cost{font-size:var(--dsh-content-font-size-secondary,13px);line-height:calc(24px + var(--dsh-content-font-delta,0px));color:var(--dsw-alias-label-tertiary);white-space:nowrap;order:1;margin-left:8px}";
 		const tagId = "@rayadesu/dsh-client-ui-billing/TurnCostAction.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -6978,7 +7007,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			tag.textContent = css;
 			document.head.appendChild(tag);
 		}
-		var TurnCostAction_module_css_default = { "cost": "_8yL56a_cost" };
+		var TurnCostAction_module_css_default = { "cost": "l2XZIa_cost" };
 		//#endregion
 		//#region lib/types/client/TurnCostAction.js
 		/** Per-turn billed-cost label in the closing assistant message's actions row. */
@@ -7097,6 +7126,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"label.bucket.input": "未缓存输入",
 			"label.bucket.cacheRead": "缓存读取",
 			"label.bucket.output": "输出",
+			"label.subagent": "子会话 {amount}",
+			"label.bucket.subagent": "子会话",
+			"mark.cli": "（CLI）",
 			"stat.none": "暂无消耗记录",
 			"stat.unpricedOnly": "有消耗，但未匹配到费率",
 			"notice.unpriced": "未计价用量：{models}（无匹配费率）",
@@ -7106,7 +7138,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"notice.none": "该 API key 当前没有可用余额",
 			"action.refresh": "刷新",
 			"info.aria": "花费说明",
-			"info.hint": "估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nAPI 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。\n会话花费含其委派的子代理会话。\nv{version}",
+			"info.hint": "估算：仅 DeepSeek 与 MiMo 模型，按每条消息自身时刻的峰谷官方单价计价（高峰：工作日 9:00–12:00、14:00–18:00）。\nAPI 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。\n会话花费为主会话自身；子代理会话在后单列，今日排行合并计入。\nv{version}",
 			"badge.aria": "DeepSeek 额度：{amount}",
 			"panel.aria": "DeepSeek 额度详情",
 			"label.sessionRanking": "今日会话花费",
@@ -7129,6 +7161,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"label.bucket.input": "Uncached input",
 			"label.bucket.cacheRead": "Cached input",
 			"label.bucket.output": "Output",
+			"label.subagent": "Subagents {amount}",
+			"label.bucket.subagent": "Subagents",
+			"mark.cli": " (CLI)",
 			"stat.none": "No usage recorded",
 			"stat.unpricedOnly": "Recorded, but no rate matched",
 			"notice.unpriced": "Unpriced usage: {models} (no rate matched)",
@@ -7138,7 +7173,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"notice.none": "No spendable balance on this API key",
 			"action.refresh": "Refresh",
 			"info.aria": "About this spend",
-			"info.hint": "Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).\nThe figure after the API balance is today's consumption: the day's first queried balance minus the current one, plus today's top-ups (identified in ¥10 steps).\nA conversation's spend includes the subagent sessions it delegated.\nv{version}",
+			"info.hint": "Estimate: DeepSeek and MiMo models only, each message priced at the official peak/off-peak rate of its own time (peak: weekdays 09:00–12:00, 14:00–18:00).\nThe figure after the API balance is today's consumption: the day's first queried balance minus the current one, plus today's top-ups (identified in ¥10 steps).\nA conversation's amount is its own spend; its subagents are listed after it, while the today ranking merges them in.\nv{version}",
 			"badge.aria": "DeepSeek balance {amount}",
 			"panel.aria": "DeepSeek balance details",
 			"label.sessionRanking": "Today session spend",

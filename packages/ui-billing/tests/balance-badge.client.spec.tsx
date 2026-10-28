@@ -569,20 +569,20 @@ describe('BalanceBadge', () => {
   it('names the amount rider and the delegated subagents in the hint', () => {
     // The hint explains what the figure after the API balance measures (today's
     // consumption from the balance series itself, with the caliber that produces
-    // it) and what a conversation's amount covers (its own spend plus the
-    // subagent sessions it delegated — the ranking rows and the composer pill
-    // both merge them). Each is its own line, in panel order, and the version
+    // it) and what a conversation's amount covers (its own spend; the subagent
+    // sessions it delegated are listed after it as a rider, while the ranking
+    // rows merge them). Each is its own line, in panel order, and the version
     // stays the last one.
     const lines = zh['info.hint'].split('\n')
     expect(lines).toHaveLength(4)
     expect(lines[0]).toContain('估算')
     expect(lines[1]).toBe('API 剩余金额后的数字为今日消费：今日首次查询余额 − 当前余额 + 今日充值（充值按 10 元步进识别）。')
-    expect(lines[2]).toBe('会话花费含其委派的子代理会话。')
+    expect(lines[2]).toBe('会话花费为主会话自身；子代理会话在后单列，今日排行合并计入。')
     expect(lines[3]).toBe('v{version}')
     const enLines = en['info.hint'].split('\n')
     expect(enLines).toHaveLength(4)
     expect(enLines[1]).toBe('The figure after the API balance is today\'s consumption: the day\'s first queried balance minus the current one, plus today\'s top-ups (identified in ¥10 steps).')
-    expect(enLines[2]).toBe('A conversation\'s spend includes the subagent sessions it delegated.')
+    expect(enLines[2]).toBe('A conversation\'s amount is its own spend; its subagents are listed after it, while the today ranking merges them in.')
   })
 
   it('renders the unavailable word when the fetch rejects', async () => {
@@ -984,6 +984,27 @@ describe('BalanceBadge', () => {
     expect(names[1]?.textContent).toBe('未命名')
     expect(screen.getByText('¥0.31')).toBeDefined()
     expect(screen.getByText('¥0.12')).toBeDefined()
+  })
+
+  it('marks a CLI-spawned ranking row with the parenthetical marker, and leaves GUI rows alone', async () => {
+    // A CLI one-shot run never lands in the session list, so its ranking row
+    // carries the marker — otherwise an entry the user cannot locate anywhere
+    // reads as a bug. GUI rows (and rows from a host too old to report the
+    // flag) render exactly as before.
+    const getTodaySessionsSpend = async () => ({
+      sessions: [
+        { sessionId: 'session-cli' as SessionId, title: '统计 ERROR 行', total: 0.5, ownTotal: 0.5, cli: true },
+        { sessionId: 'session-gui' as SessionId, title: 'GUI 会话', total: 0.2, ownTotal: 0.2, cli: false },
+        { sessionId: 'session-old' as SessionId, title: '旧宿主', total: 0.1, ownTotal: 0.1 },
+      ],
+    })
+    render(<BalanceBadge
+      {...props(async () => balance(), async () => SPEND, async () => TODAY_SPEND, () => false, getTodaySessionsSpend)}
+    />)
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek 额度：¥110.00' }))
+    expect(await screen.findByText(/统计 ERROR 行（CLI）/)).toBeDefined()
+    expect(screen.getByText('GUI 会话').textContent).toBe('GUI 会话')
+    expect(screen.getByText('旧宿主').textContent).toBe('旧宿主')
   })
 
   it('caps the ranking at the limit and shows the overflow hint', async () => {

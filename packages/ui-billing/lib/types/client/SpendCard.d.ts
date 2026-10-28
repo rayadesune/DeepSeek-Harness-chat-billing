@@ -7,12 +7,19 @@
  * spend's three billing buckets where that card shows its token buckets:
  * uncached input, cache read, output.
  *
+ * The pill's main amount is the MAIN session's spend — the same caliber the
+ * official composer pill counts tokens in — with the subagent sessions this
+ * conversation delegated broken out after it as a ` · ` rider (the official
+ * pill's own cache-hit rider format) and as the card's fourth row. Nothing
+ * merges the two halves into one figure any more: the total the card heads
+ * with is the sum of its four rows, and a pill with no subagent spend renders
+ * exactly as it did before the rider existed.
+ *
  * The amounts ride the host-pushed `billingTodaySpend` projection, so the pill
  * is live with zero Remote calls; `billing/getSessionSpend` is the fallback for
  * an assembly whose projection registry is absent (the same ladder the header
- * badge walks in `useBillingData`), and `billing/getDelegatedSpend` adds the
- * subagent sessions this conversation delegated — the same own+delegated merge
- * that badge's second line makes, so the pill and the badge never disagree.
+ * badge walks in `useBillingData`), and `billing/getDelegatedSpend` reads the
+ * subagent subtotal the rider and the fourth row report.
  * @module @rayadesu/dsh-client-ui-billing/SpendCard
  */
 import type { DeepSeekDelegatedSpend, DeepSeekSessionSpend } from '@rayadesu/dsh-llm-billing/types';
@@ -25,9 +32,10 @@ export interface SpendCardInjected {
     getSessionSpend: (sessionId: SessionId) => Promise<DeepSeekSessionSpend>;
     /**
      * Read the subagent part of one conversation's billed spend: every subagent
-     * session it delegated, transitively, across every day. The same face the
-     * header badge reads, so both surfaces count the conversation the same way.
-     * `force` bypasses the host-side cache — the turn-settled read passes it.
+     * session it delegated, transitively, across every day. The pill's ` ·`
+     * rider and the card's fourth row report it, next to — never merged into —
+     * the main session amount. `force` bypasses the host-side cache — the
+     * turn-settled read passes it.
      */
     getDelegatedSpend: (sessionId: SessionId, force?: boolean) => Promise<DeepSeekDelegatedSpend>;
 }
@@ -43,10 +51,10 @@ export type SpendCardProps = PropsRuntime<'conversation.composer.dock'> & Inject
  *
  * The pill is an inline flex item of DSH's composer stat row, so it sits beside
  * the built-in time/token pills (see SpendCard.module.css); its glyph, tone,
- * typography, and hover fill are copied from those pills. The amount is this
- * conversation's billed spend — this session's own spend plus the subagent
- * sessions it delegated — and a session that priced nothing anywhere renders no
- * entry at all.
+ * typography, and hover fill are copied from those pills. The main amount is
+ * this session's own billed spend, with the subagent sessions it delegated
+ * riding after it as a ` · 子会话 ￥…` segment — and a session that priced
+ * nothing itself and delegated nothing priced renders no entry at all.
  * @param props - the session identity, the runtime hooks, the Remote face, and the locale seat.
  * @returns the pill plus its portaled card, or null when there is nothing to show.
  */

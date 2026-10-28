@@ -151,12 +151,14 @@ export async function apply(ctx: ClientContext): Promise<void> {
   // is not always the row's last item; the dock itself only renders on a
   // resident composer with a session, so the hero page has no pill at all.)
   //
-  // The amount is the CONVERSATION's: the host already prices every session
-  // into the client-visible `billingTodaySpend` projection, and the card sums
-  // that value's three billing buckets plus the subagent subtotal it reads
-  // through `getDelegatedSpend` — the pill is the ONLY surface that shows the
-  // conversation's own amount (the header badge's second line and its panel are
-  // account-level: they report today's figures). `getSessionSpend` stays
+  // The amount is the MAIN session's, in the official pill's own caliber: the
+  // host already prices every session into the client-visible
+  // `billingTodaySpend` projection, and the card sums that value's three
+  // billing buckets, with the subagent subtotal the `getDelegatedSpend` read
+  // returns broken out as a ` · ` rider after the amount and as the card's
+  // fourth row. The pill is the ONLY surface that shows the conversation's own
+  // amount (the header badge's second line and its panel are account-level:
+  // they report today's figures). `getSessionSpend` stays
   // injected as the fallback an assembly without the projection registry reads:
   // the same face, and the same ladder, the badge walks.
   ctx.slots.inject(

@@ -3,9 +3,10 @@
  * The composer spend card: the three-bucket sum that feeds it, the pill it
  * renders in the composer's stat row, and the card it opens. The card is
  * asserted against the same row wording DSH's own token-usage dialog uses,
- * because the two cards are meant to read as one family. The amount itself is
- * asserted as the CONVERSATION's — this session's own spend plus the delegated
- * subagent subtotal, merged exactly as the header badge merges them.
+ * because the two cards are meant to read as one family. The pill's MAIN
+ * amount is asserted as the MAIN SESSION's — the official pill's own caliber —
+ * with the delegated subagent subtotal broken out after it as a ` · ` rider
+ * and as the card's fourth row, never merged into the main figure.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -144,10 +145,10 @@ describe('SpendCard', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('adds the delegated subagent subtotal to the pill and the card', async () => {
-    // The conversation amount is this session's own spend PLUS the sessions it
-    // delegated — the same merge the header badge's second line makes, so the
-    // pill and the badge cannot disagree.
+  it('lists the delegated subagent subtotal after the main amount, not inside it', async () => {
+    // The pill's main figure stays the MAIN session's (the official pill's
+    // caliber); the subagent spend is a ` · `-separated rider beside it — the
+    // same second-segment shape the official pill uses for its cache-hit share.
     const delegated = spend([row({
       model: 'mimo-v2.5',
       displayName: 'MiMo-V2.5',
@@ -157,31 +158,47 @@ describe('SpendCard', () => {
       outputCost: 0.02,
     })])
     render(<SpendCard {...props(projection(spend([row()])), undefined, { getDelegatedSpend: async () => delegated })} />)
-    const pill = await screen.findByRole('button', { name: '本轮对话花费：¥0.39' })
+    const pill = await screen.findByRole('button', { name: '本轮对话花费：¥0.04 · 子会话 ¥0.35' })
+    // The separator renders in its own span (ui-chat's official `sep`), so the
+    // middot carries the separator colour and its 6px inset on each side.
+    expect(pill.querySelector('span[aria-hidden="true"]')?.textContent).toBe('·')
+    // The VISIBLE pill names `子会话` exactly once. `delegatedText` already
+    // carries that prefix (the pill and its aria-label share one string), so a
+    // second `t()` wrap in the JSX would double the word while leaving the
+    // aria-label — and therefore the old assertions — green. The middot has NO
+    // literal spaces around it: the breathing room comes from the `sep` span's
+    // CSS inset (`margin: 0 6px`), exactly as the official pill does it.
+    expect(pill.textContent).toBe('¥0.04·子会话 ¥0.35')
+    expect(pill.textContent!.match(/子会话/g)).toHaveLength(1)
     fireEvent.click(pill)
     const dialog = screen.getByRole('dialog', { name: '花费金额' })
+    // The heading is the sum of the four rows below it.
     expect(dialog.textContent).toContain('¥0.39')
-    // The bucket rows are the merged ones: own (0.02 / 0.01 / 0.01) plus
-    // delegated (0.30 / 0.03 / 0.02), so they still add up to the heading.
+    // The subagent subtotal LEADS the card, then this session's own three
+    // buckets — so a reader sees the delegation cost first, and the four rows
+    // still sum to the heading.
+    const labels = [...dialog.querySelectorAll('dt')].map(node => node.textContent)
+    expect(labels).toEqual(['子会话', '未缓存输入', '缓存读取', '输出'])
     const values = [...dialog.querySelectorAll('dd')].map(node => node.textContent)
-    expect(values).toEqual(['¥0.32', '¥0.04', '¥0.03'])
+    expect(values).toEqual(['¥0.35', '¥0.02', '¥0.01', '¥0.01'])
   })
 
-  it('shows the session\'s own amount until the delegated subtotal lands, then updates it', async () => {
+  it('shows the session\'s own amount until the delegated subtotal lands, then appends the rider', async () => {
     let settle: ((value: DeepSeekDelegatedSpend) => void) | undefined
     const pending = new Promise<DeepSeekDelegatedSpend>((resolve) => { settle = resolve })
     render(<SpendCard {...props(projection(spend([row()])), undefined, { getDelegatedSpend: () => pending })} />)
     // An unsettled subtotal reads as absent, not as zero: the own amount shows.
     expect(screen.getByRole('button', { name: '本轮对话花费：¥0.04' })).toBeDefined()
     await act(async () => { settle!(spend([row({ cost: 0.35, cacheMissInputCost: 0.3, cacheHitInputCost: 0.03, outputCost: 0.02 })])) })
-    expect(await screen.findByRole('button', { name: '本轮对话花费：¥0.39' })).toBeDefined()
+    expect(await screen.findByRole('button', { name: '本轮对话花费：¥0.04 · 子会话 ¥0.35' })).toBeDefined()
   })
 
-  it('shows the row when the session priced nothing itself but delegated a priced subagent', async () => {
-    // The hidden rule runs on the MERGED amount: testing the session's own rows
-    // would hide a conversation whose money was all burned by its subagents.
+  it('shows the rider alone when the session priced nothing itself but delegated a priced subagent', async () => {
+    // The visible rule runs on EITHER half: a conversation whose money was all
+    // burned by its subagents still gets a pill — its main segment simply has
+    // nothing to name, so the rider carries the entry.
     render(<SpendCard {...props(projection(spend([])), undefined, { getDelegatedSpend: async () => spend([row()]) })} />)
-    expect(await screen.findByRole('button', { name: '本轮对话花费：¥0.04' })).toBeDefined()
+    expect(await screen.findByRole('button', { name: '本轮对话花费：子会话 ¥0.04' })).toBeDefined()
   })
 
   it('renders nothing when the session\'s own spend is unknown, even with a delegated subtotal', async () => {
